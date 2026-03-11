@@ -113,6 +113,10 @@ export class Canvas2DRenderer implements IRenderer {
   private selection: SelectionRange | null = null;
   private highlights: HighlightRange[] = [];
 
+  // Track previous cursor position to redraw the old cell when cursor moves
+  private prevCursorRow = -1;
+  private prevCursorCol = -1;
+
   private rafId: number | null = null;
   private disposed = false;
 
@@ -145,6 +149,20 @@ export class Canvas2DRenderer implements IRenderer {
     const { ctx, grid, cellWidth, cellHeight, baselineOffset } = this;
     const cols = grid.cols;
     const rows = grid.rows;
+
+    // If the cursor moved rows, mark the old row dirty so the cursor ghost is erased
+    const curRow = this.cursor.row;
+    const curCol = this.cursor.col;
+    if (this.prevCursorRow >= 0 && this.prevCursorRow < rows &&
+        (this.prevCursorRow !== curRow || this.prevCursorCol !== curCol)) {
+      grid.markDirty(this.prevCursorRow);
+    }
+    // Also mark the current cursor row dirty so the cursor is drawn fresh
+    if (curRow >= 0 && curRow < rows) {
+      grid.markDirty(curRow);
+    }
+    this.prevCursorRow = curRow;
+    this.prevCursorCol = curCol;
 
     for (let row = 0; row < rows; row++) {
       if (!grid.isDirty(row)) continue;

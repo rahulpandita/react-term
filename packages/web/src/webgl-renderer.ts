@@ -459,6 +459,10 @@ export class WebGLRenderer implements IRenderer {
   private selection: SelectionRange | null = null;
   private highlights: HighlightRange[] = [];
 
+  // Track previous cursor position to force redraw when cursor moves
+  private prevCursorRow = -1;
+  private prevCursorCol = -1;
+
   private rafId: number | null = null;
   private disposed = false;
   private contextLost = false;
@@ -562,6 +566,19 @@ export class WebGLRenderer implements IRenderer {
     const cols = grid.cols;
     const rows = grid.rows;
 
+    // If cursor moved, mark old and new rows dirty to erase ghost and draw fresh
+    const curRow = this.cursor.row;
+    const curCol = this.cursor.col;
+    if (this.prevCursorRow >= 0 && this.prevCursorRow < rows &&
+        (this.prevCursorRow !== curRow || this.prevCursorCol !== curCol)) {
+      grid.markDirty(this.prevCursorRow);
+    }
+    if (curRow >= 0 && curRow < rows) {
+      grid.markDirty(curRow);
+    }
+    this.prevCursorRow = curRow;
+    this.prevCursorCol = curCol;
+
     // Check if any rows are dirty
     let anyDirty = false;
     for (let r = 0; r < rows; r++) {
@@ -571,7 +588,6 @@ export class WebGLRenderer implements IRenderer {
       }
     }
     if (!anyDirty) {
-      // Still need to redraw cursor since it may blink
       return;
     }
 

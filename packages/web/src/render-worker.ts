@@ -218,6 +218,8 @@ let cellHeight = 0;
 let cursorRow = 0;
 let cursorCol = 0;
 let cursorVisible = true;
+let prevCursorRow = -1;
+let prevCursorCol = -1;
 let cursorStyle = 'block';
 let selection: { startRow: number; startCol: number; endRow: number; endCol: number } | null = null;
 
@@ -475,6 +477,17 @@ function render(): void {
   cursorCol = cursor.col;
   cursorVisible = cursor.visible;
   cursorStyle = cursor.style;
+
+  // If cursor moved, mark old and new rows dirty to erase ghost and draw fresh
+  if (prevCursorRow >= 0 && prevCursorRow < rows &&
+      (prevCursorRow !== cursorRow || prevCursorCol !== cursorCol)) {
+    grid.markDirty(prevCursorRow);
+  }
+  if (cursorRow >= 0 && cursorRow < rows) {
+    grid.markDirty(cursorRow);
+  }
+  prevCursorRow = cursorRow;
+  prevCursorCol = cursorCol;
 
   // Check dirty rows
   let anyDirty = false;
