@@ -843,15 +843,18 @@ export class InputHandler {
       return;
     }
 
-    // Determine swipe direction on first significant movement
+    // Determine swipe direction on first significant movement.
+    // Bias toward vertical (scroll) — require dx > 1.5 * dy for horizontal lock.
+    // This prevents near-diagonal swipes from accidentally sending arrow keys.
     if (this.swipeDirection === 'none' && (dx > TAP_THRESHOLD || dy > TAP_THRESHOLD)) {
-      this.swipeDirection = dx > dy ? 'horizontal' : 'vertical';
+      this.swipeDirection = dx > 1.5 * dy ? 'horizontal' : 'vertical';
     }
 
     if (this.swipeDirection === 'horizontal') {
       // Horizontal swipe → send arrow keys for command-line navigation
       const deltaX = touch.clientX - this.touchLastX;
       this.touchLastX = touch.clientX;
+      this.touchLastY = touch.clientY;
       const totalPixels = deltaX + this.hSwipeRemainder;
       const steps = Math.trunc(totalPixels / this.cellWidth);
       this.hSwipeRemainder = totalPixels - steps * this.cellWidth;
@@ -862,9 +865,10 @@ export class InputHandler {
           this.onData(toBytes(key));
         }
       }
-    } else {
+    } else if (this.swipeDirection === 'vertical') {
       // Vertical swipe → scroll terminal (scrollback buffer)
       const deltaY = touch.clientY - this.touchLastY;
+      this.touchLastX = touch.clientX;
       this.touchLastY = touch.clientY;
       this.gestureHandler?.handlePan(
         touch.clientX - this.touchStartX,
@@ -872,6 +876,10 @@ export class InputHandler {
         0,
         GestureState.ACTIVE,
       );
+    } else {
+      // Direction not yet determined — just track position, don't act
+      this.touchLastX = touch.clientX;
+      this.touchLastY = touch.clientY;
     }
   }
 
