@@ -36,12 +36,13 @@ function App() {
 
 ## Packages
 
-| Package | Description | Size |
-|---------|------------|------|
-| `@react-term/core` | Cell grid, VT parser, buffer management | ~2.5K LOC |
-| `@react-term/web` | Canvas 2D, WebGL2, workers, addons | ~8.5K LOC |
-| `@react-term/react` | React component, multi-pane layout | ~400 LOC |
-| `@react-term/native` | React Native component, gesture/keyboard handling | ~1K LOC |
+| Package | Description | Source | Tests | Total |
+|---------|------------|-------:|------:|------:|
+| `@react-term/core` | Cell grid, VT parser, buffer management | 2.1K | 4.9K | 7.1K |
+| `@react-term/web` | Canvas 2D, WebGL2, workers, addons | 6.7K | 2.4K | 9.1K |
+| `@react-term/react` | React component, multi-pane layout | 445 | — | 445 |
+| `@react-term/native` | React Native, gesture/keyboard, Skia | 979 | 872 | 1.9K |
+| **Total** | | **10.2K** | **8.2K** | **18.5K** |
 
 ## Architecture
 
@@ -122,6 +123,10 @@ pnpm start         # Start demo with PTY server
 - **Int32Array for dirty bits** — Atomics requires >=32-bit typed arrays (learned from xterm.js gotchas)
 - **Single WebGL context for multi-pane** — gl.scissor() + gl.viewport() per pane (Chrome caps at 16 contexts)
 - **Watermark flow control** — HIGH=500KB/LOW=100KB prevents unbounded memory growth
+
+## License
+
+[MIT](LICENSE)
 
 ## References
 
