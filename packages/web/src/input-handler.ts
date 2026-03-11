@@ -4,11 +4,12 @@
  * Makes the container element itself focusable (tabindex="0") and captures
  * keyboard events directly — no hidden textarea needed.
  *
- * Touch gestures: tap to focus, pan to scroll, long-press to select,
- * pinch to zoom font size.
+ * Touch gestures are delegated to the shared GestureHandler from
+ * @react-term/core, providing the same behavior on web and native:
+ * tap to focus, pan to scroll, long-press to select, pinch to zoom.
  */
 
-import { extractText } from '@react-term/core';
+import { extractText, GestureHandler, GestureState } from '@react-term/core';
 import type { CellGrid, MouseProtocol, MouseEncoding } from '@react-term/core';
 
 // ---------------------------------------------------------------------------
@@ -55,9 +56,6 @@ const LONG_PRESS_DELAY = 500;
 /** Maximum pixel movement allowed during a tap. */
 const TAP_THRESHOLD = 10;
 
-/** Minimum scale change to trigger a pinch zoom step. */
-const PINCH_THRESHOLD = 0.05;
-
 /** Font size limits for pinch-to-zoom. */
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
@@ -97,14 +95,15 @@ export class InputHandler {
   private selecting = false;
   private selection: SelectionState | null = null;
 
-  // Touch state
-  private touchScrollRemainder = 0;
+  // Shared gesture handler (from @react-term/core)
+  private gestureHandler: GestureHandler | null = null;
+
+  // Touch DOM state (bridges DOM TouchEvents to GestureHandler)
   private touchStartX = 0;
   private touchStartY = 0;
+  private touchLastX = 0;
   private touchLastY = 0;
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;
-  private touchSelectionActive = false;
-  private touchSelectionAnchor: { row: number; col: number } | null = null;
   private pinchStartDistance = 0;
   private pinchStartFontSize = 0;
   private isPinching = false;
@@ -151,6 +150,61 @@ export class InputHandler {
       touchAction: 'none',
     });
 
+    // Initialize shared gesture handler
+    this.gestureHandler = new GestureHandler(cellWidth, cellHeight, {
+      onScroll: (deltaRows) => {
+        if (this.onScroll) {
+          this.onScroll(deltaRows);
+        } else {
+          // Fallback: send arrow key sequences
+          const key = deltaRows > 0 ? '\x1b[B' : '\x1b[A';
+          const count = Math.abs(deltaRows);
+          for (let i = 0; i < count; i++) {
+            this.onData(toBytes(key));
+          }
+        }
+      },
+      onTap: (_row, _col) => {
+        // Tap clears selection; focus is handled by touchstart
+        if (this.selection) {
+          this.clearSelection();
+        }
+      },
+      onDoubleTap: (_row, _col) => {
+        // TODO: word selection
+      },
+      onLongPress: (_row, _col) => {
+        // Selection is started by GestureHandler via onSelectionChange
+      },
+      onPinch: (scale) => {
+        const newSize = Math.round(
+          Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, this.pinchStartFontSize * scale))
+        );
+        if (newSize !== this.currentFontSize) {
+          this.currentFontSize = newSize;
+          this.onFontSizeChange?.(newSize);
+        }
+      },
+      onSelectionChange: (sel) => {
+        this.selection = sel;
+        this.onSelectionChange?.(sel);
+
+        // Copy to clipboard when selection ends (non-null, non-point)
+        if (sel && this.grid) {
+          if (sel.startRow !== sel.endRow || sel.startCol !== sel.endCol) {
+            const text = extractText(
+              this.grid,
+              sel.startRow, sel.startCol,
+              sel.endRow, sel.endCol,
+            );
+            if (text && typeof navigator !== 'undefined' && navigator.clipboard) {
+              navigator.clipboard.writeText(text).catch(() => {/* ignore */});
+            }
+          }
+        }
+      },
+    });
+
     // Keyboard — listen directly on the container
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundPaste = this.handlePaste.bind(this);
@@ -167,7 +221,7 @@ export class InputHandler {
     document.addEventListener('mousemove', this.boundMouseMove);
     document.addEventListener('mouseup', this.boundMouseUp);
 
-    // Touch
+    // Touch — bridges DOM TouchEvents to the shared GestureHandler
     this.boundTouchStart = this.handleTouchStart.bind(this);
     this.boundTouchMove = this.handleTouchMove.bind(this);
     this.boundTouchEnd = this.handleTouchEnd.bind(this);
@@ -215,6 +269,7 @@ export class InputHandler {
   updateCellSize(cellWidth: number, cellHeight: number): void {
     this.cellWidth = cellWidth;
     this.cellHeight = cellHeight;
+    this.gestureHandler?.updateCellSize(cellWidth, cellHeight);
   }
 
   setFontSize(fontSize: number): void {
@@ -231,8 +286,7 @@ export class InputHandler {
 
   clearSelection(): void {
     this.selection = null;
-    this.touchSelectionActive = false;
-    this.touchSelectionAnchor = null;
+    this.gestureHandler?.clearSelection();
     this.onSelectionChange?.(null);
   }
 
@@ -276,6 +330,7 @@ export class InputHandler {
       document.removeEventListener('mouseup', this.boundMouseUp);
     }
     this.container = null;
+    this.gestureHandler = null;
     this.boundKeyDown = null;
     this.boundPaste = null;
     this.boundMouseDown = null;
@@ -447,28 +502,16 @@ export class InputHandler {
     return { col: Math.max(0, col), row: Math.max(0, row) };
   }
 
-  private getTouchCellPos(x: number, y: number): { col: number; row: number } | null {
-    if (!this.container || this.cellWidth <= 0 || this.cellHeight <= 0) return null;
-    const rect = this.container.getBoundingClientRect();
-    const lx = x - rect.left;
-    const ly = y - rect.top;
-    const col = Math.floor(lx / this.cellWidth);
-    const row = Math.floor(ly / this.cellHeight);
-    return { col: Math.max(0, col), row: Math.max(0, row) };
-  }
-
   /**
    * Encode a mouse event as a VT sequence.
    * button: 0=left, 1=middle, 2=right, 3=release, 64=scrollUp, 65=scrollDown
    */
   private encodeMouseEvent(button: number, col: number, row: number): string {
     if (this.mouseEncoding === 'sgr') {
-      // SGR encoding: ESC [ < button ; col+1 ; row+1 M/m
       const final = button === 3 ? 'm' : 'M';
       const btn = button === 3 ? 0 : button;
       return `\x1b[<${btn};${col + 1};${row + 1}${final}`;
     }
-    // Default (X10) encoding: ESC [ M Cb Cx Cy (values + 32)
     const cb = String.fromCharCode(button + 32);
     const cx = String.fromCharCode(col + 1 + 32);
     const cy = String.fromCharCode(row + 1 + 32);
@@ -476,11 +519,10 @@ export class InputHandler {
   }
 
   private handleMouseDown(e: MouseEvent): void {
-    if (e.button !== 0) return; // left click only
+    if (e.button !== 0) return;
     const pos = this.getMouseCellPos(e);
     if (!pos) return;
 
-    // If mouse reporting is active, send mouse event instead of selecting
     if (this.mouseProtocol !== 'none') {
       e.preventDefault();
       this.onData(toBytes(this.encodeMouseEvent(0, pos.col, pos.row)));
@@ -495,15 +537,12 @@ export class InputHandler {
       endRow: pos.row,
       endCol: pos.col,
     };
-
-    // Focus the container
     this.focus();
   }
 
   private handleMouseMove(e: MouseEvent): void {
     const pos = this.getMouseCellPos(e);
 
-    // Drag reporting (mode 1002) or any-event reporting (mode 1003)
     if (pos && this.mouseProtocol === 'any') {
       this.onData(toBytes(this.encodeMouseEvent(32 + 0, pos.col, pos.row)));
       return;
@@ -522,7 +561,6 @@ export class InputHandler {
   }
 
   private handleMouseUp(_e: MouseEvent): void {
-    // Send mouse release if reporting
     if (this.mouseProtocol !== 'none' && this.mouseProtocol !== 'x10') {
       const pos = this.getMouseCellPos(_e);
       if (pos) {
@@ -534,7 +572,6 @@ export class InputHandler {
     if (!this.selecting) return;
     this.selecting = false;
 
-    // If start === end, clear selection (it was just a click)
     if (
       this.selection &&
       this.selection.startRow === this.selection.endRow &&
@@ -545,7 +582,6 @@ export class InputHandler {
       return;
     }
 
-    // Copy selected text to clipboard
     if (this.selection && this.grid) {
       const text = extractText(
         this.grid,
@@ -569,7 +605,11 @@ export class InputHandler {
   }
 
   // -----------------------------------------------------------------------
-  // Touch gesture handling
+  // Touch → GestureHandler bridge
+  //
+  // DOM TouchEvents are translated into the platform-agnostic GestureHandler
+  // API (handlePan, handleTap, handleLongPress, handlePinch, extendSelection).
+  // This gives the web the same gesture behavior as React Native.
   // -----------------------------------------------------------------------
 
   private cancelLongPress(): void {
@@ -585,8 +625,14 @@ export class InputHandler {
     return Math.sqrt(dx * dx + dy * dy);
   }
 
+  /** Convert a touch point to local pixel coordinates relative to container. */
+  private touchToLocal(touch: Touch): { x: number; y: number } | null {
+    if (!this.container) return null;
+    const rect = this.container.getBoundingClientRect();
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+  }
+
   private handleTouchStart(e: TouchEvent): void {
-    // Always focus the container on touch
     this.focus();
 
     if (e.touches.length === 2) {
@@ -605,54 +651,41 @@ export class InputHandler {
     const touch = e.touches[0];
     this.touchStartX = touch.clientX;
     this.touchStartY = touch.clientY;
+    this.touchLastX = touch.clientX;
     this.touchLastY = touch.clientY;
-    this.touchScrollRemainder = 0;
     this.isPinching = false;
 
-    // If mouse reporting is active, send touch as mouse press
+    // Mouse reporting: translate touch to mouse press
     if (this.mouseProtocol !== 'none') {
-      const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
-      if (pos) {
+      const local = this.touchToLocal(touch);
+      if (local && this.gestureHandler) {
+        const pos = this.gestureHandler.pixelToCell(local.x, local.y);
         this.onData(toBytes(this.encodeMouseEvent(0, pos.col, pos.row)));
       }
       return;
     }
 
-    // Start long-press timer for text selection
+    // Start long-press timer → delegates to GestureHandler.handleLongPress
     this.cancelLongPress();
     this.longPressTimer = setTimeout(() => {
       this.longPressTimer = null;
-      const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
-      if (!pos) return;
-
-      this.touchSelectionActive = true;
-      this.touchSelectionAnchor = { row: pos.row, col: pos.col };
-      this.selection = {
-        startRow: pos.row,
-        startCol: pos.col,
-        endRow: pos.row,
-        endCol: pos.col,
-      };
-      this.onSelectionChange?.(this.selection);
+      const local = this.touchToLocal(touch);
+      if (local && this.gestureHandler) {
+        this.gestureHandler.handleLongPress(local.x, local.y);
+      }
     }, LONG_PRESS_DELAY);
+
+    // Signal pan began
+    this.gestureHandler?.handlePan(0, 0, 0, GestureState.BEGAN);
   }
 
   private handleTouchMove(e: TouchEvent): void {
     if (this.isPinching && e.touches.length === 2) {
-      // Pinch zoom
+      // Pinch zoom — delegate to GestureHandler
       e.preventDefault();
       const currentDistance = this.getPinchDistance(e.touches[0], e.touches[1]);
       const scale = currentDistance / this.pinchStartDistance;
-
-      if (Math.abs(scale - 1) > PINCH_THRESHOLD) {
-        const newSize = Math.round(
-          Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, this.pinchStartFontSize * scale))
-        );
-        if (newSize !== this.currentFontSize) {
-          this.currentFontSize = newSize;
-          this.onFontSizeChange?.(newSize);
-        }
-      }
+      this.gestureHandler?.handlePinch(scale, GestureState.ACTIVE);
       return;
     }
 
@@ -663,70 +696,53 @@ export class InputHandler {
     const dx = Math.abs(touch.clientX - this.touchStartX);
     const dy = Math.abs(touch.clientY - this.touchStartY);
 
-    // If user moved beyond tap threshold, cancel long press
+    // Cancel long press if moved beyond threshold
     if (dx > TAP_THRESHOLD || dy > TAP_THRESHOLD) {
       this.cancelLongPress();
     }
 
-    // Mouse reporting: send drag events
+    // Mouse reporting: translate touch drag
     if (this.mouseProtocol !== 'none') {
       if (this.mouseProtocol === 'drag' || this.mouseProtocol === 'any') {
-        const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
-        if (pos) {
+        const local = this.touchToLocal(touch);
+        if (local && this.gestureHandler) {
+          const pos = this.gestureHandler.pixelToCell(local.x, local.y);
           this.onData(toBytes(this.encodeMouseEvent(32 + 0, pos.col, pos.row)));
         }
       }
       return;
     }
 
-    // Selection drag
-    if (this.touchSelectionActive && this.touchSelectionAnchor) {
-      const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
-      if (pos) {
-        this.selection = {
-          startRow: this.touchSelectionAnchor.row,
-          startCol: this.touchSelectionAnchor.col,
-          endRow: pos.row,
-          endCol: pos.col,
-        };
-        this.onSelectionChange?.(this.selection);
+    // Selection drag — delegate to GestureHandler
+    if (this.gestureHandler?.isSelectionActive) {
+      const local = this.touchToLocal(touch);
+      if (local) {
+        this.gestureHandler.extendSelection(local.x, local.y);
       }
       return;
     }
 
-    // Scroll: convert pixel delta to row delta
-    if (this.cellHeight <= 0) return;
-    const deltaY = this.touchLastY - touch.clientY; // positive = scroll down (finger up)
+    // Pan/scroll — compute incremental delta and delegate
+    const deltaY = touch.clientY - this.touchLastY;
     this.touchLastY = touch.clientY;
-
-    const totalPixels = deltaY + this.touchScrollRemainder;
-    const deltaRows = Math.trunc(totalPixels / this.cellHeight);
-    this.touchScrollRemainder = totalPixels - deltaRows * this.cellHeight;
-
-    if (deltaRows !== 0) {
-      if (this.onScroll) {
-        this.onScroll(deltaRows);
-      } else {
-        // Fallback: send arrow key sequences for scrolling
-        const key = deltaRows > 0 ? '\x1b[B' : '\x1b[A';
-        const count = Math.abs(deltaRows);
-        for (let i = 0; i < count; i++) {
-          this.onData(toBytes(key));
-        }
-      }
-    }
+    this.gestureHandler?.handlePan(
+      touch.clientX - this.touchStartX,
+      deltaY,
+      0,
+      GestureState.ACTIVE,
+    );
   }
 
   private handleTouchEnd(e: TouchEvent): void {
-    // If a pinch ended but one finger remains, reset to single-touch mode
+    // Pinch ended but one finger remains
     if (this.isPinching) {
       this.isPinching = false;
+      this.gestureHandler?.handlePinch(1, GestureState.END);
       if (e.touches.length === 1) {
         const touch = e.touches[0];
         this.touchStartX = touch.clientX;
         this.touchStartY = touch.clientY;
         this.touchLastY = touch.clientY;
-        this.touchScrollRemainder = 0;
       }
       return;
     }
@@ -737,57 +753,37 @@ export class InputHandler {
     if (this.mouseProtocol !== 'none' && this.mouseProtocol !== 'x10') {
       if (e.changedTouches.length > 0) {
         const touch = e.changedTouches[0];
-        const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
-        if (pos) {
+        const local = this.touchToLocal(touch);
+        if (local && this.gestureHandler) {
+          const pos = this.gestureHandler.pixelToCell(local.x, local.y);
           this.onData(toBytes(this.encodeMouseEvent(3, pos.col, pos.row)));
         }
       }
       return;
     }
 
-    // Finish selection — copy to clipboard
-    if (this.touchSelectionActive && this.selection && this.grid) {
-      // Check if it's a real selection (not just a point)
-      if (
-        this.selection.startRow !== this.selection.endRow ||
-        this.selection.startCol !== this.selection.endCol
-      ) {
-        const text = extractText(
-          this.grid,
-          this.selection.startRow, this.selection.startCol,
-          this.selection.endRow, this.selection.endCol,
-        );
-        if (text && typeof navigator !== 'undefined' && navigator.clipboard) {
-          navigator.clipboard.writeText(text).catch(() => {/* ignore */});
-        }
-      }
-      this.touchSelectionActive = false;
-      this.touchSelectionAnchor = null;
-      return;
-    }
-
-    // Detect tap (small movement, quick)
+    // End pan gesture (with velocity for fling)
     if (e.changedTouches.length > 0) {
       const touch = e.changedTouches[0];
       const dx = Math.abs(touch.clientX - this.touchStartX);
       const dy = Math.abs(touch.clientY - this.touchStartY);
 
       if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
-        // Tap: clear any existing selection
-        if (this.selection) {
-          this.clearSelection();
+        // It was a tap — delegate to GestureHandler
+        const local = this.touchToLocal(touch);
+        if (local) {
+          this.gestureHandler?.handleTap(local.x, local.y);
         }
+      } else {
+        // End of pan
+        this.gestureHandler?.handlePan(0, 0, 0, GestureState.END);
       }
     }
-
-    this.touchScrollRemainder = 0;
   }
 
   private handleTouchCancel(_e: TouchEvent): void {
     this.cancelLongPress();
     this.isPinching = false;
-    this.touchSelectionActive = false;
-    this.touchSelectionAnchor = null;
-    this.touchScrollRemainder = 0;
+    this.gestureHandler?.handlePan(0, 0, 0, GestureState.CANCELLED);
   }
 }

@@ -6,3 +6,5 @@ export type { MouseProtocol, MouseEncoding } from './parser/index.js';
 export { State, Action, TABLE, unpackAction, unpackState } from './parser/states.js';
 export type { CursorState, TerminalOptions, Theme, SelectionState } from './types.js';
 export { DirtyState, DEFAULT_THEME } from './types.js';
+export { GestureHandler, GestureState } from './gesture-handler.js';
+export type { GestureConfig } from './gesture-handler.js';
