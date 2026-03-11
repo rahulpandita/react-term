@@ -134,7 +134,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     }
   }, [fontSize, fontFamily]);
 
-  // AutoFit: observe container size via ResizeObserver, debounced with rAF
+  // AutoFit: observe container size via ResizeObserver, debounced with rAF.
+  // Also listen to visualViewport resize for iOS keyboard show/hide.
   useEffect(() => {
     if (!autoFit) return;
 
@@ -143,24 +144,54 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     let rafId: number | null = null;
 
-    const observer = new ResizeObserver(() => {
+    const doFit = () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         rafId = null;
         const terminal = termRef.current;
         if (!terminal || !container) return;
+
+        // On iOS, when the virtual keyboard is open, visualViewport.height
+        // is the visible area above the keyboard. Use it to constrain the
+        // container height so the terminal fits the visible viewport.
+        // Only update when values actually change to avoid ResizeObserver loop.
+        const vv = window.visualViewport;
+        if (vv) {
+          const newHeight = `${vv.height}px`;
+          const newMargin = `${vv.offsetTop}px`;
+          if (container.style.height !== newHeight) container.style.height = newHeight;
+          if (container.style.marginTop !== newMargin) container.style.marginTop = newMargin;
+        }
+
         const { width, height } = terminal.getCellSize();
         if (width <= 0 || height <= 0) return;
         const { cols: fitCols, rows: fitRows } = calculateFit(container, width, height);
         terminal.resize(fitCols, fitRows);
       });
-    });
+    };
 
+    const observer = new ResizeObserver(doFit);
     observer.observe(container);
+
+    // Listen for visualViewport resize (keyboard show/hide on iOS/Android)
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', doFit);
+      vv.addEventListener('scroll', doFit);
+    }
 
     return () => {
       observer.disconnect();
+      if (vv) {
+        vv.removeEventListener('resize', doFit);
+        vv.removeEventListener('scroll', doFit);
+      }
       if (rafId !== null) cancelAnimationFrame(rafId);
+      // Reset container styles
+      if (container) {
+        container.style.height = '';
+        container.style.marginTop = '';
+      }
     };
   }, [autoFit]);
 

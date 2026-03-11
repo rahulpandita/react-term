@@ -439,7 +439,7 @@ function App() {
   }, []);
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', background: theme.background }}>
+    <div style={{ width: '100vw', height: '100dvh', position: 'relative', background: theme.background, overflow: 'hidden' }}>
       <HUD
         isDark={isDark}
         onToggleTheme={toggleTheme}
