@@ -19,7 +19,7 @@ export class Buffer {
     public readonly rows: number,
   ) {
     this.grid = new CellGrid(cols, rows);
-    this.cursor = { row: 0, col: 0, visible: true, style: 'block' };
+    this.cursor = { row: 0, col: 0, visible: true, style: 'block', wrapPending: false };
     this.scrollTop = 0;
     this.scrollBottom = rows - 1;
     this.tabStops = new Set<number>();
@@ -106,7 +106,7 @@ export class BufferSet {
     if (this.active === this.alternate) return;
     this.active = this.alternate;
     this.alternate.grid.clear();
-    this.alternate.cursor = { row: 0, col: 0, visible: true, style: 'block' };
+    this.alternate.cursor = { row: 0, col: 0, visible: true, style: 'block', wrapPending: false };
     this.alternate.scrollTop = 0;
     this.alternate.scrollBottom = this.rows - 1;
   }

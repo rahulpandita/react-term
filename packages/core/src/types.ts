@@ -9,6 +9,8 @@ export interface CursorState {
   col: number;
   visible: boolean;
   style: 'block' | 'underline' | 'bar';
+  /** True when a char was printed at the last column; wrap deferred until next print. */
+  wrapPending: boolean;
 }
 
 export interface TerminalOptions {

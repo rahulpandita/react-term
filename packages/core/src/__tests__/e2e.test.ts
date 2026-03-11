@@ -248,7 +248,7 @@ describe('E2E Full Pipeline Tests', () => {
 
       // Parser should be in consistent state
       expect(parser.cursor.row).toBeLessThanOrEqual(23);
-      expect(parser.cursor.col).toBeLessThanOrEqual(80);
+      expect(parser.cursor.col).toBeLessThan(80);
       // No crash occurred - test passes
     });
 

@@ -163,8 +163,9 @@ describe('VTParser Edge Cases', () => {
     it('writing exactly cols characters wraps to next line', () => {
       const line = 'A'.repeat(80);
       write(parser, line);
-      // After writing 80 chars, cursor.col is 80 (pending wrap)
-      expect(parser.cursor.col).toBe(80);
+      // After writing 80 chars, cursor stays at col 79 with wrapPending
+      expect(parser.cursor.col).toBe(79);
+      expect(parser.cursor.wrapPending).toBe(true);
       // Write one more char to trigger wrap
       write(parser, 'B');
       expect(parser.cursor.row).toBe(1);
@@ -177,9 +178,10 @@ describe('VTParser Edge Cases', () => {
       write(parser, line);
       expect(parser.cursor.col).toBe(79);
       write(parser, 'B');
-      // 'B' written at col 79, cursor advances to 80 (pending wrap)
+      // 'B' written at col 79, cursor stays at 79 with wrapPending
       expect(parser.cursor.row).toBe(0);
-      expect(parser.cursor.col).toBe(80);
+      expect(parser.cursor.col).toBe(79);
+      expect(parser.cursor.wrapPending).toBe(true);
       const grid = bs.active.grid;
       expect(grid.getCodepoint(0, 79)).toBe(0x42); // 'B'
     });
@@ -238,7 +240,7 @@ describe('VTParser Edge Cases', () => {
       // 10000/80 = 125 rows, which exceeds 24 rows, so scrolling happened
       // Just verify the parser is in a consistent state
       expect(parser.cursor.row).toBeLessThanOrEqual(23);
-      expect(parser.cursor.col).toBeLessThanOrEqual(80);
+      expect(parser.cursor.col).toBeLessThan(80);
     });
 
     it('writes 1 byte at a time for a complex escape sequence', () => {
@@ -261,7 +263,7 @@ describe('VTParser Edge Cases', () => {
       write(parser, data);
       // Should not crash, cursor should be in valid range
       expect(parser.cursor.row).toBeLessThanOrEqual(23);
-      expect(parser.cursor.col).toBeLessThanOrEqual(80);
+      expect(parser.cursor.col).toBeLessThan(80);
     });
   });
 

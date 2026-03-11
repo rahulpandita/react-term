@@ -198,9 +198,10 @@ export class VTParser {
   private printCodepoint(cp: number): void {
     const cursor = this.buf.cursor;
 
-    if (this.autoWrapMode) {
-      // Wrap if at end of line
-      if (cursor.col >= this.cols) {
+    // Resolve pending wrap from a previous print at the last column
+    if (cursor.wrapPending) {
+      cursor.wrapPending = false;
+      if (this.autoWrapMode) {
         cursor.col = 0;
         cursor.row++;
         if (cursor.row > this.buf.scrollBottom) {
@@ -208,11 +209,12 @@ export class VTParser {
           this.bufferSet.scrollUpWithHistory();
         }
       }
-    } else {
-      // When auto-wrap is off, cursor stays at right margin and overwrites last char
-      if (cursor.col >= this.cols) {
-        cursor.col = this.cols - 1;
-      }
+      // If autoWrap is off, cursor stays at cols-1 and will overwrite
+    }
+
+    // Safety clamp (should not be needed in normal operation)
+    if (cursor.col >= this.cols) {
+      cursor.col = this.cols - 1;
     }
 
     this.grid.setCell(
@@ -235,11 +237,18 @@ export class VTParser {
     }
 
     this.lastPrintedCodepoint = cp;
-    cursor.col++;
+
+    // Advance cursor; if at last column, defer wrap
+    if (cursor.col >= this.cols - 1) {
+      cursor.wrapPending = true;
+    } else {
+      cursor.col++;
+    }
   }
 
   private execute(byte: number): void {
     const cursor = this.buf.cursor;
+    cursor.wrapPending = false;
     switch (byte) {
       case 0x07: // BEL
         break;
@@ -371,6 +380,7 @@ export class VTParser {
         this.cursorUp(params[0] || 1);
         break;
       case 'G': // CHA - Cursor Horizontal Absolute
+        this.buf.cursor.wrapPending = false;
         this.buf.cursor.col = Math.min((params[0] || 1) - 1, this.cols - 1);
         break;
       case 'H': // CUP - Cursor Position
@@ -378,23 +388,29 @@ export class VTParser {
         this.cursorPosition(params[0] || 1, params[1] || 1);
         break;
       case 'I': // CHT - Cursor Forward Tab
+        this.buf.cursor.wrapPending = false;
         for (let t = 0; t < (params[0] || 1); t++) {
           this.buf.cursor.col = this.buf.nextTabStop(this.buf.cursor.col);
         }
         break;
       case 'J': // ED - Erase in Display
+        this.buf.cursor.wrapPending = false;
         this.eraseInDisplay(params[0] || 0);
         break;
       case 'K': // EL - Erase in Line
+        this.buf.cursor.wrapPending = false;
         this.eraseInLine(params[0] || 0);
         break;
       case 'L': // IL - Insert Lines
+        this.buf.cursor.wrapPending = false;
         this.insertLines(params[0] || 1);
         break;
       case 'M': // DL - Delete Lines
+        this.buf.cursor.wrapPending = false;
         this.deleteLines(params[0] || 1);
         break;
       case 'P': // DCH - Delete Characters
+        this.buf.cursor.wrapPending = false;
         this.deleteChars(params[0] || 1);
         break;
       case 'S': // SU - Scroll Up
@@ -408,11 +424,13 @@ export class VTParser {
         }
         break;
       case 'Z': // CBT - Cursor Backward Tab
+        this.buf.cursor.wrapPending = false;
         for (let t = 0; t < (params[0] || 1); t++) {
           this.buf.cursor.col = this.buf.prevTabStop(this.buf.cursor.col);
         }
         break;
       case '`': // HPA - Horizontal Position Absolute
+        this.buf.cursor.wrapPending = false;
         this.buf.cursor.col = Math.min((params[0] || 1) - 1, this.cols - 1);
         break;
       case 'a': // HPR - Horizontal Position Relative
@@ -432,6 +450,7 @@ export class VTParser {
         }
         break;
       case 'd': // VPA - Line Position Absolute
+        this.buf.cursor.wrapPending = false;
         this.buf.cursor.row = Math.min(
           Math.max((params[0] || 1) - 1, 0),
           this.rows - 1,
@@ -467,9 +486,11 @@ export class VTParser {
         this.buf.restoreCursor();
         break;
       case '@': // ICH - Insert Characters
+        this.buf.cursor.wrapPending = false;
         this.insertChars(params[0] || 1);
         break;
       case 'X': // ECH - Erase Characters
+        this.buf.cursor.wrapPending = false;
         this.eraseChars(params[0] || 1);
         break;
       case 'g': // TBC - Tab Clear
@@ -630,13 +651,16 @@ export class VTParser {
         this.applicationKeypad = false;
         break;
       case 'D': // IND - Index (move cursor down, scroll if at bottom)
+        this.buf.cursor.wrapPending = false;
         this.linefeed();
         break;
       case 'E': // NEL - Next Line
+        this.buf.cursor.wrapPending = false;
         this.buf.cursor.col = 0;
         this.linefeed();
         break;
       case 'M': // RI - Reverse Index (move cursor up, scroll if at top)
+        this.buf.cursor.wrapPending = false;
         if (this.buf.cursor.row === this.buf.scrollTop) {
           this.buf.scrollDown();
         } else if (this.buf.cursor.row > 0) {
@@ -674,22 +698,27 @@ export class VTParser {
   // ---- Cursor movement ----
 
   private cursorUp(n: number): void {
+    this.buf.cursor.wrapPending = false;
     this.buf.cursor.row = Math.max(this.buf.cursor.row - n, this.buf.scrollTop);
   }
 
   private cursorDown(n: number): void {
+    this.buf.cursor.wrapPending = false;
     this.buf.cursor.row = Math.min(this.buf.cursor.row + n, this.buf.scrollBottom);
   }
 
   private cursorForward(n: number): void {
+    this.buf.cursor.wrapPending = false;
     this.buf.cursor.col = Math.min(this.buf.cursor.col + n, this.cols - 1);
   }
 
   private cursorBackward(n: number): void {
+    this.buf.cursor.wrapPending = false;
     this.buf.cursor.col = Math.max(this.buf.cursor.col - n, 0);
   }
 
   private cursorPosition(row: number, col: number): void {
+    this.buf.cursor.wrapPending = false;
     if (this.originMode) {
       // In origin mode, coordinates are relative to scroll region
       this.buf.cursor.row = Math.min(
@@ -889,6 +918,7 @@ export class VTParser {
         this.buf.cursor.row = 0;
       }
       this.buf.cursor.col = 0;
+      this.buf.cursor.wrapPending = false;
     }
   }
 
@@ -1060,6 +1090,7 @@ export class VTParser {
     this.sendFocusEvents = false;
     this.buf.cursor.visible = true;
     this.buf.cursor.style = 'block';
+    this.buf.cursor.wrapPending = false;
     this.buf.scrollTop = 0;
     this.buf.scrollBottom = this.rows - 1;
     // Note: cursor position is NOT reset by soft reset
@@ -1091,6 +1122,7 @@ export class VTParser {
     this.buf.cursor.col = 0;
     this.buf.cursor.visible = true;
     this.buf.cursor.style = 'block';
+    this.buf.cursor.wrapPending = false;
     this.buf.scrollTop = 0;
     this.buf.scrollBottom = this.rows - 1;
     this.grid.clear();
