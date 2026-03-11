@@ -111,6 +111,12 @@ export class InputHandler {
   private pinchStartFontSize = 0;
   private isPinching = false;
 
+  // Swipe direction lock: once a swipe direction is determined, it stays locked
+  // for the gesture duration ('none' | 'horizontal' | 'vertical')
+  private swipeDirection: 'none' | 'horizontal' | 'vertical' = 'none';
+  // Horizontal swipe: accumulated pixel remainder for left/right arrow keys
+  private hSwipeRemainder = 0;
+
   // Whether an IME composition is in progress (CJK, etc.)
   private composing = false;
 
@@ -197,14 +203,9 @@ export class InputHandler {
       onScroll: (deltaRows) => {
         if (this.onScroll) {
           this.onScroll(deltaRows);
-        } else {
-          // Fallback: send arrow key sequences
-          const key = deltaRows > 0 ? '\x1b[B' : '\x1b[A';
-          const count = Math.abs(deltaRows);
-          for (let i = 0; i < count; i++) {
-            this.onData(toBytes(key));
-          }
         }
+        // No fallback — vertical swipe is for scrollback only.
+        // Horizontal swipe sends arrow keys (handled in handleTouchMove).
       },
       onTap: (_row, _col) => {
         // Tap clears selection; focus is handled by touchstart
@@ -772,6 +773,8 @@ export class InputHandler {
     this.touchLastX = touch.clientX;
     this.touchLastY = touch.clientY;
     this.isPinching = false;
+    this.swipeDirection = 'none';
+    this.hSwipeRemainder = 0;
 
     // Mouse reporting: translate touch to mouse press
     if (this.mouseProtocol !== 'none') {
@@ -840,15 +843,36 @@ export class InputHandler {
       return;
     }
 
-    // Pan/scroll — compute incremental delta and delegate
-    const deltaY = touch.clientY - this.touchLastY;
-    this.touchLastY = touch.clientY;
-    this.gestureHandler?.handlePan(
-      touch.clientX - this.touchStartX,
-      deltaY,
-      0,
-      GestureState.ACTIVE,
-    );
+    // Determine swipe direction on first significant movement
+    if (this.swipeDirection === 'none' && (dx > TAP_THRESHOLD || dy > TAP_THRESHOLD)) {
+      this.swipeDirection = dx > dy ? 'horizontal' : 'vertical';
+    }
+
+    if (this.swipeDirection === 'horizontal') {
+      // Horizontal swipe → send arrow keys for command-line navigation
+      const deltaX = touch.clientX - this.touchLastX;
+      this.touchLastX = touch.clientX;
+      const totalPixels = deltaX + this.hSwipeRemainder;
+      const steps = Math.trunc(totalPixels / this.cellWidth);
+      this.hSwipeRemainder = totalPixels - steps * this.cellWidth;
+      if (steps !== 0) {
+        const key = steps > 0 ? '\x1b[C' : '\x1b[D'; // right : left
+        const count = Math.abs(steps);
+        for (let i = 0; i < count; i++) {
+          this.onData(toBytes(key));
+        }
+      }
+    } else {
+      // Vertical swipe → scroll terminal (scrollback buffer)
+      const deltaY = touch.clientY - this.touchLastY;
+      this.touchLastY = touch.clientY;
+      this.gestureHandler?.handlePan(
+        touch.clientX - this.touchStartX,
+        deltaY,
+        0,
+        GestureState.ACTIVE,
+      );
+    }
   }
 
   private handleTouchEnd(e: TouchEvent): void {
