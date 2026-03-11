@@ -236,8 +236,24 @@ export class WebTerminal {
           this.renderer.setSelection(sel);
         }
       },
+      onScroll: (deltaRows) => {
+        // Scroll through scrollback history
+        // Positive deltaRows = scroll toward newer content (down)
+        // Negative deltaRows = scroll toward older content (up)
+        // For now, send arrow keys; a proper viewport offset will come later
+        const key = deltaRows > 0 ? '\x1b[B' : '\x1b[A';
+        const count = Math.abs(deltaRows);
+        const enc = new TextEncoder();
+        for (let i = 0; i < count; i++) {
+          this.onDataCallback?.(enc.encode(key));
+        }
+      },
+      onFontSizeChange: (newFontSize) => {
+        this.setFont(newFontSize, fontFamily);
+      },
     });
     this.inputHandler.setGrid(this.bufferSet.active.grid);
+    this.inputHandler.setFontSize(fontSize);
 
     const { width, height } = this.renderer.getCellSize();
     this.inputHandler.attach(container, width, height);
@@ -565,6 +581,7 @@ export class WebTerminal {
     }
     const { width, height } = this.renderer.getCellSize();
     this.inputHandler.updateCellSize(width, height);
+    this.inputHandler.setFontSize(fontSize);
   }
 
   getCellSize(): { width: number; height: number } {

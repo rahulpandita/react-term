@@ -1,8 +1,11 @@
 /**
- * Keyboard and mouse input handling for the web terminal.
+ * Keyboard, mouse, and touch input handling for the web terminal.
  *
  * Makes the container element itself focusable (tabindex="0") and captures
  * keyboard events directly — no hidden textarea needed.
+ *
+ * Touch gestures: tap to focus, pan to scroll, long-press to select,
+ * pinch to zoom font size.
  */
 
 import { extractText } from '@react-term/core';
@@ -17,6 +20,10 @@ export interface InputHandlerOptions {
   onData: (data: Uint8Array) => void;
   /** Called when the selection state changes. */
   onSelectionChange?: (selection: SelectionState | null) => void;
+  /** Called when the user scrolls (deltaRows: positive = scroll down / toward newer). */
+  onScroll?: (deltaRows: number) => void;
+  /** Called when pinch-to-zoom changes font size. Receives the new fontSize. */
+  onFontSizeChange?: (fontSize: number) => void;
   /** Whether the terminal is in application cursor-key mode (\x1bOA vs \x1b[A). */
   applicationCursorKeys?: boolean;
 }
@@ -39,6 +46,23 @@ function toBytes(s: string): Uint8Array {
 }
 
 // ---------------------------------------------------------------------------
+// Touch constants
+// ---------------------------------------------------------------------------
+
+/** Milliseconds to wait before recognizing a long press. */
+const LONG_PRESS_DELAY = 500;
+
+/** Maximum pixel movement allowed during a tap. */
+const TAP_THRESHOLD = 10;
+
+/** Minimum scale change to trigger a pinch zoom step. */
+const PINCH_THRESHOLD = 0.05;
+
+/** Font size limits for pinch-to-zoom. */
+const MIN_FONT_SIZE = 8;
+const MAX_FONT_SIZE = 32;
+
+// ---------------------------------------------------------------------------
 // InputHandler
 // ---------------------------------------------------------------------------
 
@@ -46,6 +70,8 @@ export class InputHandler {
   private container: HTMLElement | null = null;
   private onData: (data: Uint8Array) => void;
   private onSelectionChange: ((sel: SelectionState | null) => void) | null;
+  private onScroll: ((deltaRows: number) => void) | null;
+  private onFontSizeChange: ((fontSize: number) => void) | null;
   private applicationCursorKeys: boolean;
 
   // Bracketed paste mode — wraps pasted text in ESC[200~ ... ESC[201~
@@ -61,12 +87,27 @@ export class InputHandler {
   private cellWidth = 0;
   private cellHeight = 0;
 
+  // Current font size for pinch-to-zoom
+  private currentFontSize = 14;
+
   // Grid reference for text extraction
   private grid: CellGrid | null = null;
 
   // Mouse / selection state
   private selecting = false;
   private selection: SelectionState | null = null;
+
+  // Touch state
+  private touchScrollRemainder = 0;
+  private touchStartX = 0;
+  private touchStartY = 0;
+  private touchLastY = 0;
+  private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  private touchSelectionActive = false;
+  private touchSelectionAnchor: { row: number; col: number } | null = null;
+  private pinchStartDistance = 0;
+  private pinchStartFontSize = 0;
+  private isPinching = false;
 
   // Bound listeners (so we can remove them)
   private boundKeyDown: ((e: KeyboardEvent) => void) | null = null;
@@ -77,10 +118,16 @@ export class InputHandler {
   private boundFocus: (() => void) | null = null;
   private boundBlur: (() => void) | null = null;
   private boundWheel: ((e: WheelEvent) => void) | null = null;
+  private boundTouchStart: ((e: TouchEvent) => void) | null = null;
+  private boundTouchMove: ((e: TouchEvent) => void) | null = null;
+  private boundTouchEnd: ((e: TouchEvent) => void) | null = null;
+  private boundTouchCancel: ((e: TouchEvent) => void) | null = null;
 
   constructor(options: InputHandlerOptions) {
     this.onData = options.onData;
     this.onSelectionChange = options.onSelectionChange ?? null;
+    this.onScroll = options.onScroll ?? null;
+    this.onFontSizeChange = options.onFontSizeChange ?? null;
     this.applicationCursorKeys = options.applicationCursorKeys ?? false;
   }
 
@@ -100,6 +147,8 @@ export class InputHandler {
     Object.assign(container.style, {
       outline: 'none',     // suppress focus ring — cursor provides visual focus
       cursor: 'text',
+      // Prevent default touch behaviors (pull-to-refresh, scroll bounce)
+      touchAction: 'none',
     });
 
     // Keyboard — listen directly on the container
@@ -117,6 +166,16 @@ export class InputHandler {
     container.addEventListener('wheel', this.boundWheel, { passive: false });
     document.addEventListener('mousemove', this.boundMouseMove);
     document.addEventListener('mouseup', this.boundMouseUp);
+
+    // Touch
+    this.boundTouchStart = this.handleTouchStart.bind(this);
+    this.boundTouchMove = this.handleTouchMove.bind(this);
+    this.boundTouchEnd = this.handleTouchEnd.bind(this);
+    this.boundTouchCancel = this.handleTouchCancel.bind(this);
+    container.addEventListener('touchstart', this.boundTouchStart, { passive: false });
+    container.addEventListener('touchmove', this.boundTouchMove, { passive: false });
+    container.addEventListener('touchend', this.boundTouchEnd, { passive: false });
+    container.addEventListener('touchcancel', this.boundTouchCancel);
 
     // Focus/blur events for mode 1004
     this.boundFocus = this.handleFocus.bind(this);
@@ -158,6 +217,10 @@ export class InputHandler {
     this.cellHeight = cellHeight;
   }
 
+  setFontSize(fontSize: number): void {
+    this.currentFontSize = fontSize;
+  }
+
   setGrid(grid: CellGrid): void {
     this.grid = grid;
   }
@@ -168,10 +231,14 @@ export class InputHandler {
 
   clearSelection(): void {
     this.selection = null;
+    this.touchSelectionActive = false;
+    this.touchSelectionAnchor = null;
     this.onSelectionChange?.(null);
   }
 
   dispose(): void {
+    this.cancelLongPress();
+
     if (this.container && this.boundKeyDown) {
       this.container.removeEventListener('keydown', this.boundKeyDown);
     }
@@ -183,6 +250,18 @@ export class InputHandler {
     }
     if (this.container && this.boundWheel) {
       this.container.removeEventListener('wheel', this.boundWheel);
+    }
+    if (this.container && this.boundTouchStart) {
+      this.container.removeEventListener('touchstart', this.boundTouchStart);
+    }
+    if (this.container && this.boundTouchMove) {
+      this.container.removeEventListener('touchmove', this.boundTouchMove);
+    }
+    if (this.container && this.boundTouchEnd) {
+      this.container.removeEventListener('touchend', this.boundTouchEnd);
+    }
+    if (this.container && this.boundTouchCancel) {
+      this.container.removeEventListener('touchcancel', this.boundTouchCancel);
     }
     if (this.container && this.boundFocus) {
       this.container.removeEventListener('focus', this.boundFocus);
@@ -203,6 +282,10 @@ export class InputHandler {
     this.boundMouseMove = null;
     this.boundMouseUp = null;
     this.boundWheel = null;
+    this.boundTouchStart = null;
+    this.boundTouchMove = null;
+    this.boundTouchEnd = null;
+    this.boundTouchCancel = null;
     this.boundFocus = null;
     this.boundBlur = null;
   }
@@ -364,6 +447,16 @@ export class InputHandler {
     return { col: Math.max(0, col), row: Math.max(0, row) };
   }
 
+  private getTouchCellPos(x: number, y: number): { col: number; row: number } | null {
+    if (!this.container || this.cellWidth <= 0 || this.cellHeight <= 0) return null;
+    const rect = this.container.getBoundingClientRect();
+    const lx = x - rect.left;
+    const ly = y - rect.top;
+    const col = Math.floor(lx / this.cellWidth);
+    const row = Math.floor(ly / this.cellHeight);
+    return { col: Math.max(0, col), row: Math.max(0, row) };
+  }
+
   /**
    * Encode a mouse event as a VT sequence.
    * button: 0=left, 1=middle, 2=right, 3=release, 64=scrollUp, 65=scrollDown
@@ -412,12 +505,10 @@ export class InputHandler {
 
     // Drag reporting (mode 1002) or any-event reporting (mode 1003)
     if (pos && this.mouseProtocol === 'any') {
-      // Any-event mode: report all motion
-      this.onData(toBytes(this.encodeMouseEvent(32 + 0, pos.col, pos.row))); // 32 = motion flag
+      this.onData(toBytes(this.encodeMouseEvent(32 + 0, pos.col, pos.row)));
       return;
     }
     if (pos && this.mouseProtocol === 'drag' && e.buttons & 1) {
-      // Drag mode: report motion only when button held
       this.onData(toBytes(this.encodeMouseEvent(32 + 0, pos.col, pos.row)));
       return;
     }
@@ -472,9 +563,231 @@ export class InputHandler {
       e.preventDefault();
       const pos = this.getMouseCellPos(e);
       if (!pos) return;
-      // Scroll up = button 64, scroll down = button 65
       const button = e.deltaY < 0 ? 64 : 65;
       this.onData(toBytes(this.encodeMouseEvent(button, pos.col, pos.row)));
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Touch gesture handling
+  // -----------------------------------------------------------------------
+
+  private cancelLongPress(): void {
+    if (this.longPressTimer !== null) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+  }
+
+  private getPinchDistance(t1: Touch, t2: Touch): number {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  private handleTouchStart(e: TouchEvent): void {
+    // Always focus the container on touch
+    this.focus();
+
+    if (e.touches.length === 2) {
+      // Pinch start
+      e.preventDefault();
+      this.cancelLongPress();
+      this.isPinching = true;
+      this.pinchStartDistance = this.getPinchDistance(e.touches[0], e.touches[1]);
+      this.pinchStartFontSize = this.currentFontSize;
+      return;
+    }
+
+    if (e.touches.length !== 1) return;
+    e.preventDefault();
+
+    const touch = e.touches[0];
+    this.touchStartX = touch.clientX;
+    this.touchStartY = touch.clientY;
+    this.touchLastY = touch.clientY;
+    this.touchScrollRemainder = 0;
+    this.isPinching = false;
+
+    // If mouse reporting is active, send touch as mouse press
+    if (this.mouseProtocol !== 'none') {
+      const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
+      if (pos) {
+        this.onData(toBytes(this.encodeMouseEvent(0, pos.col, pos.row)));
+      }
+      return;
+    }
+
+    // Start long-press timer for text selection
+    this.cancelLongPress();
+    this.longPressTimer = setTimeout(() => {
+      this.longPressTimer = null;
+      const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
+      if (!pos) return;
+
+      this.touchSelectionActive = true;
+      this.touchSelectionAnchor = { row: pos.row, col: pos.col };
+      this.selection = {
+        startRow: pos.row,
+        startCol: pos.col,
+        endRow: pos.row,
+        endCol: pos.col,
+      };
+      this.onSelectionChange?.(this.selection);
+    }, LONG_PRESS_DELAY);
+  }
+
+  private handleTouchMove(e: TouchEvent): void {
+    if (this.isPinching && e.touches.length === 2) {
+      // Pinch zoom
+      e.preventDefault();
+      const currentDistance = this.getPinchDistance(e.touches[0], e.touches[1]);
+      const scale = currentDistance / this.pinchStartDistance;
+
+      if (Math.abs(scale - 1) > PINCH_THRESHOLD) {
+        const newSize = Math.round(
+          Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, this.pinchStartFontSize * scale))
+        );
+        if (newSize !== this.currentFontSize) {
+          this.currentFontSize = newSize;
+          this.onFontSizeChange?.(newSize);
+        }
+      }
+      return;
+    }
+
+    if (e.touches.length !== 1) return;
+    e.preventDefault();
+
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - this.touchStartX);
+    const dy = Math.abs(touch.clientY - this.touchStartY);
+
+    // If user moved beyond tap threshold, cancel long press
+    if (dx > TAP_THRESHOLD || dy > TAP_THRESHOLD) {
+      this.cancelLongPress();
+    }
+
+    // Mouse reporting: send drag events
+    if (this.mouseProtocol !== 'none') {
+      if (this.mouseProtocol === 'drag' || this.mouseProtocol === 'any') {
+        const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
+        if (pos) {
+          this.onData(toBytes(this.encodeMouseEvent(32 + 0, pos.col, pos.row)));
+        }
+      }
+      return;
+    }
+
+    // Selection drag
+    if (this.touchSelectionActive && this.touchSelectionAnchor) {
+      const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
+      if (pos) {
+        this.selection = {
+          startRow: this.touchSelectionAnchor.row,
+          startCol: this.touchSelectionAnchor.col,
+          endRow: pos.row,
+          endCol: pos.col,
+        };
+        this.onSelectionChange?.(this.selection);
+      }
+      return;
+    }
+
+    // Scroll: convert pixel delta to row delta
+    if (this.cellHeight <= 0) return;
+    const deltaY = this.touchLastY - touch.clientY; // positive = scroll down (finger up)
+    this.touchLastY = touch.clientY;
+
+    const totalPixels = deltaY + this.touchScrollRemainder;
+    const deltaRows = Math.trunc(totalPixels / this.cellHeight);
+    this.touchScrollRemainder = totalPixels - deltaRows * this.cellHeight;
+
+    if (deltaRows !== 0) {
+      if (this.onScroll) {
+        this.onScroll(deltaRows);
+      } else {
+        // Fallback: send arrow key sequences for scrolling
+        const key = deltaRows > 0 ? '\x1b[B' : '\x1b[A';
+        const count = Math.abs(deltaRows);
+        for (let i = 0; i < count; i++) {
+          this.onData(toBytes(key));
+        }
+      }
+    }
+  }
+
+  private handleTouchEnd(e: TouchEvent): void {
+    // If a pinch ended but one finger remains, reset to single-touch mode
+    if (this.isPinching) {
+      this.isPinching = false;
+      if (e.touches.length === 1) {
+        const touch = e.touches[0];
+        this.touchStartX = touch.clientX;
+        this.touchStartY = touch.clientY;
+        this.touchLastY = touch.clientY;
+        this.touchScrollRemainder = 0;
+      }
+      return;
+    }
+
+    this.cancelLongPress();
+
+    // Mouse reporting: send release
+    if (this.mouseProtocol !== 'none' && this.mouseProtocol !== 'x10') {
+      if (e.changedTouches.length > 0) {
+        const touch = e.changedTouches[0];
+        const pos = this.getTouchCellPos(touch.clientX, touch.clientY);
+        if (pos) {
+          this.onData(toBytes(this.encodeMouseEvent(3, pos.col, pos.row)));
+        }
+      }
+      return;
+    }
+
+    // Finish selection — copy to clipboard
+    if (this.touchSelectionActive && this.selection && this.grid) {
+      // Check if it's a real selection (not just a point)
+      if (
+        this.selection.startRow !== this.selection.endRow ||
+        this.selection.startCol !== this.selection.endCol
+      ) {
+        const text = extractText(
+          this.grid,
+          this.selection.startRow, this.selection.startCol,
+          this.selection.endRow, this.selection.endCol,
+        );
+        if (text && typeof navigator !== 'undefined' && navigator.clipboard) {
+          navigator.clipboard.writeText(text).catch(() => {/* ignore */});
+        }
+      }
+      this.touchSelectionActive = false;
+      this.touchSelectionAnchor = null;
+      return;
+    }
+
+    // Detect tap (small movement, quick)
+    if (e.changedTouches.length > 0) {
+      const touch = e.changedTouches[0];
+      const dx = Math.abs(touch.clientX - this.touchStartX);
+      const dy = Math.abs(touch.clientY - this.touchStartY);
+
+      if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
+        // Tap: clear any existing selection
+        if (this.selection) {
+          this.clearSelection();
+        }
+      }
+    }
+
+    this.touchScrollRemainder = 0;
+  }
+
+  private handleTouchCancel(_e: TouchEvent): void {
+    this.cancelLongPress();
+    this.isPinching = false;
+    this.touchSelectionActive = false;
+    this.touchSelectionAnchor = null;
+    this.touchScrollRemainder = 0;
   }
 }
