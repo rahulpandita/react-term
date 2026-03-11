@@ -1,8 +1,10 @@
 /**
  * Keyboard, mouse, and touch input handling for the web terminal.
  *
- * Makes the container element itself focusable (tabindex="0") and captures
- * keyboard events directly — no hidden textarea needed.
+ * Uses a hidden <textarea> to capture keyboard input. This is essential
+ * for mobile browsers (iOS Safari, Android Chrome) where a plain div with
+ * tabindex="0" does NOT trigger the virtual keyboard. The textarea is
+ * positioned behind the terminal canvas so it's invisible but focusable.
  *
  * Touch gestures are delegated to the shared GestureHandler from
  * @react-term/core, providing the same behavior on web and native:
@@ -66,6 +68,7 @@ const MAX_FONT_SIZE = 32;
 
 export class InputHandler {
   private container: HTMLElement | null = null;
+  private textarea: HTMLTextAreaElement | null = null;
   private onData: (data: Uint8Array) => void;
   private onSelectionChange: ((sel: SelectionState | null) => void) | null;
   private onScroll: ((deltaRows: number) => void) | null;
@@ -108,8 +111,14 @@ export class InputHandler {
   private pinchStartFontSize = 0;
   private isPinching = false;
 
+  // Whether an IME composition is in progress (CJK, etc.)
+  private composing = false;
+
   // Bound listeners (so we can remove them)
   private boundKeyDown: ((e: KeyboardEvent) => void) | null = null;
+  private boundInput: ((e: Event) => void) | null = null;
+  private boundCompositionStart: (() => void) | null = null;
+  private boundCompositionEnd: ((e: CompositionEvent) => void) | null = null;
   private boundPaste: ((e: ClipboardEvent) => void) | null = null;
   private boundMouseDown: ((e: MouseEvent) => void) | null = null;
   private boundMouseMove: ((e: MouseEvent) => void) | null = null;
@@ -139,16 +148,49 @@ export class InputHandler {
     this.cellWidth = cellWidth;
     this.cellHeight = cellHeight;
 
-    // Make the container focusable and set up for keyboard capture
-    container.setAttribute('tabindex', '0');
+    // Container setup — not focusable itself, the textarea handles focus
     container.setAttribute('role', 'terminal');
     container.setAttribute('aria-label', 'Terminal');
     Object.assign(container.style, {
-      outline: 'none',     // suppress focus ring — cursor provides visual focus
+      outline: 'none',
       cursor: 'text',
+      position: 'relative',
       // Prevent default touch behaviors (pull-to-refresh, scroll bounce)
       touchAction: 'none',
     });
+
+    // Create hidden textarea for keyboard input.
+    // iOS Safari (and Android Chrome) only show the virtual keyboard when
+    // an <input> or <textarea> element receives focus. We position the
+    // textarea behind the terminal canvas so it's invisible but still
+    // triggers the on-screen keyboard.
+    const ta = document.createElement('textarea');
+    ta.setAttribute('autocapitalize', 'none');
+    ta.setAttribute('autocomplete', 'off');
+    ta.setAttribute('autocorrect', 'off');
+    ta.setAttribute('spellcheck', 'false');
+    ta.setAttribute('tabindex', '0');
+    ta.setAttribute('aria-hidden', 'true');
+    Object.assign(ta.style, {
+      position: 'absolute',
+      left: '0',
+      top: '0',
+      width: '1px',
+      height: '1px',
+      opacity: '0',
+      padding: '0',
+      border: 'none',
+      outline: 'none',
+      resize: 'none',
+      overflow: 'hidden',
+      // iOS: prevent zoom on focus (font-size < 16px triggers auto-zoom)
+      fontSize: '16px',
+      // Keep it in the DOM flow but invisible
+      zIndex: '-1',
+      caretColor: 'transparent',
+    });
+    container.appendChild(ta);
+    this.textarea = ta;
 
     // Initialize shared gesture handler
     this.gestureHandler = new GestureHandler(cellWidth, cellHeight, {
@@ -205,11 +247,17 @@ export class InputHandler {
       },
     });
 
-    // Keyboard — listen directly on the container
+    // Keyboard — listen on the textarea
     this.boundKeyDown = this.handleKeyDown.bind(this);
+    this.boundInput = this.handleInput.bind(this);
+    this.boundCompositionStart = this.handleCompositionStart.bind(this);
+    this.boundCompositionEnd = this.handleCompositionEnd.bind(this);
     this.boundPaste = this.handlePaste.bind(this);
-    container.addEventListener('keydown', this.boundKeyDown);
-    container.addEventListener('paste', this.boundPaste);
+    ta.addEventListener('keydown', this.boundKeyDown);
+    ta.addEventListener('input', this.boundInput);
+    ta.addEventListener('compositionstart', this.boundCompositionStart);
+    ta.addEventListener('compositionend', this.boundCompositionEnd);
+    ta.addEventListener('paste', this.boundPaste);
 
     // Mouse
     this.boundMouseDown = this.handleMouseDown.bind(this);
@@ -231,19 +279,28 @@ export class InputHandler {
     container.addEventListener('touchend', this.boundTouchEnd, { passive: false });
     container.addEventListener('touchcancel', this.boundTouchCancel);
 
-    // Focus/blur events for mode 1004
+    // Focus/blur events for mode 1004 — on the textarea
     this.boundFocus = this.handleFocus.bind(this);
     this.boundBlur = this.handleBlur.bind(this);
-    container.addEventListener('focus', this.boundFocus);
-    container.addEventListener('blur', this.boundBlur);
+    ta.addEventListener('focus', this.boundFocus);
+    ta.addEventListener('blur', this.boundBlur);
+
+    // Clicking the container should focus the textarea
+    container.addEventListener('mousedown', (e) => {
+      // Don't steal focus if it's a right-click / context menu
+      if (e.button === 0) {
+        // Delay focus to after mousedown handler runs
+        setTimeout(() => ta.focus(), 0);
+      }
+    });
   }
 
   focus(): void {
-    this.container?.focus();
+    this.textarea?.focus();
   }
 
   blur(): void {
-    this.container?.blur();
+    this.textarea?.blur();
   }
 
   setApplicationCursorKeys(enabled: boolean): void {
@@ -293,12 +350,34 @@ export class InputHandler {
   dispose(): void {
     this.cancelLongPress();
 
-    if (this.container && this.boundKeyDown) {
-      this.container.removeEventListener('keydown', this.boundKeyDown);
+    // Textarea listeners
+    if (this.textarea && this.boundKeyDown) {
+      this.textarea.removeEventListener('keydown', this.boundKeyDown);
     }
-    if (this.container && this.boundPaste) {
-      this.container.removeEventListener('paste', this.boundPaste);
+    if (this.textarea && this.boundInput) {
+      this.textarea.removeEventListener('input', this.boundInput);
     }
+    if (this.textarea && this.boundCompositionStart) {
+      this.textarea.removeEventListener('compositionstart', this.boundCompositionStart);
+    }
+    if (this.textarea && this.boundCompositionEnd) {
+      this.textarea.removeEventListener('compositionend', this.boundCompositionEnd);
+    }
+    if (this.textarea && this.boundPaste) {
+      this.textarea.removeEventListener('paste', this.boundPaste);
+    }
+    if (this.textarea && this.boundFocus) {
+      this.textarea.removeEventListener('focus', this.boundFocus);
+    }
+    if (this.textarea && this.boundBlur) {
+      this.textarea.removeEventListener('blur', this.boundBlur);
+    }
+    // Remove textarea from DOM
+    if (this.textarea && this.textarea.parentNode) {
+      this.textarea.parentNode.removeChild(this.textarea);
+    }
+
+    // Container listeners
     if (this.container && this.boundMouseDown) {
       this.container.removeEventListener('mousedown', this.boundMouseDown);
     }
@@ -317,21 +396,22 @@ export class InputHandler {
     if (this.container && this.boundTouchCancel) {
       this.container.removeEventListener('touchcancel', this.boundTouchCancel);
     }
-    if (this.container && this.boundFocus) {
-      this.container.removeEventListener('focus', this.boundFocus);
-    }
-    if (this.container && this.boundBlur) {
-      this.container.removeEventListener('blur', this.boundBlur);
-    }
+
+    // Document listeners
     if (this.boundMouseMove) {
       document.removeEventListener('mousemove', this.boundMouseMove);
     }
     if (this.boundMouseUp) {
       document.removeEventListener('mouseup', this.boundMouseUp);
     }
+
+    this.textarea = null;
     this.container = null;
     this.gestureHandler = null;
     this.boundKeyDown = null;
+    this.boundInput = null;
+    this.boundCompositionStart = null;
+    this.boundCompositionEnd = null;
     this.boundPaste = null;
     this.boundMouseDown = null;
     this.boundMouseMove = null;
@@ -350,6 +430,9 @@ export class InputHandler {
   // -----------------------------------------------------------------------
 
   private handleKeyDown(e: KeyboardEvent): void {
+    // During IME composition, let the browser handle it
+    if (this.composing) return;
+
     // Ctrl+C or Cmd+C with active selection → copy to clipboard
     if ((e.ctrlKey || e.metaKey) && e.key === 'c' && this.selection && this.grid) {
       e.preventDefault();
@@ -380,7 +463,40 @@ export class InputHandler {
     if (seq !== null) {
       e.preventDefault();
       this.onData(toBytes(seq));
+      // Clear the textarea so mobile input doesn't accumulate
+      if (this.textarea) this.textarea.value = '';
     }
+  }
+
+  /**
+   * Handle input events from the hidden textarea.
+   * On mobile browsers, the virtual keyboard fires `input` events rather
+   * than `keydown` for printable characters. We read the textarea value
+   * and send any new characters to the PTY.
+   */
+  private handleInput(_e: Event): void {
+    // During IME composition, wait for compositionend
+    if (this.composing) return;
+
+    if (!this.textarea) return;
+    const data = this.textarea.value;
+    if (data) {
+      this.onData(toBytes(data));
+      this.textarea.value = '';
+    }
+  }
+
+  private handleCompositionStart(): void {
+    this.composing = true;
+  }
+
+  private handleCompositionEnd(e: CompositionEvent): void {
+    this.composing = false;
+    // Send the composed text (CJK characters, accented letters, etc.)
+    if (e.data) {
+      this.onData(toBytes(e.data));
+    }
+    if (this.textarea) this.textarea.value = '';
   }
 
   private handlePaste(e: ClipboardEvent): void {
