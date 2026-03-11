@@ -120,6 +120,11 @@ export class InputHandler {
   // Whether an IME composition is in progress (CJK, etc.)
   private composing = false;
 
+  // Custom copy tooltip for iOS/mobile (native callout doesn't work with programmatic selection)
+  private copyTooltip: HTMLElement | null = null;
+  /** Text currently staged for copy. */
+  private pendingCopyText = '';
+
   // Bound listeners (so we can remove them)
   private boundKeyDown: ((e: KeyboardEvent) => void) | null = null;
   private boundInput: ((e: Event) => void) | null = null;
@@ -232,7 +237,8 @@ export class InputHandler {
         this.selection = sel;
         this.onSelectionChange?.(sel);
 
-        // Copy to clipboard when selection ends (non-null, non-point)
+        // When selection is non-empty, put the text into the hidden textarea
+        // and select it so iOS Safari shows the native "Copy" callout menu.
         if (sel && this.grid) {
           if (sel.startRow !== sel.endRow || sel.startCol !== sel.endCol) {
             const text = extractText(
@@ -240,10 +246,12 @@ export class InputHandler {
               sel.startRow, sel.startCol,
               sel.endRow, sel.endCol,
             );
-            if (text && typeof navigator !== 'undefined' && navigator.clipboard) {
-              navigator.clipboard.writeText(text).catch(() => {/* ignore */});
+            if (text) {
+              this.showCopyTooltip(text);
             }
           }
+        } else if (!sel) {
+          this.hideCopyTooltip();
         }
       },
     });
@@ -346,6 +354,7 @@ export class InputHandler {
     this.selection = null;
     this.gestureHandler?.clearSelection();
     this.onSelectionChange?.(null);
+    this.hideCopyTooltip();
   }
 
   dispose(): void {
@@ -406,6 +415,10 @@ export class InputHandler {
       document.removeEventListener('mouseup', this.boundMouseUp);
     }
 
+    if (this.copyTooltip?.parentNode) {
+      this.copyTooltip.parentNode.removeChild(this.copyTooltip);
+    }
+    this.copyTooltip = null;
     this.textarea = null;
     this.container = null;
     this.gestureHandler = null;
@@ -705,8 +718,8 @@ export class InputHandler {
         this.selection.startRow, this.selection.startCol,
         this.selection.endRow, this.selection.endCol,
       );
-      if (text && typeof navigator !== 'undefined' && navigator.clipboard) {
-        navigator.clipboard.writeText(text).catch(() => {/* ignore */});
+      if (text) {
+        this.showCopyTooltip(text);
       }
     }
   }
@@ -936,5 +949,86 @@ export class InputHandler {
     this.cancelLongPress();
     this.isPinching = false;
     this.gestureHandler?.handlePan(0, 0, 0, GestureState.CANCELLED);
+  }
+
+  /**
+   * Show a floating "Copy" button near the selection so the user can tap
+   * to copy. iOS Safari doesn't show its native callout for programmatic
+   * selections, so we provide our own.
+   */
+  private showCopyTooltip(text: string): void {
+    this.pendingCopyText = text;
+
+    if (!this.container) return;
+
+    // Position near the top-center of the selection
+    const sel = this.selection;
+    if (!sel) return;
+
+    const minRow = Math.min(sel.startRow, sel.endRow);
+    const midCol = Math.round((sel.startCol + sel.endCol) / 2);
+    const topPx = minRow * this.cellHeight;
+    const leftPx = midCol * this.cellWidth;
+
+    if (!this.copyTooltip) {
+      const tip = document.createElement('div');
+      Object.assign(tip.style, {
+        position: 'absolute',
+        zIndex: '100',
+        display: 'flex',
+        gap: '2px',
+        padding: '6px 16px',
+        borderRadius: '8px',
+        backgroundColor: 'rgba(60, 60, 60, 0.95)',
+        color: '#fff',
+        fontSize: '14px',
+        fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+        cursor: 'pointer',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+        whiteSpace: 'nowrap',
+        pointerEvents: 'auto',
+        transform: 'translateX(-50%)',
+      });
+      tip.textContent = 'Copy';
+
+      tip.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.doCopy();
+      });
+      tip.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.doCopy();
+      });
+
+      this.container.appendChild(tip);
+      this.copyTooltip = tip;
+    }
+
+    // Position above the selection, clamped within the container
+    const tipTop = Math.max(0, topPx - 40);
+    this.copyTooltip.style.top = `${tipTop}px`;
+    this.copyTooltip.style.left = `${Math.max(30, leftPx)}px`;
+    this.copyTooltip.style.display = 'flex';
+  }
+
+  /** Copy pending text to clipboard and dismiss the tooltip. */
+  private doCopy(): void {
+    if (this.pendingCopyText && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(this.pendingCopyText).catch(() => {/* ignore */});
+    }
+    this.hideCopyTooltip();
+    this.clearSelection();
+  }
+
+  /** Hide the copy tooltip. */
+  private hideCopyTooltip(): void {
+    if (this.copyTooltip) {
+      this.copyTooltip.style.display = 'none';
+    }
+    this.pendingCopyText = '';
   }
 }
