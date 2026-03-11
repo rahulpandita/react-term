@@ -1,0 +1,27 @@
+{
+  "name": "react-term",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "pnpm --filter @react-term/demo dev",
+    "start": "pnpm --filter @react-term/demo start",
+    "build": "pnpm -r build",
+    "clean": "pnpm -r exec rm -rf dist"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "node-pty"
+    ]
+  },
+  "devDependencies": {
+    "jsdom": "^28.1.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "node-pty": "1.2.0-beta.11"
+  }
+}
