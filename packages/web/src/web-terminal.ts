@@ -13,7 +13,7 @@
  * RenderBridge, leaving the main thread free for DOM event handling only.
  */
 
-import { BufferSet, VTParser } from '@react-term/core';
+import { BufferSet, VTParser, CellGrid } from '@react-term/core';
 import type { Theme, CursorState } from '@react-term/core';
 import { DEFAULT_THEME } from '@react-term/core';
 import type { IRenderer, RendererOptions } from './renderer.js';
@@ -117,6 +117,17 @@ export class WebTerminal {
   /** Track whether alternate buffer is active so we can detect switches. */
   private wasAlternate = false;
 
+  // Scrollback viewport: 0 = live (bottom), positive = lines scrolled back
+  private viewportOffset = 0;
+  /** Temporary display grid used when scrolled into scrollback. */
+  private displayGrid: CellGrid | null = null;
+  /** Scrollbar overlay element. */
+  private scrollbarEl: HTMLElement | null = null;
+  /** Scrollbar thumb element. */
+  private scrollbarThumb: HTMLElement | null = null;
+  /** Timer to auto-hide scrollbar. */
+  private scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
+
   // Text encoder for string -> Uint8Array
   private encoder = new TextEncoder();
 
@@ -165,6 +176,9 @@ export class WebTerminal {
     container.style.position = container.style.position || 'relative';
     container.style.overflow = 'hidden';
     container.appendChild(this.canvas);
+
+    // Create scrollbar overlay
+    this.createScrollbar(container);
 
     // Create renderer based on selected backend
     const rendererType = options?.renderer ?? 'auto';
@@ -227,6 +241,8 @@ export class WebTerminal {
     // Create input handler
     this.inputHandler = new InputHandler({
       onData: (data) => {
+        // User typed something — snap back to live view
+        this.snapToBottom();
         this.onDataCallback?.(data);
       },
       onSelectionChange: (sel) => {
@@ -237,16 +253,8 @@ export class WebTerminal {
         }
       },
       onScroll: (deltaRows) => {
-        // Scroll through scrollback history
-        // Positive deltaRows = scroll toward newer content (down)
-        // Negative deltaRows = scroll toward older content (up)
-        // For now, send arrow keys; a proper viewport offset will come later
-        const key = deltaRows > 0 ? '\x1b[B' : '\x1b[A';
-        const count = Math.abs(deltaRows);
-        const enc = new TextEncoder();
-        for (let i = 0; i < count; i++) {
-          this.onDataCallback?.(enc.encode(key));
-        }
+        // GestureHandler already negates: positive = scroll back (older content).
+        this.scrollViewport(deltaRows);
       },
       onFontSizeChange: (newFontSize) => {
         this.setFont(newFontSize, fontFamily);
@@ -406,6 +414,9 @@ export class WebTerminal {
    */
   write(data: string | Uint8Array): void {
     if (this.disposed) return;
+
+    // New data arrived — snap back to live view
+    this.snapToBottom();
 
     const bytes = typeof data === 'string' ? this.encoder.encode(data) : data;
 
@@ -607,9 +618,170 @@ export class WebTerminal {
     this.renderer.setHighlights(highlights);
   }
 
+  // -----------------------------------------------------------------------
+  // Scrollback viewport
+  // -----------------------------------------------------------------------
+
+  private createScrollbar(container: HTMLElement): void {
+    const bar = document.createElement('div');
+    Object.assign(bar.style, {
+      position: 'absolute',
+      right: '0',
+      top: '0',
+      bottom: '0',
+      width: '6px',
+      zIndex: '10',
+      opacity: '0',
+      transition: 'opacity 0.3s',
+      pointerEvents: 'none',
+    });
+
+    const thumb = document.createElement('div');
+    Object.assign(thumb.style, {
+      position: 'absolute',
+      right: '1px',
+      width: '4px',
+      borderRadius: '2px',
+      backgroundColor: 'rgba(255, 255, 255, 0.4)',
+      minHeight: '20px',
+    });
+
+    bar.appendChild(thumb);
+    container.appendChild(bar);
+    this.scrollbarEl = bar;
+    this.scrollbarThumb = thumb;
+  }
+
+  private updateScrollbar(): void {
+    if (!this.scrollbarEl || !this.scrollbarThumb) return;
+    const totalLines = this.bufferSet.scrollback.length + this.bufferSet.rows;
+    const visibleRows = this.bufferSet.rows;
+
+    if (totalLines <= visibleRows || this.viewportOffset === 0) {
+      // At bottom or no scrollback — hide
+      this.scrollbarEl.style.opacity = '0';
+      return;
+    }
+
+    // Show scrollbar
+    this.scrollbarEl.style.opacity = '1';
+
+    // Calculate thumb size and position
+    const containerHeight = this.scrollbarEl.clientHeight || (visibleRows * this.renderer.getCellSize().height);
+    const thumbHeight = Math.max(20, (visibleRows / totalLines) * containerHeight);
+    const maxScroll = this.bufferSet.scrollback.length;
+    const scrollFraction = (maxScroll - this.viewportOffset) / maxScroll;
+    const thumbTop = scrollFraction * (containerHeight - thumbHeight);
+
+    this.scrollbarThumb.style.height = `${thumbHeight}px`;
+    this.scrollbarThumb.style.top = `${thumbTop}px`;
+
+    // Auto-hide after 1.5s
+    if (this.scrollbarHideTimer) clearTimeout(this.scrollbarHideTimer);
+    this.scrollbarHideTimer = setTimeout(() => {
+      if (this.scrollbarEl) this.scrollbarEl.style.opacity = '0';
+    }, 1500);
+  }
+
+  /**
+   * Scroll the viewport into scrollback. deltaLines > 0 scrolls back (older),
+   * deltaLines < 0 scrolls forward (newer).
+   */
+  private scrollViewport(deltaLines: number): void {
+    const maxOffset = this.bufferSet.scrollback.length;
+    const newOffset = Math.max(0, Math.min(maxOffset, this.viewportOffset + deltaLines));
+
+    if (newOffset === this.viewportOffset) return;
+    this.viewportOffset = newOffset;
+
+    if (newOffset === 0) {
+      // Back to live view — re-attach live grid
+      if (this.displayGrid) {
+        this.displayGrid = null;
+        if (!this.renderBridge) {
+          this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
+        }
+      }
+    } else {
+      // Scrolled back — build display grid from scrollback + buffer
+      this.buildDisplayGrid();
+    }
+
+    this.updateScrollbar();
+  }
+
+  /**
+   * Build a display grid showing the correct mix of scrollback and buffer
+   * lines for the current viewportOffset.
+   */
+  private buildDisplayGrid(): void {
+    const cols = this.bufferSet.cols;
+    const rows = this.bufferSet.rows;
+    const scrollback = this.bufferSet.scrollback;
+
+    // Reuse display grid if dimensions match, otherwise create new.
+    // Only call renderer.attach() when the grid is first created —
+    // subsequent updates just populate data and mark dirty.
+    let needsAttach = false;
+    if (!this.displayGrid || this.displayGrid.cols !== cols || this.displayGrid.rows !== rows) {
+      this.displayGrid = new CellGrid(cols, rows);
+      needsAttach = true;
+    }
+
+    // Virtual line numbering:
+    // [0 .. scrollback.length-1] = scrollback lines
+    // [scrollback.length .. scrollback.length+rows-1] = live buffer rows
+    // viewportTop = scrollback.length - viewportOffset
+    const viewportTop = scrollback.length - this.viewportOffset;
+
+    for (let r = 0; r < rows; r++) {
+      const virtualLine = viewportTop + r;
+      if (virtualLine < 0) {
+        // Before scrollback — show empty
+        this.displayGrid.clearRow(r);
+      } else if (virtualLine < scrollback.length) {
+        // From scrollback
+        this.displayGrid.pasteRow(r, scrollback[virtualLine]);
+      } else {
+        // From live buffer
+        const bufRow = virtualLine - scrollback.length;
+        if (bufRow < rows) {
+          const rowData = this.bufferSet.active.grid.copyRow(bufRow);
+          this.displayGrid.pasteRow(r, rowData);
+        } else {
+          this.displayGrid.clearRow(r);
+        }
+      }
+    }
+
+    if (!this.renderBridge) {
+      if (needsAttach) {
+        // Create a fake cursor (hidden) when scrolled back
+        const fakeCursor: CursorState = {
+          row: 0, col: 0, visible: false, style: 'block', wrapPending: false,
+        };
+        this.renderer.attach(this.canvas, this.displayGrid, fakeCursor);
+      }
+      // markAllDirty is called by pasteRow/clearRow, but ensure full redraw
+      this.displayGrid.markAllDirty();
+    }
+  }
+
+  /** Snap viewport to live (bottom) — called when new data arrives or user types. */
+  private snapToBottom(): void {
+    if (this.viewportOffset === 0) return;
+    this.viewportOffset = 0;
+    this.displayGrid = null;
+    if (!this.renderBridge) {
+      this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
+    }
+    this.updateScrollbar();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.scrollbarHideTimer) clearTimeout(this.scrollbarHideTimer);
 
     for (const addon of this.addons) addon.dispose();
     this.addons = [];
@@ -634,6 +806,12 @@ export class WebTerminal {
     if (this.canvas.parentElement) {
       this.canvas.parentElement.removeChild(this.canvas);
     }
+    if (this.scrollbarEl?.parentElement) {
+      this.scrollbarEl.parentElement.removeChild(this.scrollbarEl);
+    }
+    this.scrollbarEl = null;
+    this.scrollbarThumb = null;
+    this.displayGrid = null;
     this.onDataCallback = null;
     this.onResizeCallback = null;
     this.onTitleChangeCallback = null;
