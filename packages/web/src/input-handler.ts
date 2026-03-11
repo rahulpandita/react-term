@@ -749,7 +749,9 @@ export class InputHandler {
   }
 
   private handleTouchStart(e: TouchEvent): void {
-    this.focus();
+    // Don't focus here — wait for touchend to confirm it's a tap.
+    // Focusing on touchstart shows the keyboard before we know if
+    // the user intends to scroll, causing a scroll/keyboard race.
 
     if (e.touches.length === 2) {
       // Pinch start
@@ -885,7 +887,8 @@ export class InputHandler {
       const dy = Math.abs(touch.clientY - this.touchStartY);
 
       if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
-        // It was a tap — delegate to GestureHandler
+        // Confirmed tap — focus to show keyboard, then delegate to GestureHandler
+        this.focus();
         const local = this.touchToLocal(touch);
         if (local) {
           this.gestureHandler?.handleTap(local.x, local.y);
