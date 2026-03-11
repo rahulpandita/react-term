@@ -1,6 +1,7 @@
 {
   "name": "react-term",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "test": "vitest run",
