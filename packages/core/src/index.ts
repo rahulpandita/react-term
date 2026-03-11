@@ -1,0 +1,8 @@
+export { CellGrid, CELL_SIZE, extractText, normalizeSelection } from './cell-grid.js';
+export type { SelectionRange } from './cell-grid.js';
+export { Buffer, BufferSet } from './buffer.js';
+export { VTParser } from './parser/index.js';
+export type { MouseProtocol, MouseEncoding } from './parser/index.js';
+export { State, Action, TABLE, unpackAction, unpackState } from './parser/states.js';
+export type { CursorState, TerminalOptions, Theme, SelectionState } from './types.js';
+export { DirtyState, DEFAULT_THEME } from './types.js';
