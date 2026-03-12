@@ -114,6 +114,10 @@ pnpm dev           # Start demo (local echo)
 pnpm start         # Start demo with PTY server
 ```
 
+### Automated Documentation
+
+This repository uses a **daily documentation updater** workflow (`.github/workflows/daily-doc-updater.md`) that runs every 24 hours. It scans merged pull requests and commits, identifies user-facing changes, and automatically opens a draft PR to keep documentation up to date. The workflow is powered by GitHub Copilot's agentic CI system.
+
 ## Design Decisions
 
 - **SharedArrayBuffer from day one** — enables zero-copy sharing between workers with Atomics for lock-free dirty signaling
