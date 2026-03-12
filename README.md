@@ -114,9 +114,13 @@ pnpm dev           # Start demo (local echo)
 pnpm start         # Start demo with PTY server
 ```
 
-### Automated Documentation
+### Agentic Workflows
 
-This repository uses a **daily documentation updater** workflow (`.github/workflows/daily-doc-updater.md`) that runs every 24 hours. It scans merged pull requests and commits, identifies user-facing changes, and automatically opens a draft PR to keep documentation up to date. The workflow is powered by GitHub Copilot's agentic CI system.
+This repository uses several automated workflows powered by GitHub Copilot's agentic CI system:
+
+- **Daily Documentation Updater** (`.github/workflows/daily-doc-updater.md`) — runs every 24 hours, scans merged pull requests and commits, identifies user-facing changes, and automatically opens a draft PR to keep documentation up to date.
+- **Agentic Wiki Writer** (`.github/workflows/agentic-wiki-writer.md`) — generates GitHub wiki pages from source code using the template defined in `.github/agentic-wiki/PAGES.md`. Triggered on PR merge or manually via workflow dispatch.
+- **Daily Test Improver** (`.github/workflows/daily-test-improver.md`) — runs daily to improve test quality and coverage. Discovers untested code paths and opens draft PRs with new unit tests. Can also be triggered on-demand via a `/test-assist <instructions>` comment.
 
 ## Design Decisions
 
