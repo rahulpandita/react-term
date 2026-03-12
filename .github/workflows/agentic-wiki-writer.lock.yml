@@ -25,7 +25,7 @@
 #
 # Source: githubnext/agentics/workflows/agentic-wiki-writer.md@346204513ecfa08b81566450d7d599556807389f
 #
-# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"d6b91f78e7f40bd77c964466b6d236404cfc412fc6a8395a97c2678c4736b4c9","compiler_version":"v0.57.2","strict":true}
+# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"3197bf9d7bd414afa018fbb838d8d495f78972d5a141ebbe8bf665210e1eac0a","compiler_version":"v0.57.2","strict":true}
 
 name: "Agentic Wiki Writer"
 "on":
@@ -781,7 +781,7 @@ jobs:
         # --allow-tool shell(wc)
         # --allow-tool shell(yq)
         # --allow-tool write
-        timeout-minutes: 30
+        timeout-minutes: 60
         run: |
           set -o pipefail
           touch /tmp/gh-aw/agent-step-summary.md
@@ -1182,7 +1182,7 @@ jobs:
           GH_AW_REPO_MEMORY_PATCH_SIZE_EXCEEDED_default: ${{ needs.push_repo_memory.outputs.patch_size_exceeded_default }}
           GH_AW_GROUP_REPORTS: "false"
           GH_AW_FAILURE_REPORT_AS_ISSUE: "true"
-          GH_AW_TIMEOUT_MINUTES: "30"
+          GH_AW_TIMEOUT_MINUTES: "60"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |

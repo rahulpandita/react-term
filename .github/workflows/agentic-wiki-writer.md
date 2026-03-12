@@ -83,7 +83,7 @@ safe-outputs:
             git diff --cached --quiet && echo "No changes to commit" && exit 0
             git commit -m "Update wiki pages [agentic-wiki]"
             git push
-timeout-minutes: 30
+timeout-minutes: 60
 source: githubnext/agentics/workflows/agentic-wiki-writer.md@346204513ecfa08b81566450d7d599556807389f
 engine: copilot
 ---
