@@ -689,8 +689,8 @@ export class VTParser {
       case 0: // Set icon name + window title
       case 1: // Set icon name
       case 2: // Set window title
-        // Safety: receivers must treat this as plain text, never as HTML.
-        this.onTitleChange?.(data);
+        // Strip control characters to enforce plain-text contract.
+        this.onTitleChange?.(data.replace(/[\x00-\x1f\x7f-\x9f]/g, ''));
         break;
       // Other OSC codes (4, 7, 8, 10, 11, 12, 52, 104, 133) can be added later
     }
