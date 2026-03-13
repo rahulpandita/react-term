@@ -10,6 +10,11 @@ const SAB_AVAILABLE =
 
 export const CELL_SIZE = 2; // 2 x uint32 per cell
 
+/** Safe modulo that always returns a non-negative result (JS % preserves sign). */
+export function modPositive(value: number, modulo: number): number {
+  return ((value % modulo) + modulo) % modulo;
+}
+
 export class CellGrid {
   readonly cols: number;
   readonly rows: number;
@@ -26,6 +31,13 @@ export class CellGrid {
    */
   readonly cursorData: Int32Array;
 
+  /**
+   * Circular row buffer offset. Logical row r maps to physical row
+   * (r + rowOffsetData[0]) % rows. Scrolling rotates this offset
+   * instead of copying cell data, making full-screen scroll O(1).
+   */
+  readonly rowOffsetData: Int32Array;
+
   constructor(cols: number, rows: number) {
     this.cols = cols;
     this.rows = rows;
@@ -35,7 +47,8 @@ export class CellGrid {
     const dirtyBytes = rows * 4; // Int32Array: 4 bytes per element
     const rgbBytes = 512 * 4;
     const cursorBytes = 4 * 4; // 4 x Int32: row, col, visible, style
-    const totalBytes = cellBytes + dirtyBytes + rgbBytes + cursorBytes;
+    const offsetBytes = 1 * 4; // 1 x Int32: row offset for circular buffer
+    const totalBytes = cellBytes + dirtyBytes + rgbBytes + cursorBytes + offsetBytes;
 
     const BufferType = SAB_AVAILABLE ? SharedArrayBuffer : ArrayBuffer;
     this.buffer = new BufferType(totalBytes);
@@ -44,56 +57,81 @@ export class CellGrid {
     this.dirtyRows = new Int32Array(this.buffer, cellBytes, rows);
     this.rgbColors = new Uint32Array(this.buffer, cellBytes + dirtyBytes, 512);
     this.cursorData = new Int32Array(this.buffer, cellBytes + dirtyBytes + rgbBytes, 4);
+    this.rowOffsetData = new Int32Array(
+      this.buffer,
+      cellBytes + dirtyBytes + rgbBytes + cursorBytes,
+      1,
+    );
 
     this.clear();
   }
 
+  /** Map logical row to physical row in the circular buffer. */
+  physicalRow(row: number): number {
+    return modPositive(row + this.rowOffsetData[0], this.rows);
+  }
+
+  /** Get the data array offset for the start of a logical row. */
+  rowStart(row: number): number {
+    return this.physicalRow(row) * this.cols * CELL_SIZE;
+  }
+
+  /** Rotate the circular buffer up by n rows (for scroll-up). */
+  rotateUp(n = 1): void {
+    this.rowOffsetData[0] = modPositive(this.rowOffsetData[0] + n, this.rows);
+  }
+
+  /** Rotate the circular buffer down by n rows (for scroll-down). */
+  rotateDown(n = 1): void {
+    this.rowOffsetData[0] = modPositive(this.rowOffsetData[0] - n, this.rows);
+  }
+
   getCodepoint(row: number, col: number): number {
-    return this.data[(row * this.cols + col) * CELL_SIZE] & 0x1fffff;
+    return this.data[this.rowStart(row) + col * CELL_SIZE] & 0x1fffff;
   }
 
   getFgIndex(row: number, col: number): number {
-    return (this.data[(row * this.cols + col) * CELL_SIZE] >>> 23) & 0xff;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE] >>> 23) & 0xff;
   }
 
   getBgIndex(row: number, col: number): number {
-    return this.data[(row * this.cols + col) * CELL_SIZE + 1] & 0xff;
+    return this.data[this.rowStart(row) + col * CELL_SIZE + 1] & 0xff;
   }
 
   getAttrs(row: number, col: number): number {
-    return (this.data[(row * this.cols + col) * CELL_SIZE + 1] >>> 8) & 0xff;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE + 1] >>> 8) & 0xff;
   }
 
   isFgRGB(row: number, col: number): boolean {
-    return (this.data[(row * this.cols + col) * CELL_SIZE] & (1 << 21)) !== 0;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE] & (1 << 21)) !== 0;
   }
 
   isBgRGB(row: number, col: number): boolean {
-    return (this.data[(row * this.cols + col) * CELL_SIZE] & (1 << 22)) !== 0;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE] & (1 << 22)) !== 0;
   }
 
   isBold(row: number, col: number): boolean {
-    return (this.data[(row * this.cols + col) * CELL_SIZE + 1] & (1 << 8)) !== 0;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE + 1] & (1 << 8)) !== 0;
   }
 
   isItalic(row: number, col: number): boolean {
-    return (this.data[(row * this.cols + col) * CELL_SIZE + 1] & (1 << 9)) !== 0;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE + 1] & (1 << 9)) !== 0;
   }
 
   isUnderline(row: number, col: number): boolean {
-    return (this.data[(row * this.cols + col) * CELL_SIZE + 1] & (1 << 10)) !== 0;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE + 1] & (1 << 10)) !== 0;
   }
 
   isStrikethrough(row: number, col: number): boolean {
-    return (this.data[(row * this.cols + col) * CELL_SIZE + 1] & (1 << 11)) !== 0;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE + 1] & (1 << 11)) !== 0;
   }
 
   isInverse(row: number, col: number): boolean {
-    return (this.data[(row * this.cols + col) * CELL_SIZE + 1] & (1 << 14)) !== 0;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE + 1] & (1 << 14)) !== 0;
   }
 
   isWide(row: number, col: number): boolean {
-    return (this.data[(row * this.cols + col) * CELL_SIZE + 1] & (1 << 15)) !== 0;
+    return (this.data[this.rowStart(row) + col * CELL_SIZE + 1] & (1 << 15)) !== 0;
   }
 
   setCell(
@@ -106,7 +144,7 @@ export class CellGrid {
     fgIsRGB = false,
     bgIsRGB = false,
   ): void {
-    const idx = (row * this.cols + col) * CELL_SIZE;
+    const idx = this.rowStart(row) + col * CELL_SIZE;
     this.data[idx] =
       (codepoint & 0x1fffff) |
       (fgIsRGB ? 1 << 21 : 0) |
@@ -126,12 +164,11 @@ export class CellGrid {
 
   /** Mark a contiguous range of rows [from..to] dirty. */
   markDirtyRange(from: number, to: number): void {
+    // Use fill for speed, then a single Atomics.store on the last row
+    // to act as a release fence ensuring all preceding writes are visible.
+    this.dirtyRows.fill(1, from, to + 1);
     if (this.isShared) {
-      for (let r = from; r <= to; r++) {
-        Atomics.store(this.dirtyRows, r, 1);
-      }
-    } else {
-      this.dirtyRows.fill(1, from, to + 1);
+      Atomics.store(this.dirtyRows, to, 1);
     }
   }
 
@@ -152,9 +189,14 @@ export class CellGrid {
 
   markAllDirty(): void {
     this.dirtyRows.fill(1);
+    if (this.isShared) {
+      Atomics.store(this.dirtyRows, this.rows - 1, 1);
+    }
   }
 
   clear(): void {
+    // Reset circular buffer offset
+    this.rowOffsetData[0] = 0;
     this.data.fill(0);
     for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < this.cols; c++) {
@@ -165,15 +207,15 @@ export class CellGrid {
     this.markAllDirty();
   }
 
-  /** Copy a row of cell data into a new Uint32Array. */
+  /** Copy a logical row of cell data into a new Uint32Array. */
   copyRow(row: number): Uint32Array {
-    const start = row * this.cols * CELL_SIZE;
+    const start = this.rowStart(row);
     return new Uint32Array(this.data.slice(start, start + this.cols * CELL_SIZE));
   }
 
-  /** Overwrite a row from a previously copied Uint32Array. */
+  /** Overwrite a logical row from a previously copied Uint32Array. */
   pasteRow(row: number, src: Uint32Array): void {
-    const start = row * this.cols * CELL_SIZE;
+    const start = this.rowStart(row);
     const rowLen = this.cols * CELL_SIZE;
     if (src.length <= rowLen) {
       this.data.set(src, start);
@@ -184,9 +226,9 @@ export class CellGrid {
     this.markDirty(row);
   }
 
-  /** Fill a row with spaces and default attributes. */
+  /** Fill a logical row with spaces and default attributes. */
   clearRow(row: number): void {
-    const start = row * this.cols * CELL_SIZE;
+    const start = this.rowStart(row);
     for (let c = 0; c < this.cols; c++) {
       this.data[start + c * CELL_SIZE] = 0x20 | (7 << 23); // space with default fg index 7
       this.data[start + c * CELL_SIZE + 1] = 0;
