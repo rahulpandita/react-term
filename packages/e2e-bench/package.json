@@ -1,0 +1,37 @@
+{
+  "name": "@react-term/e2e-bench",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "server": "tsx server/replay-server.ts",
+    "start": "concurrently \"pnpm server\" \"pnpm dev\"",
+    "bench": "playwright test",
+    "bench:headed": "playwright test --headed"
+  },
+  "dependencies": {
+    "@react-term/react": "workspace:*",
+    "@react-term/core": "workspace:*",
+    "@react-term/web": "workspace:*",
+    "@react-term/bench": "workspace:*",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "@playwright/test": "^1.40.0",
+    "tsx": "^4.19.0",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.0.0"
+  }
+}

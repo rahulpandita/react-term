@@ -6,6 +6,7 @@
     { "path": "packages/react" },
     { "path": "packages/demo" },
     { "path": "packages/native" },
-    { "path": "packages/bench" }
+    { "path": "packages/bench" },
+    { "path": "packages/e2e-bench" }
   ]
 }

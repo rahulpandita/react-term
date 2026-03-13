@@ -1,0 +1,4 @@
+dist/
+results/*.json
+test-results/
+playwright-report/
