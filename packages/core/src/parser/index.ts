@@ -163,7 +163,7 @@ export class VTParser {
               cursor.row++;
               if (cursor.row > buf.scrollBottom) {
                 cursor.row = buf.scrollBottom;
-                this.bufferSet.scrollUpWithHistory();
+                this._scrollUpFull();
                 scrolled = true;
               }
             }
@@ -295,7 +295,7 @@ export class VTParser {
         cursor.row++;
         if (cursor.row > buf.scrollBottom) {
           cursor.row = buf.scrollBottom;
-          this.bufferSet.scrollUpWithHistory();
+          this._scrollUpFull();
         }
       }
     }
@@ -368,9 +368,29 @@ export class VTParser {
   private linefeed(): void {
     const cursor = this.buf.cursor;
     if (cursor.row === this.buf.scrollBottom) {
-      this.bufferSet.scrollUpWithHistory();
+      this._scrollUpFull();
     } else if (cursor.row < this.rows - 1) {
       cursor.row++;
+    }
+  }
+
+  /**
+   * Fast-path scroll up: combines scrollUpWithHistory + scrollUp for the
+   * common full-screen case (rotateUp instead of copyWithin). Falls back
+   * to scrollUpWithHistory for partial scroll regions.
+   */
+  private _scrollUpFull(): void {
+    const buf = this.bufferSet.active;
+    if (buf.scrollTop === 0 && buf.scrollBottom === this.rows - 1) {
+      const grid = buf.grid;
+      if (this.bufferSet.maxScrollback > 0 && buf === this.bufferSet.normal) {
+        this.bufferSet.pushScrollback(grid.copyRow(0));
+      }
+      grid.rotateUp();
+      grid.clearRow(buf.scrollBottom);
+      grid.markDirtyRange(buf.scrollTop, buf.scrollBottom);
+    } else {
+      this.bufferSet.scrollUpWithHistory();
     }
   }
 
