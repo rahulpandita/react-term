@@ -131,57 +131,185 @@ export class VTParser {
     for (let i = 0; i < len; i++) {
       const byte = data[i];
 
-      // ESC sequence fast-path: \x1b[ (CSI) and \x1b] (OSC) are the most
-      // common escape sequences. Detecting them here skips 2 table lookups
-      // and 2 switch dispatches per sequence.
-      // Note: ESC is an "anywhere" transition so this is valid from all states.
-      // In DCS_PASSTHROUGH this skips the UNHOOK action, which is acceptable
-      // since we don't implement DCS handlers.
+      // ESC sequence fast-path: peek at the next byte to handle common
+      // multi-byte escape sequences without per-byte table lookups.
+      // ESC is an "anywhere" transition so this is valid from all states.
       if (byte === 0x1b && i + 1 < len) {
         const next = data[i + 1];
-        if (next === 0x5b) {
-          // ESC [ → CSI_ENTRY (combines CLEAR + CLEAR)
+
+        // ESC \ — String Terminator. Dispatch OSC/DCS directly.
+        if (next === 0x5c) {
+          if (state === State.OSC_STRING) {
+            this.oscDispatch();
+          }
+          // Clear params/intermediates so no state leaks from aborted sequences
           this.clear();
+          state = State.GROUND;
+          i++;
+          continue;
+        }
+
+        // ESC [ — CSI entry, with optional fast dispatch
+        if (next === 0x5b) {
+          this.clear();
+          if (i + 2 < len) {
+            const fb = data[i + 2];
+            // Parameterless CSI: ESC [ <final>
+            if (fb >= 0x40 && fb <= 0x7e) {
+              this.csiDispatch(fb);
+              state = State.GROUND;
+              i += 2;
+              continue;
+            }
+            // CSI with private prefix: ESC [ <prefix> <final>
+            if (fb >= 0x3c && fb <= 0x3f && i + 3 < len) {
+              const fb2 = data[i + 3];
+              if (fb2 >= 0x40 && fb2 <= 0x7e) {
+                this.prefixByte = fb;
+                this.csiDispatch(fb2);
+                state = State.GROUND;
+                i += 3;
+                continue;
+              }
+            }
+          }
           state = State.CSI_ENTRY;
           i++;
           continue;
         }
+
+        // ESC ] — OSC string start
         if (next === 0x5d) {
-          // ESC ] → OSC_STRING (combines CLEAR + OSC_START)
           this.clear();
           this.oscLength = 0;
           state = State.OSC_STRING;
           i++;
           continue;
         }
+
+        // ESC P — DCS entry
+        if (next === 0x50) {
+          this.clear();
+          state = State.DCS_ENTRY;
+          i++;
+          continue;
+        }
+
+        // ESC + intermediate (0x20-0x2F) + final (0x30-0x7E) — 3-byte ESC
+        if (next >= 0x20 && next <= 0x2f && i + 2 < len) {
+          const fb = data[i + 2];
+          if (fb >= 0x30 && fb <= 0x7e) {
+            this.clear();
+            this.intermediatesByte = next;
+            this.escDispatch(fb);
+            state = State.GROUND;
+            i += 2;
+            continue;
+          }
+        }
+
+        // ESC + final byte — 2-byte ESC dispatch (D, E, M, 7, 8, =, >, c, H, etc.)
+        // Excludes bytes already handled: 0x50(P), 0x58(SOS), 0x5B([), 0x5C(\),
+        // 0x5D(]), 0x5E(PM), 0x5F(APC), and intermediates 0x20-0x2F.
+        if (
+          (next >= 0x30 && next <= 0x4f) ||
+          (next >= 0x51 && next <= 0x57) ||
+          next === 0x59 ||
+          next === 0x5a ||
+          (next >= 0x60 && next <= 0x7e)
+        ) {
+          this.clear();
+          this.escDispatch(next);
+          state = State.GROUND;
+          i++;
+          continue;
+        }
       }
 
-      // Batch ASCII fast path: when in GROUND state and we see a printable
-      // ASCII byte (0x20-0x7E), scan ahead for the full run and write cells
-      // in a tight loop without per-byte state machine overhead.
-      if (state === State.GROUND && utf8Bytes === 0 && byte >= 0x20 && byte <= 0x7e) {
-        let runEnd = i + 1;
-        while (runEnd < len && data[runEnd] >= 0x20 && data[runEnd] <= 0x7e) runEnd++;
+      // UTF-8 continuation handling in GROUND state (split across writes)
+      if (state === State.GROUND && utf8Bytes > 0) {
+        if ((byte & 0xc0) === 0x80) {
+          utf8Codepoint = (utf8Codepoint << 6) | (byte & 0x3f);
+          utf8Bytes--;
+          if (utf8Bytes === 0) {
+            this.printCodepoint(utf8Codepoint);
+          }
+          continue;
+        }
+        // Invalid continuation - reset and process byte normally
+        utf8Bytes = 0;
+      }
 
+      // Combined printable batch: handles both ASCII (0x20-0x7E) and UTF-8
+      // (0xC0-0xF7) in a single tight loop. Pre-computes cell template values
+      // and caches grid state to avoid per-character method call overhead.
+      // NOTE: utf8Bytes is guaranteed 0 here when state === GROUND
+      // (the continuation handler above either continues or resets it).
+      if (
+        state === State.GROUND &&
+        ((byte >= 0x20 && byte <= 0x7e) || (byte >= 0xc0 && byte <= 0xf7))
+      ) {
         const buf = this.bufferSet.active;
         const cursor = buf.cursor;
         const grid = buf.grid;
         const gridData = grid.data;
         const gridCols = this.cols;
 
-        // Pre-compute cell template values — attrs/colors don't change within a run
         const fgVal = this.fgIsRGB ? this.fgRGB & 0xff : this.fgIndex;
         const word0Base =
           (this.fgIsRGB ? 1 << 21 : 0) | (this.bgIsRGB ? 1 << 22 : 0) | ((fgVal & 0xff) << 23);
         const word1 =
           ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
 
-        // Cache rowStart — only recompute when cursor.row changes or scroll rotates buffer
         let cachedRow = cursor.row;
         let cachedRowStart = grid.rowStart(cachedRow);
+        let lastCp = 0;
+        let j = i;
 
-        for (let j = i; j < runEnd; j++) {
-          // Resolve pending wrap from a previous print at the last column
+        while (j < len) {
+          const b = data[j];
+          let cp: number;
+
+          // ASCII (single byte) — most common, check first
+          if (b >= 0x20 && b <= 0x7e) {
+            cp = b;
+          }
+          // UTF-8 2-byte (0xC0-0xDF)
+          else if (b >= 0xc0 && b < 0xe0) {
+            if (j + 1 >= len || (data[j + 1] & 0xc0) !== 0x80) break;
+            cp = ((b & 0x1f) << 6) | (data[j + 1] & 0x3f);
+            j += 1;
+          }
+          // UTF-8 3-byte (0xE0-0xEF)
+          else if (b >= 0xe0 && b < 0xf0) {
+            if (j + 2 >= len || (data[j + 1] & 0xc0) !== 0x80 || (data[j + 2] & 0xc0) !== 0x80)
+              break;
+            cp = ((b & 0x0f) << 12) | ((data[j + 1] & 0x3f) << 6) | (data[j + 2] & 0x3f);
+            j += 2;
+          }
+          // UTF-8 4-byte (0xF0-0xF7)
+          else if (b >= 0xf0 && b <= 0xf7) {
+            if (
+              j + 3 >= len ||
+              (data[j + 1] & 0xc0) !== 0x80 ||
+              (data[j + 2] & 0xc0) !== 0x80 ||
+              (data[j + 3] & 0xc0) !== 0x80
+            )
+              break;
+            cp =
+              ((b & 0x07) << 18) |
+              ((data[j + 1] & 0x3f) << 12) |
+              ((data[j + 2] & 0x3f) << 6) |
+              (data[j + 3] & 0x3f);
+            j += 3;
+          }
+          // Non-printable byte — exit batch
+          else {
+            break;
+          }
+
+          // Inline cell write — duplicates printCodepoint() for throughput.
+          // If you change wrap/cell-write/cursor logic here, update printCodepoint() too.
           let scrolled = false;
           if (cursor.wrapPending) {
             cursor.wrapPending = false;
@@ -196,11 +324,8 @@ export class VTParser {
             }
           }
 
-          if (cursor.col >= gridCols) {
-            cursor.col = gridCols - 1;
-          }
+          if (cursor.col >= gridCols) cursor.col = gridCols - 1;
 
-          // Recompute rowStart + mark dirty when row changes or scroll rotated the buffer
           if (cursor.row !== cachedRow || scrolled) {
             grid.markDirty(cachedRow);
             cachedRow = cursor.row;
@@ -208,7 +333,7 @@ export class VTParser {
           }
 
           const idx = cachedRowStart + cursor.col * CELL_SIZE;
-          gridData[idx] = (data[j] & 0x1fffff) | word0Base;
+          gridData[idx] = (cp & 0x1fffff) | word0Base;
           gridData[idx + 1] = word1;
 
           if (this.fgIsRGB) grid.rgbColors[cursor.col] = this.fgRGB;
@@ -219,42 +344,32 @@ export class VTParser {
           } else {
             cursor.col++;
           }
+
+          lastCp = cp;
+          j++;
         }
 
-        // Fence: mark the final row dirty after all cell data writes
         grid.markDirty(cachedRow);
+        if (lastCp > 0) this.lastPrintedCodepoint = lastCp;
 
-        this.lastPrintedCodepoint = data[runEnd - 1];
-        i = runEnd - 1; // loop will i++
-        continue;
-      }
-
-      // UTF-8 continuation handling in GROUND state
-      if (state === State.GROUND && utf8Bytes > 0) {
-        if ((byte & 0xc0) === 0x80) {
-          utf8Codepoint = (utf8Codepoint << 6) | (byte & 0x3f);
-          utf8Bytes--;
-          if (utf8Bytes === 0) {
-            this.printCodepoint(utf8Codepoint);
+        // Handle incomplete UTF-8 at end of buffer
+        if (j < len && data[j] >= 0xc0 && data[j] <= 0xf7) {
+          const b = data[j];
+          if (b < 0xe0) {
+            utf8Bytes = 1;
+            utf8Codepoint = b & 0x1f;
+          } else if (b < 0xf0) {
+            utf8Bytes = 2;
+            utf8Codepoint = b & 0x0f;
+          } else {
+            utf8Bytes = 3;
+            utf8Codepoint = b & 0x07;
           }
+          i = j;
           continue;
         }
-        // Invalid continuation - reset and process byte normally
-        utf8Bytes = 0;
-      }
 
-      // UTF-8 start byte detection in GROUND state
-      if (state === State.GROUND && byte >= 0xc0 && byte <= 0xf7) {
-        if (byte < 0xe0) {
-          utf8Bytes = 1;
-          utf8Codepoint = byte & 0x1f;
-        } else if (byte < 0xf0) {
-          utf8Bytes = 2;
-          utf8Codepoint = byte & 0x0f;
-        } else {
-          utf8Bytes = 3;
-          utf8Codepoint = byte & 0x07;
-        }
+        i = j - 1;
         continue;
       }
 
@@ -299,6 +414,17 @@ export class VTParser {
               this.hasParam = true;
             }
           } while (++j < len && ((data[j] >= 0x30 && data[j] <= 0x39) || data[j] === 0x3b));
+          // Peek: if next byte is a CSI final (0x40-0x7E), dispatch directly
+          // without returning to the table for one more lookup.
+          if (state === State.CSI_PARAM && j < len) {
+            const fb = data[j];
+            if (fb >= 0x40 && fb <= 0x7e) {
+              this.csiDispatch(fb);
+              state = State.GROUND;
+              i = j;
+              break;
+            }
+          }
           i = j - 1;
           break;
         }
@@ -348,6 +474,8 @@ export class VTParser {
     this.utf8Codepoint = utf8Codepoint;
   }
 
+  // Called from: UTF-8 split-write continuation, Action.PRINT fallback, CSI REP.
+  // The combined batch in write() inlines this logic for throughput — keep in sync.
   private printCodepoint(cp: number): void {
     const buf = this.bufferSet.active;
     const cursor = buf.cursor;
