@@ -1,0 +1,2 @@
+hash:6351
+Terminal component: forwardRef. Props: cols/rows/fontSize/fontFamily/theme/scrollback/onData/onResize/onTitleChange/autoFit/className/style/renderMode/renderer/useWorker. TerminalHandle: write/resize/focus/blur/fit. ResizeObserver+visualViewport for autoFit.

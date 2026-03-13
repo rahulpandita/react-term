@@ -1,0 +1,2 @@
+hash:3604
+Buffer: wraps CellGrid, cursor, scrollTop/Bottom, tabStops, saveCursor/restoreCursor, scrollUp/scrollDown. BufferSet: normal+alternate+active, scrollback ring (5000), activateAlternate/activateNormal, scrollUpWithHistory.

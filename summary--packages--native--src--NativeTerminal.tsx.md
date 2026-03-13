@@ -1,0 +1,2 @@
+hash:9239
+NativeTerminal: React Native component. Uses BufferSet+VTParser+SkiaRenderer+GestureHandler+KeyboardHandler. onRenderCommands(RenderCommand[]) callback. NativeTerminalHandle: write/resize/focus/blur. rAF render loop.

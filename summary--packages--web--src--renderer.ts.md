@@ -1,0 +1,2 @@
+hash:16170
+IRenderer interface: attach/render/resize/setTheme/setSelection/setHighlights/getCellSize/dispose. Canvas2DRenderer: dirty-row-only rendering, grouped fillText runs. build256Palette exported. HighlightRange type.

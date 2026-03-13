@@ -1,0 +1,2 @@
+hash:27791
+WebTerminal: orchestrates BufferSet/VTParser, WorkerBridge, RenderBridge, Canvas2D/WebGL renderers, InputHandler, AccessibilityManager, addons. Options: cols/rows/fontSize/fontFamily/theme/scrollback/useWorker/renderer/renderMode/onData/onResize/onTitleChange.
