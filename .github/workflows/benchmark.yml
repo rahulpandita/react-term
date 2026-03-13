@@ -26,6 +26,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Run parser benchmarks
         run: pnpm --filter @react-term/bench bench | tee parser-bench-output.txt
+        env:
+          NO_COLOR: 1
       - name: Upload parser results
         uses: actions/upload-artifact@v4
         with:
@@ -75,30 +77,77 @@ jobs:
             const fs = require('fs');
             const path = require('path');
 
+            // Strip ANSI escape codes from text
+            const stripAnsi = (s) => s.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+
             let report = '# Benchmark Report\n\n';
 
             // --- Parser benchmarks ---
             report += '## Parser Benchmarks (vitest bench)\n\n';
             const parserFile = path.join('artifacts', 'parser-bench-results', 'parser-bench-output.txt');
             if (fs.existsSync(parserFile)) {
-              const parserOutput = fs.readFileSync(parserFile, 'utf-8');
-              // Extract the benchmark table lines (vitest bench outputs a formatted table)
-              const lines = parserOutput.split('\n');
-              report += '```\n';
-              // Include lines that look like benchmark output (contain timing info or headers)
-              let inBench = false;
+              const raw = stripAnsi(fs.readFileSync(parserFile, 'utf-8'));
+              const lines = raw.split('\n');
+
+              // Parse structured data from vitest bench output
+              const scenarios = [];
+              let currentScenario = null;
               for (const line of lines) {
-                if (line.includes('✓') || line.includes('name') || line.includes('hz') ||
-                    line.includes('react-term') || line.includes('xterm') ||
-                    line.includes('│') || line.includes('─') || line.includes('Benchmark')) {
-                  report += line + '\n';
-                  inBench = true;
-                } else if (inBench && line.trim() === '') {
-                  report += '\n';
-                  inBench = false;
+                // Scenario header: "✓ src/benches/parser.bench.ts > scenario-name 1234ms"
+                const scenarioMatch = line.match(/[✓✗]\s+\S+\s+>\s+(\S+)/);
+                if (scenarioMatch) {
+                  currentScenario = { name: scenarioMatch[1], results: [] };
+                  scenarios.push(currentScenario);
+                  continue;
+                }
+                // Result row: "· react-term  10.4681  89.5468 ..."
+                const resultMatch = line.match(/[·]\s+([\w-]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+                if (resultMatch && currentScenario) {
+                  currentScenario.results.push({
+                    name: resultMatch[1],
+                    hz: parseFloat(resultMatch[2]),
+                    min: parseFloat(resultMatch[3]),
+                    max: parseFloat(resultMatch[4]),
+                    mean: parseFloat(resultMatch[5]),
+                  });
+                  continue;
+                }
+                // Comparison line: "react-term - ... > scenario-name\n  1.58x faster than xterm-headless"
+                const compMatch = line.match(/([\d.]+)x\s+faster than\s+([\w-]+)/);
+                if (compMatch && currentScenario) {
+                  currentScenario.speedup = parseFloat(compMatch[1]);
+                  currentScenario.faster = line.includes('react-term') ? 'react-term' : compMatch[2];
                 }
               }
-              report += '```\n\n';
+
+              if (scenarios.length > 0) {
+                report += '| Scenario | react-term (ms) | xterm (ms) | Winner | Speedup |\n';
+                report += '|----------|----------------|-----------|--------|--------|\n';
+                for (const s of scenarios) {
+                  const rt = s.results.find(r => r.name === 'react-term');
+                  const xt = s.results.find(r => r.name === 'xterm-headless');
+                  const rtMean = rt ? rt.mean.toFixed(1) : '-';
+                  const xtMean = xt ? xt.mean.toFixed(1) : '-';
+                  let winner = '-';
+                  let speedup = '-';
+                  if (rt && xt) {
+                    if (rt.mean < xt.mean) {
+                      winner = 'react-term';
+                      speedup = (xt.mean / rt.mean).toFixed(2) + 'x';
+                    } else {
+                      winner = 'xterm';
+                      speedup = (rt.mean / xt.mean).toFixed(2) + 'x';
+                    }
+                  }
+                  report += `| ${s.name} | ${rtMean} | ${xtMean} | ${winner} | ${speedup} |\n`;
+                }
+                report += '\n';
+              }
+
+              // Also include raw output in a collapsed section
+              report += '<details><summary>Raw vitest bench output</summary>\n\n```\n';
+              report += raw.trim();
+              report += '\n```\n</details>\n\n';
             } else {
               report += '_Parser benchmark results not available._\n\n';
             }
