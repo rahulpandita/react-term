@@ -12,5 +12,8 @@
   "dependencies": {
     "@react-term/core": "workspace:*",
     "@xterm/headless": "^5.5.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
   }
 }
