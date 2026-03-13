@@ -64,26 +64,73 @@ test('e2e benchmark matrix', async ({ page }) => {
   const outPath = path.join(resultsDir, `benchmark-${timestamp}.json`);
   fs.writeFileSync(outPath, JSON.stringify(allResults, null, 2));
 
-  // Print summary table
+  // Group results by terminal+scenario
   const grouped = new Map<string, BenchmarkResult[]>();
   for (const r of allResults) {
-    const key = `${r.terminal} | ${r.scenario}`;
+    const key = `${r.terminal}|${r.scenario}`;
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(r);
   }
 
-  console.log('\n=== Benchmark Results ===');
-  console.log('Terminal     | Scenario       | Avg Time (ms) | Avg FPS | MB/s   | Runs');
-  console.log('-------------|----------------|---------------|---------|--------|-----');
+  // Compute averages per terminal+scenario
+  const avg = (runs: BenchmarkResult[], fn: (r: BenchmarkResult) => number) =>
+    runs.reduce((s, r) => s + fn(r), 0) / runs.length;
+
+  // --- Detailed results table ---
+  const detailCols = ['Terminal', 'Scenario', 'Avg Time (ms)', 'Avg FPS', 'MB/s', 'Runs'];
+  const detailRows: string[][] = [];
   for (const [key, runs] of grouped) {
-    const avgTime = runs.reduce((s, r) => s + (r.metrics.totalTimeMs ?? 0), 0) / runs.length;
-    const avgFps = runs.reduce((s, r) => s + (r.metrics.avgFps ?? 0), 0) / runs.length;
-    const avgMBps = runs.reduce((s, r) => s + (r.metrics.throughputMBps ?? 0), 0) / runs.length;
-    const [term, scen] = key.split(' | ');
-    console.log(
-      `${term.padEnd(12)} | ${scen.padEnd(14)} | ${avgTime.toFixed(1).padStart(13)} | ${avgFps.toFixed(1).padStart(7)} | ${avgMBps.toFixed(2).padStart(6)} | ${runs.length}`
-    );
+    const [term, scen] = key.split('|');
+    detailRows.push([
+      term,
+      scen,
+      avg(runs, r => r.metrics.totalTimeMs).toFixed(1),
+      avg(runs, r => r.metrics.avgFps).toFixed(1),
+      avg(runs, r => r.metrics.throughputMBps).toFixed(2),
+      String(runs.length),
+    ]);
   }
+
+  // --- Comparison table ---
+  const byScenario = new Map<string, { rt: number; xt: number }>();
+  for (const [key, runs] of grouped) {
+    const [terminal, scenario] = key.split('|');
+    const mbps = avg(runs, r => r.metrics.throughputMBps);
+    if (!byScenario.has(scenario)) byScenario.set(scenario, { rt: 0, xt: 0 });
+    const entry = byScenario.get(scenario)!;
+    if (terminal === 'react-term') entry.rt = mbps;
+    else entry.xt = mbps;
+  }
+
+  const compCols = ['Scenario', 'react-term (MB/s)', 'xterm (MB/s)', 'Speedup'];
+  const compRows: string[][] = [];
+  for (const [scenario, { rt, xt }] of byScenario) {
+    const speedup = xt > 0 ? `${(rt / xt).toFixed(1)}x` : '-';
+    compRows.push([scenario, rt.toFixed(2), xt.toFixed(2), speedup]);
+  }
+
+  // --- Box-drawing table printer ---
+  function printTable(title: string, cols: string[], rows: string[][]) {
+    const widths = cols.map((c, i) =>
+      Math.max(c.length, ...rows.map(r => r[i].length))
+    );
+    const pad = (s: string, w: number) => s + ' '.repeat(w - s.length);
+    const line = (left: string, mid: string, right: string, fill: string) =>
+      left + widths.map(w => fill.repeat(w + 2)).join(mid) + right;
+
+    console.log(`\n${title}`);
+    console.log(line('┌', '┬', '┐', '─'));
+    console.log('│ ' + cols.map((c, i) => pad(c, widths[i])).join(' │ ') + ' │');
+    console.log(line('├', '┼', '┤', '─'));
+    for (let r = 0; r < rows.length; r++) {
+      console.log('│ ' + rows[r].map((c, i) => pad(c, widths[i])).join(' │ ') + ' │');
+      if (r < rows.length - 1) console.log(line('├', '┼', '┤', '─'));
+    }
+    console.log(line('└', '┴', '┘', '─'));
+  }
+
+  printTable('=== Benchmark Results ===', detailCols, detailRows);
+  printTable('=== Throughput Comparison ===', compCols, compRows);
 
   console.log(`\nWrote ${allResults.length} results to ${outPath}`);
   expect(allResults.length).toBeGreaterThan(0);
