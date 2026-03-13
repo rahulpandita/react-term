@@ -10,7 +10,6 @@
   "references": [
     { "path": "../core" },
     { "path": "../web" },
-    { "path": "../react" },
-    { "path": "../bench" }
+    { "path": "../react" }
   ]
 }
