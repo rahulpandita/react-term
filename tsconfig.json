@@ -5,6 +5,7 @@
     { "path": "packages/web" },
     { "path": "packages/react" },
     { "path": "packages/demo" },
-    { "path": "packages/native" }
+    { "path": "packages/native" },
+    { "path": "packages/bench" }
   ]
 }

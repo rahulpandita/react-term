@@ -12,6 +12,7 @@
     "clean": "pnpm -r exec rm -rf dist",
     "lint": "biome check packages/",
     "lint:fix": "biome check --write packages/",
+    "bench": "pnpm --filter @react-term/bench bench",
     "typecheck": "tsc -b",
     "prepare": "git config core.hooksPath .githooks"
   },

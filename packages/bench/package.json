@@ -1,0 +1,16 @@
+{
+  "name": "@react-term/bench",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "bench": "vitest bench --run",
+    "bench:watch": "vitest bench",
+    "profile": "node --cpu-prof --cpu-prof-dir=./profiles --import tsx src/profile.ts"
+  },
+  "dependencies": {
+    "@react-term/core": "workspace:*",
+    "@xterm/headless": "^5.5.0"
+  }
+}
