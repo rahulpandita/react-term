@@ -1,2 +1,1 @@
-hash:40475
-WebGLRenderer: 2 draw calls/frame (bg rects + fg glyphs). Alpha-only glyph atlas. hexToFloat4/glyphCacheKey/GlyphInfo exported. Instanced drawElementsInstanced. 256-palette. Falls back to Canvas2D if WebGL2 unavailable.
+h:40475

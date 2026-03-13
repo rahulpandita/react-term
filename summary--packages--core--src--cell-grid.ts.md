@@ -1,2 +1,1 @@
-hash:9301
-CellGrid: SAB-backed cell store, 2xUint32/cell. dirtyRows:Int32Array. rgbColors:Uint32Array(512). cursorData:Int32Array(4). setCell/markDirty/setCursor/getCursor. extractText/normalizeSelection exported.
+h:9301
