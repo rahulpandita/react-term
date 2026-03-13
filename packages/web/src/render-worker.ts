@@ -887,10 +887,9 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
     try {
       handleMessage(event.data);
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
       (self as unknown as DedicatedWorkerGlobalScope).postMessage({
         type: 'error',
-        message,
+        message: e instanceof Error ? e.message : 'Internal render error',
       });
     }
   },

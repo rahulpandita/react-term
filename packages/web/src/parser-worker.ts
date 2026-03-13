@@ -197,8 +197,7 @@ function postError(message: string): void {
     try {
       handleMessage(event.data);
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      postError(message);
+      postError(e instanceof Error ? e.message : 'Internal parser error');
     }
   },
 );
