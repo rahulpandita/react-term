@@ -1,1 +1,1 @@
-{"run":"2026-03-12","pr":"test-assist/buffer-unit-tests"}
+{"run":"2026-03-13","tasks":["commands","react-tests","summary"],"test":"node_modules/.bin/vitest run","lint":"node_modules/.bin/biome check --write packages/","note":"pnpm not in CI; use npm+node_modules/.bin","backlog":["react-component-tests(needs-react-testing-lib)","perf-regression-ci-flaky"],"done":["buffer-tests-in-main","pane-layout-tests-pr"]}
