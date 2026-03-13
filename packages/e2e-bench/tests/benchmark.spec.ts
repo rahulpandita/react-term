@@ -8,7 +8,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TERMINALS = ['react-term', 'xterm'] as const;
 // Subset of scenarios for automated benchmarks (the heavy-hitters)
-const SCENARIOS = ['ascii', 'real-world', 'sgr-color', 'scrolling', 'cursor-motion', 'unicode'] as const;
+const SCENARIOS = [
+  // Original scenarios
+  'ascii', 'real-world', 'sgr-color', 'scrolling', 'cursor-motion', 'unicode',
+  // vtebench scenarios (alacritty/vtebench standard)
+  'vte-dense-cells', 'vte-light-cells', 'vte-medium-cells', 'vte-cursor-motion',
+  'vte-scrolling', 'vte-scrolling-fullscreen', 'vte-unicode',
+] as const;
 const RUNS_PER_CONFIG = 3;
 
 test('e2e benchmark matrix', async ({ page }) => {
