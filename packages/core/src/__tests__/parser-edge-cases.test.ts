@@ -605,5 +605,43 @@ describe("VTParser Edge Cases", () => {
       expect(readLineTrimmed(bs, 0)).toBe("Bold");
       expect(grid.getAttrs(0, 0) & 0x01).toBe(0x01); // bold
     });
+
+    it("parameterless CSI fast-path produces correct result (ESC[A)", () => {
+      // Move cursor down then use ESC[A (cursor up) via parameterless fast-path
+      write(parser, "\x1b[2;1H"); // row 2, col 1
+      write(parser, "\x1b[A"); // cursor up — should go to row 1
+      write(parser, "X");
+      expect(readLineTrimmed(bs, 0)).toBe("X");
+    });
+
+    it("CSI private prefix fast-path matches table path (ESC[?25l/h)", () => {
+      // ESC[?25l hides cursor, ESC[?25h shows it — exercises prefix fast-path
+      write(parser, "\x1b[?25l");
+      write(parser, "\x1b[?25h");
+      // Should not crash; cursor visibility is mode state, just verify no error
+      write(parser, "OK");
+      expect(readLineTrimmed(bs, 0)).toBe("OK");
+    });
+
+    it("ESC\\ clears state from aborted CSI sequence", () => {
+      // Start a CSI, abort with ESC\, then start a new sequence
+      // The clear() in ESC\ should prevent param leakage
+      write(parser, "\x1b[31"); // partial CSI (fg red, no final byte yet)
+      write(parser, "\x1b\\"); // ST aborts the CSI
+      write(parser, "\x1b[mA"); // SGR reset + print A — should have default attrs
+      const grid = bs.active.grid;
+      expect(readLineTrimmed(bs, 0)).toBe("A");
+      expect(grid.getFgIndex(0, 0)).toBe(7); // default fg (white)
+    });
+
+    it("OSC terminated by ESC\\ dispatches correctly", () => {
+      // ESC\\ should dispatch OSC (bug fix: previously ESC\\ did not call oscDispatch)
+      let title = "";
+      parser.setTitleChangeCallback((t) => {
+        title = t;
+      });
+      write(parser, "\x1b]0;ST-Title\x1b\\");
+      expect(title).toBe("ST-Title");
+    });
   });
 });
