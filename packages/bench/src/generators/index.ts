@@ -52,9 +52,13 @@ export const scenarios: Scenario[] = [
   vteCursorMotion(),
   vteScrolling(),
   vteScrollingFullscreen(),
+  vteUnicode(),
+];
+
+/** Slow scroll-region scenarios — excluded from default CI runs, available for local use. */
+export const slowScenarios: Scenario[] = [
   vteScrollingBottomRegion(),
   vteScrollingTopRegion(),
   vteScrollingBottomSmallRegion(),
   vteScrollingTopSmallRegion(),
-  vteUnicode(),
 ];
