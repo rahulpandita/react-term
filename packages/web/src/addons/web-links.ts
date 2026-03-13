@@ -82,6 +82,7 @@ export class WebLinksAddon implements ITerminalAddon {
   constructor(handler?: (url: string) => void) {
     this.handler = handler ?? ((url: string) => {
       if (typeof window !== 'undefined') {
+        if (!url.startsWith('http://') && !url.startsWith('https://')) return;
         window.open(url, '_blank');
       }
     });

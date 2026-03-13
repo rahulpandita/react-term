@@ -689,6 +689,7 @@ export class VTParser {
       case 0: // Set icon name + window title
       case 1: // Set icon name
       case 2: // Set window title
+        // Safety: receivers must treat this as plain text, never as HTML.
         this.onTitleChange?.(data);
         break;
       // Other OSC codes (4, 7, 8, 10, 11, 12, 52, 104, 133) can be added later
