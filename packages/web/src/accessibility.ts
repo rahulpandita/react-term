@@ -8,7 +8,7 @@
  * Inspired by the xterm.js accessibility approach.
  */
 
-import type { CellGrid } from '@react-term/core';
+import type { CellGrid } from "@react-term/core";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,12 +20,12 @@ import type { CellGrid } from '@react-term/core';
  */
 export function extractRowText(grid: CellGrid, row: number): string {
   const cols = grid.cols;
-  let text = '';
+  let text = "";
   for (let col = 0; col < cols; col++) {
     const cp = grid.getCodepoint(row, col);
-    text += cp > 0x20 ? String.fromCodePoint(cp) : ' ';
+    text += cp > 0x20 ? String.fromCodePoint(cp) : " ";
   }
-  return text.replace(/\s+$/, '');
+  return text.replace(/\s+$/, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -33,13 +33,13 @@ export function extractRowText(grid: CellGrid, row: number): string {
 // ---------------------------------------------------------------------------
 
 export class AccessibilityManager {
-  private container: HTMLElement;
   private liveRegion: HTMLElement;
   private treeContainer: HTMLElement;
   private rowElements: HTMLElement[];
   private grid: CellGrid;
   private rows: number;
   private cols: number;
+  private container: HTMLElement;
   private disposed = false;
 
   /** Throttle interval in milliseconds (10 Hz). */
@@ -57,33 +57,33 @@ export class AccessibilityManager {
     // Create the off-screen accessibility tree container.
     // It is positioned absolutely, transparent, and ignores pointer events
     // so it does not interfere with the canvas rendering.
-    this.treeContainer = document.createElement('div');
-    this.treeContainer.setAttribute('role', 'grid');
-    this.treeContainer.setAttribute('aria-label', 'Terminal output');
-    this.treeContainer.setAttribute('aria-readonly', 'true');
+    this.treeContainer = document.createElement("div");
+    this.treeContainer.setAttribute("role", "grid");
+    this.treeContainer.setAttribute("aria-label", "Terminal output");
+    this.treeContainer.setAttribute("aria-readonly", "true");
     Object.assign(this.treeContainer.style, {
-      position: 'absolute',
-      top: '0',
-      left: '0',
-      width: '1px',
-      height: '1px',
-      overflow: 'hidden',
-      opacity: '0',
-      pointerEvents: 'none',
+      position: "absolute",
+      top: "0",
+      left: "0",
+      width: "1px",
+      height: "1px",
+      overflow: "hidden",
+      opacity: "0",
+      pointerEvents: "none",
       // clip-rect keeps it off-screen for sighted users while remaining
       // accessible to screen readers (unlike display:none).
-      clip: 'rect(0 0 0 0)',
-      clipPath: 'inset(50%)',
-      whiteSpace: 'nowrap',
+      clip: "rect(0 0 0 0)",
+      clipPath: "inset(50%)",
+      whiteSpace: "nowrap",
     });
 
     // Build initial row elements
     this.rowElements = [];
     for (let r = 0; r < rows; r++) {
-      const rowEl = document.createElement('div');
-      rowEl.setAttribute('role', 'row');
-      rowEl.setAttribute('aria-posinset', String(r + 1));
-      rowEl.setAttribute('aria-setsize', String(rows));
+      const rowEl = document.createElement("div");
+      rowEl.setAttribute("role", "row");
+      rowEl.setAttribute("aria-posinset", String(r + 1));
+      rowEl.setAttribute("aria-setsize", String(rows));
       this.treeContainer.appendChild(rowEl);
       this.rowElements.push(rowEl);
     }
@@ -91,22 +91,22 @@ export class AccessibilityManager {
     container.appendChild(this.treeContainer);
 
     // Create live region for announcements (e.g. bell, output chunks)
-    this.liveRegion = document.createElement('div');
-    this.liveRegion.setAttribute('role', 'log');
-    this.liveRegion.setAttribute('aria-live', 'polite');
-    this.liveRegion.setAttribute('aria-relevant', 'additions');
+    this.liveRegion = document.createElement("div");
+    this.liveRegion.setAttribute("role", "log");
+    this.liveRegion.setAttribute("aria-live", "polite");
+    this.liveRegion.setAttribute("aria-relevant", "additions");
     Object.assign(this.liveRegion.style, {
-      position: 'absolute',
-      top: '0',
-      left: '0',
-      width: '1px',
-      height: '1px',
-      overflow: 'hidden',
-      opacity: '0',
-      pointerEvents: 'none',
-      clip: 'rect(0 0 0 0)',
-      clipPath: 'inset(50%)',
-      whiteSpace: 'nowrap',
+      position: "absolute",
+      top: "0",
+      left: "0",
+      width: "1px",
+      height: "1px",
+      overflow: "hidden",
+      opacity: "0",
+      pointerEvents: "none",
+      clip: "rect(0 0 0 0)",
+      clipPath: "inset(50%)",
+      whiteSpace: "nowrap",
     });
     container.appendChild(this.liveRegion);
   }
@@ -138,18 +138,19 @@ export class AccessibilityManager {
   /**
    * Announce text to screen readers via the live region.
    */
-  announce(text: string, priority: 'polite' | 'assertive' = 'polite'): void {
+  announce(text: string, priority: "polite" | "assertive" = "polite"): void {
     if (this.disposed) return;
 
-    this.liveRegion.setAttribute('aria-live', priority);
+    this.liveRegion.setAttribute("aria-live", priority);
 
-    const span = document.createElement('span');
+    const span = document.createElement("span");
     span.textContent = text;
     this.liveRegion.appendChild(span);
 
     // Keep the live region from growing unboundedly.
     while (this.liveRegion.childNodes.length > 20) {
-      this.liveRegion.removeChild(this.liveRegion.firstChild!);
+      const first = this.liveRegion.firstChild;
+      if (first) this.liveRegion.removeChild(first);
     }
   }
 
@@ -163,20 +164,20 @@ export class AccessibilityManager {
 
     // Rebuild row elements if the count changed
     while (this.rowElements.length > rows) {
-      const el = this.rowElements.pop()!;
-      this.treeContainer.removeChild(el);
+      const el = this.rowElements.pop();
+      if (el) this.treeContainer.removeChild(el);
     }
     while (this.rowElements.length < rows) {
-      const rowEl = document.createElement('div');
-      rowEl.setAttribute('role', 'row');
+      const rowEl = document.createElement("div");
+      rowEl.setAttribute("role", "row");
       this.treeContainer.appendChild(rowEl);
       this.rowElements.push(rowEl);
     }
 
     // Update aria attributes
     for (let r = 0; r < rows; r++) {
-      this.rowElements[r].setAttribute('aria-posinset', String(r + 1));
-      this.rowElements[r].setAttribute('aria-setsize', String(rows));
+      this.rowElements[r].setAttribute("aria-posinset", String(r + 1));
+      this.rowElements[r].setAttribute("aria-setsize", String(rows));
     }
   }
 

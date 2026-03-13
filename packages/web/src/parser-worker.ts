@@ -7,13 +7,20 @@
  * ArrayBuffers in the flush message.
  */
 
-import { BufferSet, VTParser, CellGrid, CELL_SIZE } from '@react-term/core';
+import { BufferSet, VTParser } from "@react-term/core";
+
+// Type declaration for Web Worker global scope (not included in DOM lib)
+declare type DedicatedWorkerGlobalScope = typeof globalThis & {
+  postMessage(message: unknown, transfer?: Transferable[]): void;
+  close(): void;
+  addEventListener(type: string, listener: (event: MessageEvent) => void): void;
+};
 
 // ---- Message types (worker ↔ main) ----------------------------------------
 
 /** Messages the worker can receive from the main thread. */
 interface InitMessage {
-  type: 'init';
+  type: "init";
   cols: number;
   rows: number;
   scrollback: number;
@@ -22,26 +29,26 @@ interface InitMessage {
 }
 
 interface WriteMessage {
-  type: 'write';
+  type: "write";
   data: ArrayBuffer; // Transferable
 }
 
 interface ResizeMessage {
-  type: 'resize';
+  type: "resize";
   cols: number;
   rows: number;
   scrollback: number;
 }
 
 interface DisposeMessage {
-  type: 'dispose';
+  type: "dispose";
 }
 
 type InboundMessage = InitMessage | WriteMessage | ResizeMessage | DisposeMessage;
 
 /** Messages the worker posts back to the main thread. */
 export interface FlushMessage {
-  type: 'flush';
+  type: "flush";
   cursor: { row: number; col: number; visible: boolean; style: string };
   /** true when the parser switched to or from the alternate buffer. */
   isAlternate: boolean;
@@ -55,7 +62,7 @@ export interface FlushMessage {
 }
 
 export interface ErrorMessage {
-  type: 'error';
+  type: "error";
   message: string;
 }
 
@@ -69,24 +76,20 @@ let usingSAB = false;
 
 // ---- Helpers ---------------------------------------------------------------
 
-function createBufferAndParser(
-  cols: number,
-  rows: number,
-  scrollback: number,
-): void {
+function createBufferAndParser(cols: number, rows: number, scrollback: number): void {
   bufferSet = new BufferSet(cols, rows, scrollback);
   parser = new VTParser(bufferSet);
 }
 
 function buildFlush(bytesProcessed: number): FlushMessage {
   if (!bufferSet || !parser) {
-    throw new Error('Worker not initialised');
+    throw new Error("Worker not initialised");
   }
 
   const cursor = parser.cursor;
 
   const msg: FlushMessage = {
-    type: 'flush',
+    type: "flush",
     cursor: {
       row: cursor.row,
       col: cursor.col,
@@ -113,7 +116,7 @@ function buildFlush(bytesProcessed: number): FlushMessage {
 
 function handleMessage(msg: InboundMessage): void {
   switch (msg.type) {
-    case 'init': {
+    case "init": {
       usingSAB = msg.sharedBuffer !== undefined;
 
       if (usingSAB) {
@@ -132,9 +135,9 @@ function handleMessage(msg: InboundMessage): void {
       break;
     }
 
-    case 'write': {
+    case "write": {
       if (!parser) {
-        postError('Worker not initialised — ignoring write');
+        postError("Worker not initialised — ignoring write");
         return;
       }
       const bytes = new Uint8Array(msg.data);
@@ -148,15 +151,12 @@ function handleMessage(msg: InboundMessage): void {
         const transferables: ArrayBuffer[] = [];
         if (flush.cellData) transferables.push(flush.cellData);
         if (flush.dirtyRows) transferables.push(flush.dirtyRows);
-        (self as unknown as DedicatedWorkerGlobalScope).postMessage(
-          flush,
-          transferables,
-        );
+        (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush, transferables);
       }
       break;
     }
 
-    case 'resize': {
+    case "resize": {
       createBufferAndParser(msg.cols, msg.rows, msg.scrollback);
       // Send a full flush so the main thread gets initial state.
       const flush = buildFlush(0);
@@ -164,17 +164,14 @@ function handleMessage(msg: InboundMessage): void {
         const transferables: ArrayBuffer[] = [];
         if (flush.cellData) transferables.push(flush.cellData);
         if (flush.dirtyRows) transferables.push(flush.dirtyRows);
-        (self as unknown as DedicatedWorkerGlobalScope).postMessage(
-          flush,
-          transferables,
-        );
+        (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush, transferables);
       } else {
         (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush);
       }
       break;
     }
 
-    case 'dispose': {
+    case "dispose": {
       bufferSet = null;
       parser = null;
       // Close the worker — it cannot be reused.
@@ -185,20 +182,19 @@ function handleMessage(msg: InboundMessage): void {
 }
 
 function postError(message: string): void {
-  const err: ErrorMessage = { type: 'error', message };
+  const err: ErrorMessage = { type: "error", message };
   (self as unknown as DedicatedWorkerGlobalScope).postMessage(err);
 }
 
 // ---- Bootstrap -------------------------------------------------------------
 
 (self as unknown as DedicatedWorkerGlobalScope).addEventListener(
-  'message',
+  "message",
   (event: MessageEvent<InboundMessage>) => {
     try {
       handleMessage(event.data);
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      postError(message);
+      postError(e instanceof Error ? e.message : "Internal parser error");
     }
   },
 );

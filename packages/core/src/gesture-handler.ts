@@ -7,17 +7,17 @@
  * (React Native gesture handler).
  */
 
-import type { SelectionRange } from './cell-grid.js';
+import type { SelectionRange } from "./cell-grid.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export enum GestureState {
-  BEGAN = 'began',
-  ACTIVE = 'active',
-  END = 'end',
-  CANCELLED = 'cancelled',
+  BEGAN = "began",
+  ACTIVE = "active",
+  END = "end",
+  CANCELLED = "cancelled",
 }
 
 export interface GestureConfig {
@@ -138,8 +138,7 @@ export class GestureHandler {
    */
   private computeFlingRows(velocityPxPerMs: number): number {
     // d = v^2 / (2 * a)   — kinematic distance from constant deceleration
-    const distancePx =
-      (velocityPxPerMs * velocityPxPerMs) / (2 * FLING_DECELERATION);
+    const distancePx = (velocityPxPerMs * velocityPxPerMs) / (2 * FLING_DECELERATION);
     const sign = velocityPxPerMs > 0 ? 1 : -1;
     return Math.round((sign * distancePx) / this.cellHeight);
   }

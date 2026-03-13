@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { WorkerBridge } from '../worker-bridge.js';
-import { CellGrid } from '@react-term/core';
-import type { CursorState } from '@react-term/core';
+import type { CursorState } from "@react-term/core";
+import { CellGrid } from "@react-term/core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WorkerBridge } from "../worker-bridge.js";
 
 // ---------------------------------------------------------------------------
 // Mock Worker
@@ -9,22 +9,22 @@ import type { CursorState } from '@react-term/core';
 
 class MockWorker {
   onmessage: ((ev: MessageEvent) => void) | null = null;
-  private listeners = new Map<string, Set<Function>>();
+  private listeners = new Map<string, Set<(event: Event) => void>>();
   postMessage = vi.fn();
   terminate = vi.fn();
 
-  addEventListener(type: string, handler: Function): void {
+  addEventListener(type: string, handler: (event: Event) => void): void {
     if (!this.listeners.has(type)) this.listeners.set(type, new Set());
-    this.listeners.get(type)!.add(handler);
+    this.listeners.get(type)?.add(handler);
   }
 
-  removeEventListener(type: string, handler: Function): void {
+  removeEventListener(type: string, handler: (event: Event) => void): void {
     this.listeners.get(type)?.delete(handler);
   }
 
   /** Simulate a message from the worker. */
   simulateMessage(data: unknown): void {
-    const handlers = this.listeners.get('message');
+    const handlers = this.listeners.get("message");
     if (handlers) {
       for (const h of handlers) {
         h({ data } as MessageEvent);
@@ -34,7 +34,7 @@ class MockWorker {
 
   /** Simulate an error from the worker. */
   simulateError(message: string): void {
-    const handlers = this.listeners.get('error');
+    const handlers = this.listeners.get("error");
     if (handlers) {
       for (const h of handlers) {
         h({ message } as ErrorEvent);
@@ -46,27 +46,29 @@ class MockWorker {
 let mockWorkerInstance: MockWorker;
 
 // Stub `new Worker(...)` — vitest runs in Node so there is no real Worker.
+function createMockWorkerClass() {
+  return function MockWorkerConstructor() {
+    mockWorkerInstance = new MockWorker();
+    // Return mock so WorkerBridge interacts with our mock.
+    return mockWorkerInstance as unknown as Worker;
+  } as unknown as typeof Worker;
+}
+
+vi.stubGlobal("Worker", createMockWorkerClass());
+
+// Stub URL so `new URL(...)` works in Node.
 vi.stubGlobal(
-  'Worker',
+  "URL",
   class {
-    constructor() {
-      mockWorkerInstance = new MockWorker();
-      // Copy methods so WorkerBridge interacts with our mock.
-      return mockWorkerInstance as unknown as Worker;
+    href: string;
+    constructor(path: string, base?: string | URL) {
+      this.href = `${base ?? ""}${path}`;
+    }
+    toString(): string {
+      return this.href;
     }
   },
 );
-
-// Stub URL so `new URL(...)` works in Node.
-vi.stubGlobal('URL', class {
-  href: string;
-  constructor(path: string, base?: string | URL) {
-    this.href = `${base ?? ''}${path}`;
-  }
-  toString(): string {
-    return this.href;
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,14 +79,14 @@ function makeGrid(): CellGrid {
 }
 
 function makeCursor(): CursorState {
-  return { row: 0, col: 0, visible: true, style: 'block' };
+  return { row: 0, col: 0, visible: true, style: "block", wrapPending: false };
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('WorkerBridge', () => {
+describe("WorkerBridge", () => {
   let grid: CellGrid;
   let cursor: CursorState;
   let flushSpy: ReturnType<typeof vi.fn>;
@@ -105,55 +107,55 @@ describe('WorkerBridge', () => {
 
   // ---- Creation & start ---------------------------------------------------
 
-  it('can be created without throwing', () => {
+  it("can be created without throwing", () => {
     expect(bridge).toBeDefined();
   });
 
-  it('sends an init message when started', () => {
+  it("sends an init message when started", () => {
     bridge.start(80, 24, 1000);
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'init', cols: 80, rows: 24, scrollback: 1000 }),
+      expect.objectContaining({ type: "init", cols: 80, rows: 24, scrollback: 1000 }),
     );
   });
 
   // ---- write --------------------------------------------------------------
 
-  it('sends a write message to the worker', () => {
+  it("sends a write message to the worker", () => {
     bridge.start(80, 24, 1000);
     const data = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]); // "Hello"
     bridge.write(data);
 
     // The second call should be the write (first is init).
     const writeCalls = mockWorkerInstance.postMessage.mock.calls.filter(
-      (c) => c[0]?.type === 'write',
+      (c) => c[0]?.type === "write",
     );
     expect(writeCalls.length).toBe(1);
-    expect(writeCalls[0][0].type).toBe('write');
+    expect(writeCalls[0][0].type).toBe("write");
   });
 
   // ---- resize -------------------------------------------------------------
 
-  it('sends a resize message to the worker', () => {
+  it("sends a resize message to the worker", () => {
     bridge.start(80, 24, 1000);
     bridge.resize(120, 40, 2000);
 
     const resizeCalls = mockWorkerInstance.postMessage.mock.calls.filter(
-      (c) => c[0]?.type === 'resize',
+      (c) => c[0]?.type === "resize",
     );
     expect(resizeCalls.length).toBe(1);
     expect(resizeCalls[0][0]).toEqual(
-      expect.objectContaining({ type: 'resize', cols: 120, rows: 40, scrollback: 2000 }),
+      expect.objectContaining({ type: "resize", cols: 120, rows: 40, scrollback: 2000 }),
     );
   });
 
   // ---- dispose ------------------------------------------------------------
 
-  it('sends a dispose message and terminates the worker', () => {
+  it("sends a dispose message and terminates the worker", () => {
     bridge.start(80, 24, 1000);
     bridge.dispose();
 
     const disposeCalls = mockWorkerInstance.postMessage.mock.calls.filter(
-      (c) => c[0]?.type === 'dispose',
+      (c) => c[0]?.type === "dispose",
     );
     expect(disposeCalls.length).toBe(1);
     expect(mockWorkerInstance.terminate).toHaveBeenCalled();
@@ -161,13 +163,13 @@ describe('WorkerBridge', () => {
 
   // ---- flush handling -----------------------------------------------------
 
-  it('updates cursor on flush message', () => {
+  it("updates cursor on flush message", () => {
     bridge.start(80, 24, 1000);
 
     // Simulate the worker sending a flush.
     mockWorkerInstance.simulateMessage({
-      type: 'flush',
-      cursor: { row: 5, col: 10, visible: false, style: 'underline' },
+      type: "flush",
+      cursor: { row: 5, col: 10, visible: false, style: "underline" },
       isAlternate: false,
       bytesProcessed: 100,
     });
@@ -175,16 +177,16 @@ describe('WorkerBridge', () => {
     expect(cursor.row).toBe(5);
     expect(cursor.col).toBe(10);
     expect(cursor.visible).toBe(false);
-    expect(cursor.style).toBe('underline');
+    expect(cursor.style).toBe("underline");
     expect(flushSpy).toHaveBeenCalledWith(false);
   });
 
-  it('calls onFlush with isAlternate=true when worker signals alternate buffer', () => {
+  it("calls onFlush with isAlternate=true when worker signals alternate buffer", () => {
     bridge.start(80, 24, 1000);
 
     mockWorkerInstance.simulateMessage({
-      type: 'flush',
-      cursor: { row: 0, col: 0, visible: true, style: 'block' },
+      type: "flush",
+      cursor: { row: 0, col: 0, visible: true, style: "block" },
       isAlternate: true,
       bytesProcessed: 0,
     });
@@ -194,30 +196,30 @@ describe('WorkerBridge', () => {
 
   // ---- error handling -----------------------------------------------------
 
-  it('invokes onError when the worker posts an error message', () => {
+  it("invokes onError when the worker posts an error message", () => {
     bridge.start(80, 24, 1000);
 
-    mockWorkerInstance.simulateMessage({ type: 'error', message: 'boom' });
-    expect(errorSpy).toHaveBeenCalledWith('boom');
+    mockWorkerInstance.simulateMessage({ type: "error", message: "boom" });
+    expect(errorSpy).toHaveBeenCalledWith("boom");
   });
 
-  it('invokes onError on worker runtime error', () => {
+  it("invokes onError on worker runtime error", () => {
     bridge.start(80, 24, 1000);
 
-    mockWorkerInstance.simulateError('runtime boom');
-    expect(errorSpy).toHaveBeenCalledWith('Worker error: runtime boom');
+    mockWorkerInstance.simulateError("runtime boom");
+    expect(errorSpy).toHaveBeenCalledWith("Worker error: runtime boom");
   });
 
   // ---- Flow control -------------------------------------------------------
 
-  describe('flow control', () => {
-    it('starts unpaused', () => {
+  describe("flow control", () => {
+    it("starts unpaused", () => {
       bridge.start(80, 24, 1000);
       expect(bridge.isPaused).toBe(false);
       expect(bridge.pendingByteCount).toBe(0);
     });
 
-    it('pauses when pending bytes exceed HIGH_WATERMARK (500KB)', () => {
+    it("pauses when pending bytes exceed HIGH_WATERMARK (500KB)", () => {
       bridge.start(80, 24, 1000);
 
       // Send a chunk large enough to exceed the watermark.
@@ -227,7 +229,7 @@ describe('WorkerBridge', () => {
       expect(bridge.isPaused).toBe(true);
     });
 
-    it('buffers writes while paused', () => {
+    it("buffers writes while paused", () => {
       bridge.start(80, 24, 1000);
 
       // Exceed watermark.
@@ -237,19 +239,19 @@ describe('WorkerBridge', () => {
 
       // Further writes should be buffered, not sent.
       const callsBefore = mockWorkerInstance.postMessage.mock.calls.filter(
-        (c) => c[0]?.type === 'write',
+        (c) => c[0]?.type === "write",
       ).length;
 
       bridge.write(new Uint8Array([1, 2, 3]));
 
       const callsAfter = mockWorkerInstance.postMessage.mock.calls.filter(
-        (c) => c[0]?.type === 'write',
+        (c) => c[0]?.type === "write",
       ).length;
 
       expect(callsAfter).toBe(callsBefore); // no new write sent
     });
 
-    it('resumes and drains the queue when pending bytes drop below LOW_WATERMARK', () => {
+    it("resumes and drains the queue when pending bytes drop below LOW_WATERMARK", () => {
       bridge.start(80, 24, 1000);
 
       // Exceed watermark.
@@ -262,8 +264,8 @@ describe('WorkerBridge', () => {
 
       // Worker flushes most of the bytes.
       mockWorkerInstance.simulateMessage({
-        type: 'flush',
-        cursor: { row: 0, col: 0, visible: true, style: 'block' },
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
         isAlternate: false,
         bytesProcessed: 500 * 1024, // flush all of the big chunk
       });
@@ -272,13 +274,13 @@ describe('WorkerBridge', () => {
       expect(bridge.isPaused).toBe(false);
 
       const writeCalls = mockWorkerInstance.postMessage.mock.calls.filter(
-        (c) => c[0]?.type === 'write',
+        (c) => c[0]?.type === "write",
       );
       // Initial big write + drained small write = 2
       expect(writeCalls.length).toBe(2);
     });
 
-    it('resize resets flow control state', () => {
+    it("resize resets flow control state", () => {
       bridge.start(80, 24, 1000);
 
       const bigChunk = new Uint8Array(500 * 1024);
@@ -293,15 +295,15 @@ describe('WorkerBridge', () => {
 
   // ---- Message serialization ----------------------------------------------
 
-  describe('message serialization', () => {
-    it('transfers the write data ArrayBuffer', () => {
+  describe("message serialization", () => {
+    it("transfers the write data ArrayBuffer", () => {
       bridge.start(80, 24, 1000);
 
       const data = new Uint8Array([0x41, 0x42]);
       bridge.write(data);
 
       const writeCalls = mockWorkerInstance.postMessage.mock.calls.filter(
-        (c) => c[0]?.type === 'write',
+        (c) => c[0]?.type === "write",
       );
       expect(writeCalls.length).toBe(1);
 
@@ -312,15 +314,13 @@ describe('WorkerBridge', () => {
       expect(transferables[0]).toBeInstanceOf(ArrayBuffer);
     });
 
-    it('init message includes cols, rows, scrollback', () => {
+    it("init message includes cols, rows, scrollback", () => {
       bridge.start(100, 50, 5000);
 
-      const initCall = mockWorkerInstance.postMessage.mock.calls.find(
-        (c) => c[0]?.type === 'init',
-      );
+      const initCall = mockWorkerInstance.postMessage.mock.calls.find((c) => c[0]?.type === "init");
       expect(initCall).toBeDefined();
-      expect(initCall![0]).toEqual(
-        expect.objectContaining({ type: 'init', cols: 100, rows: 50, scrollback: 5000 }),
+      expect(initCall?.[0]).toEqual(
+        expect.objectContaining({ type: "init", cols: 100, rows: 50, scrollback: 5000 }),
       );
     });
   });

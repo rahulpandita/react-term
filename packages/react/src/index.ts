@@ -1,4 +1,4 @@
-export { Terminal } from './Terminal.js';
-export type { TerminalProps, TerminalHandle } from './Terminal.js';
-export { TerminalPane } from './TerminalPane.js';
-export type { TerminalPaneProps, TerminalPaneHandle, PaneLayout } from './TerminalPane.js';
+export type { TerminalHandle, TerminalProps } from "./Terminal.js";
+export { Terminal } from "./Terminal.js";
+export type { PaneLayout, TerminalPaneHandle, TerminalPaneProps } from "./TerminalPane.js";
+export { TerminalPane } from "./TerminalPane.js";

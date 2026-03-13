@@ -9,7 +9,11 @@
     "dev": "pnpm --filter @react-term/demo dev",
     "start": "pnpm --filter @react-term/demo start",
     "build": "pnpm -r build",
-    "clean": "pnpm -r exec rm -rf dist"
+    "clean": "pnpm -r exec rm -rf dist",
+    "lint": "biome check packages/",
+    "lint:fix": "biome check --write packages/",
+    "typecheck": "tsc -b",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -18,9 +22,14 @@
     ]
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
     "jsdom": "^28.1.0",
+    "lint-staged": "^16.3.3",
     "typescript": "^5.7.3",
     "vitest": "^3.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": ["biome check --no-errors-on-unmatched"]
   },
   "dependencies": {
     "node-pty": "1.2.0-beta.11"

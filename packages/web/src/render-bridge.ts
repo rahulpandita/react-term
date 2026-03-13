@@ -5,17 +5,15 @@
  * updates, and handles configuration changes (theme, font, resize).
  */
 
-import type { Theme, CursorState } from '@react-term/core';
-import type { SelectionRange } from '@react-term/core';
+import type { CursorState, SelectionRange, Theme } from "@react-term/core";
 import type {
+  RenderWorkerDisposeMessage,
+  RenderWorkerFontMessage,
   RenderWorkerInitMessage,
-  RenderWorkerUpdateMessage,
   RenderWorkerResizeMessage,
   RenderWorkerThemeMessage,
-  RenderWorkerFontMessage,
-  RenderWorkerDisposeMessage,
-  RenderWorkerFrameMessage,
-} from './render-worker.js';
+  RenderWorkerUpdateMessage,
+} from "./render-worker.js";
 
 // ---------------------------------------------------------------------------
 // Feature detection
@@ -23,9 +21,9 @@ import type {
 
 export function canUseOffscreenCanvas(): boolean {
   return (
-    typeof OffscreenCanvas !== 'undefined' &&
-    typeof HTMLCanvasElement !== 'undefined' &&
-    typeof HTMLCanvasElement.prototype.transferControlToOffscreen === 'function'
+    typeof OffscreenCanvas !== "undefined" &&
+    typeof HTMLCanvasElement !== "undefined" &&
+    typeof HTMLCanvasElement.prototype.transferControlToOffscreen === "function"
   );
 }
 
@@ -65,18 +63,15 @@ export class RenderBridge {
   start(sharedBuffer: SharedArrayBuffer, cols: number, rows: number): void {
     if (this.disposed) return;
 
-    this.worker = new Worker(
-      new URL('./render-worker.ts', import.meta.url),
-      { type: 'module' },
-    );
+    this.worker = new Worker(new URL("./render-worker.ts", import.meta.url), { type: "module" });
 
-    this.worker.addEventListener('message', this.handleWorkerMessage);
-    this.worker.addEventListener('error', this.handleWorkerError);
+    this.worker.addEventListener("message", this.handleWorkerMessage);
+    this.worker.addEventListener("error", this.handleWorkerError);
 
     const offscreen = this.canvas.transferControlToOffscreen();
 
     const init: RenderWorkerInitMessage = {
-      type: 'init',
+      type: "init",
       canvas: offscreen,
       sharedBuffer,
       cols,
@@ -84,8 +79,9 @@ export class RenderBridge {
       theme: this.options.theme,
       fontSize: this.options.fontSize,
       fontFamily: this.options.fontFamily,
-      devicePixelRatio: this.options.devicePixelRatio ??
-        (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1),
+      devicePixelRatio:
+        this.options.devicePixelRatio ??
+        (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1),
     };
 
     this.worker.postMessage(init, [offscreen]);
@@ -98,7 +94,7 @@ export class RenderBridge {
     if (this.disposed || !this.worker) return;
 
     const msg: RenderWorkerUpdateMessage = {
-      type: 'update',
+      type: "update",
       cursor: {
         row: cursor.row,
         col: cursor.col,
@@ -117,8 +113,8 @@ export class RenderBridge {
     if (this.disposed || !this.worker) return;
 
     const msg: RenderWorkerUpdateMessage = {
-      type: 'update',
-      cursor: { row: 0, col: 0, visible: false, style: 'block' },
+      type: "update",
+      cursor: { row: 0, col: 0, visible: false, style: "block" },
       selection: selection
         ? {
             startRow: selection.startRow,
@@ -138,7 +134,7 @@ export class RenderBridge {
     if (this.disposed || !this.worker) return;
 
     const msg: RenderWorkerResizeMessage = {
-      type: 'resize',
+      type: "resize",
       cols,
       rows,
       sharedBuffer,
@@ -153,7 +149,7 @@ export class RenderBridge {
     if (this.disposed || !this.worker) return;
 
     const msg: RenderWorkerThemeMessage = {
-      type: 'theme',
+      type: "theme",
       theme,
     };
     this.worker.postMessage(msg);
@@ -166,7 +162,7 @@ export class RenderBridge {
     if (this.disposed || !this.worker) return;
 
     const msg: RenderWorkerFontMessage = {
-      type: 'font',
+      type: "font",
       fontSize,
       fontFamily,
     };
@@ -181,10 +177,10 @@ export class RenderBridge {
     this.disposed = true;
 
     if (this.worker) {
-      const msg: RenderWorkerDisposeMessage = { type: 'dispose' };
+      const msg: RenderWorkerDisposeMessage = { type: "dispose" };
       this.worker.postMessage(msg);
-      this.worker.removeEventListener('message', this.handleWorkerMessage);
-      this.worker.removeEventListener('error', this.handleWorkerError);
+      this.worker.removeEventListener("message", this.handleWorkerMessage);
+      this.worker.removeEventListener("error", this.handleWorkerError);
       this.worker.terminate();
       this.worker = null;
     }
@@ -194,9 +190,9 @@ export class RenderBridge {
 
   private handleWorkerMessage = (event: MessageEvent): void => {
     const msg = event.data;
-    if (msg.type === 'frame') {
+    if (msg.type === "frame") {
       this.options.onFps?.(msg.fps);
-    } else if (msg.type === 'error') {
+    } else if (msg.type === "error") {
       this.options.onError?.(msg.message);
     }
   };

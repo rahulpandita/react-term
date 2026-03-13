@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { FitAddon } from '../addons/fit.js';
+import { describe, expect, it } from "vitest";
+import { FitAddon } from "../addons/fit.js";
+import type { WebTerminal } from "../web-terminal.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,9 +33,15 @@ function createMockTerminal(
   let currentRows = rows;
 
   return {
-    get cols() { return currentCols; },
-    get rows() { return currentRows; },
-    get element() { return container; },
+    get cols() {
+      return currentCols;
+    },
+    get rows() {
+      return currentRows;
+    },
+    get element() {
+      return container;
+    },
     getCellSize: () => ({ width: cellWidth, height: cellHeight }),
     resize(c: number, r: number) {
       currentCols = c;
@@ -47,50 +54,50 @@ function createMockTerminal(
 // FitAddon
 // ---------------------------------------------------------------------------
 
-describe('FitAddon', () => {
-  it('proposeDimensions returns correct values', () => {
+describe("FitAddon", () => {
+  it("proposeDimensions returns correct values", () => {
     const container = mockContainer(800, 600);
     const terminal = createMockTerminal(80, 24, 8, 16, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     const dims = addon.proposeDimensions();
     expect(dims).not.toBeNull();
-    expect(dims!.cols).toBe(100); // 800 / 8
-    expect(dims!.rows).toBe(37); // floor(600 / 16)
+    expect(dims?.cols).toBe(100); // 800 / 8
+    expect(dims?.rows).toBe(37); // floor(600 / 16)
   });
 
-  it('proposeDimensions returns null before activation', () => {
+  it("proposeDimensions returns null before activation", () => {
     const addon = new FitAddon();
     expect(addon.proposeDimensions()).toBeNull();
   });
 
-  it('proposeDimensions returns null when cell size is zero', () => {
+  it("proposeDimensions returns null when cell size is zero", () => {
     const container = mockContainer(800, 600);
     const terminal = createMockTerminal(80, 24, 0, 0, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     expect(addon.proposeDimensions()).toBeNull();
   });
 
-  it('fit calls resize on terminal', () => {
+  it("fit calls resize on terminal", () => {
     const container = mockContainer(800, 600);
     const terminal = createMockTerminal(80, 24, 8, 16, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.fit();
     expect(terminal.cols).toBe(100);
     expect(terminal.rows).toBe(37);
   });
 
-  it('fit does not resize when dimensions match', () => {
+  it("fit does not resize when dimensions match", () => {
     const container = mockContainer(640, 384);
     // 640/8 = 80 cols, 384/16 = 24 rows — same as current
     const terminal = createMockTerminal(80, 24, 8, 16, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.fit();
     // Should remain the same (no resize called)
@@ -98,11 +105,11 @@ describe('FitAddon', () => {
     expect(terminal.rows).toBe(24);
   });
 
-  it('dispose cleans up', () => {
+  it("dispose cleans up", () => {
     const container = mockContainer(800, 600);
     const terminal = createMockTerminal(80, 24, 8, 16, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.dispose();
     expect(addon.proposeDimensions()).toBeNull();

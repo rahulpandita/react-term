@@ -11,8 +11,8 @@
  * tap to focus, pan to scroll, long-press to select, pinch to zoom.
  */
 
-import { extractText, GestureHandler, GestureState } from '@react-term/core';
-import type { CellGrid, MouseProtocol, MouseEncoding } from '@react-term/core';
+import type { CellGrid, MouseEncoding, MouseProtocol } from "@react-term/core";
+import { extractText, GestureHandler, GestureState } from "@react-term/core";
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -79,8 +79,8 @@ export class InputHandler {
   private bracketedPasteMode = false;
 
   // Mouse reporting
-  private mouseProtocol: MouseProtocol = 'none';
-  private mouseEncoding: MouseEncoding = 'default';
+  private mouseProtocol: MouseProtocol = "none";
+  private mouseEncoding: MouseEncoding = "default";
 
   // Focus events
   private sendFocusEvents = false;
@@ -113,7 +113,7 @@ export class InputHandler {
 
   // Swipe direction lock: once a swipe direction is determined, it stays locked
   // for the gesture duration ('none' | 'horizontal' | 'vertical')
-  private swipeDirection: 'none' | 'horizontal' | 'vertical' = 'none';
+  private swipeDirection: "none" | "horizontal" | "vertical" = "none";
   // Horizontal swipe: accumulated pixel remainder for left/right arrow keys
   private hSwipeRemainder = 0;
 
@@ -123,7 +123,7 @@ export class InputHandler {
   // Custom copy tooltip for iOS/mobile (native callout doesn't work with programmatic selection)
   private copyTooltip: HTMLElement | null = null;
   /** Text currently staged for copy. */
-  private pendingCopyText = '';
+  private pendingCopyText = "";
 
   // Bound listeners (so we can remove them)
   private boundKeyDown: ((e: KeyboardEvent) => void) | null = null;
@@ -160,14 +160,14 @@ export class InputHandler {
     this.cellHeight = cellHeight;
 
     // Container setup — not focusable itself, the textarea handles focus
-    container.setAttribute('role', 'terminal');
-    container.setAttribute('aria-label', 'Terminal');
+    container.setAttribute("role", "terminal");
+    container.setAttribute("aria-label", "Terminal");
     Object.assign(container.style, {
-      outline: 'none',
-      cursor: 'text',
-      position: 'relative',
+      outline: "none",
+      cursor: "text",
+      position: "relative",
       // Prevent default touch behaviors (pull-to-refresh, scroll bounce)
-      touchAction: 'none',
+      touchAction: "none",
     });
 
     // Create hidden textarea for keyboard input.
@@ -175,30 +175,30 @@ export class InputHandler {
     // an <input> or <textarea> element receives focus. We position the
     // textarea behind the terminal canvas so it's invisible but still
     // triggers the on-screen keyboard.
-    const ta = document.createElement('textarea');
-    ta.setAttribute('autocapitalize', 'none');
-    ta.setAttribute('autocomplete', 'off');
-    ta.setAttribute('autocorrect', 'off');
-    ta.setAttribute('spellcheck', 'false');
-    ta.setAttribute('tabindex', '0');
-    ta.setAttribute('aria-hidden', 'true');
+    const ta = document.createElement("textarea");
+    ta.setAttribute("autocapitalize", "none");
+    ta.setAttribute("autocomplete", "off");
+    ta.setAttribute("autocorrect", "off");
+    ta.setAttribute("spellcheck", "false");
+    ta.setAttribute("tabindex", "0");
+    ta.setAttribute("aria-hidden", "true");
     Object.assign(ta.style, {
-      position: 'absolute',
-      left: '0',
-      top: '0',
-      width: '1px',
-      height: '1px',
-      opacity: '0',
-      padding: '0',
-      border: 'none',
-      outline: 'none',
-      resize: 'none',
-      overflow: 'hidden',
+      position: "absolute",
+      left: "0",
+      top: "0",
+      width: "1px",
+      height: "1px",
+      opacity: "0",
+      padding: "0",
+      border: "none",
+      outline: "none",
+      resize: "none",
+      overflow: "hidden",
       // iOS: prevent zoom on focus (font-size < 16px triggers auto-zoom)
-      fontSize: '16px',
+      fontSize: "16px",
       // Keep it in the DOM flow but invisible
-      zIndex: '-1',
-      caretColor: 'transparent',
+      zIndex: "-1",
+      caretColor: "transparent",
     });
     container.appendChild(ta);
     this.textarea = ta;
@@ -226,7 +226,7 @@ export class InputHandler {
       },
       onPinch: (scale) => {
         const newSize = Math.round(
-          Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, this.pinchStartFontSize * scale))
+          Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, this.pinchStartFontSize * scale)),
         );
         if (newSize !== this.currentFontSize) {
           this.currentFontSize = newSize;
@@ -241,11 +241,7 @@ export class InputHandler {
         // and select it so iOS Safari shows the native "Copy" callout menu.
         if (sel && this.grid) {
           if (sel.startRow !== sel.endRow || sel.startCol !== sel.endCol) {
-            const text = extractText(
-              this.grid,
-              sel.startRow, sel.startCol,
-              sel.endRow, sel.endCol,
-            );
+            const text = extractText(this.grid, sel.startRow, sel.startCol, sel.endRow, sel.endCol);
             if (text) {
               this.showCopyTooltip(text);
             }
@@ -262,40 +258,40 @@ export class InputHandler {
     this.boundCompositionStart = this.handleCompositionStart.bind(this);
     this.boundCompositionEnd = this.handleCompositionEnd.bind(this);
     this.boundPaste = this.handlePaste.bind(this);
-    ta.addEventListener('keydown', this.boundKeyDown);
-    ta.addEventListener('input', this.boundInput);
-    ta.addEventListener('compositionstart', this.boundCompositionStart);
-    ta.addEventListener('compositionend', this.boundCompositionEnd);
-    ta.addEventListener('paste', this.boundPaste);
+    ta.addEventListener("keydown", this.boundKeyDown);
+    ta.addEventListener("input", this.boundInput);
+    ta.addEventListener("compositionstart", this.boundCompositionStart);
+    ta.addEventListener("compositionend", this.boundCompositionEnd);
+    ta.addEventListener("paste", this.boundPaste);
 
     // Mouse
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundWheel = this.handleWheel.bind(this);
-    container.addEventListener('mousedown', this.boundMouseDown);
-    container.addEventListener('wheel', this.boundWheel, { passive: false });
-    document.addEventListener('mousemove', this.boundMouseMove);
-    document.addEventListener('mouseup', this.boundMouseUp);
+    container.addEventListener("mousedown", this.boundMouseDown);
+    container.addEventListener("wheel", this.boundWheel, { passive: false });
+    document.addEventListener("mousemove", this.boundMouseMove);
+    document.addEventListener("mouseup", this.boundMouseUp);
 
     // Touch — bridges DOM TouchEvents to the shared GestureHandler
     this.boundTouchStart = this.handleTouchStart.bind(this);
     this.boundTouchMove = this.handleTouchMove.bind(this);
     this.boundTouchEnd = this.handleTouchEnd.bind(this);
     this.boundTouchCancel = this.handleTouchCancel.bind(this);
-    container.addEventListener('touchstart', this.boundTouchStart, { passive: false });
-    container.addEventListener('touchmove', this.boundTouchMove, { passive: false });
-    container.addEventListener('touchend', this.boundTouchEnd, { passive: false });
-    container.addEventListener('touchcancel', this.boundTouchCancel);
+    container.addEventListener("touchstart", this.boundTouchStart, { passive: false });
+    container.addEventListener("touchmove", this.boundTouchMove, { passive: false });
+    container.addEventListener("touchend", this.boundTouchEnd, { passive: false });
+    container.addEventListener("touchcancel", this.boundTouchCancel);
 
     // Focus/blur events for mode 1004 — on the textarea
     this.boundFocus = this.handleFocus.bind(this);
     this.boundBlur = this.handleBlur.bind(this);
-    ta.addEventListener('focus', this.boundFocus);
-    ta.addEventListener('blur', this.boundBlur);
+    ta.addEventListener("focus", this.boundFocus);
+    ta.addEventListener("blur", this.boundBlur);
 
     // Clicking the container should focus the textarea
-    container.addEventListener('mousedown', (e) => {
+    container.addEventListener("mousedown", (e) => {
       // Don't steal focus if it's a right-click / context menu
       if (e.button === 0) {
         // Delay focus to after mousedown handler runs
@@ -362,57 +358,57 @@ export class InputHandler {
 
     // Textarea listeners
     if (this.textarea && this.boundKeyDown) {
-      this.textarea.removeEventListener('keydown', this.boundKeyDown);
+      this.textarea.removeEventListener("keydown", this.boundKeyDown);
     }
     if (this.textarea && this.boundInput) {
-      this.textarea.removeEventListener('input', this.boundInput);
+      this.textarea.removeEventListener("input", this.boundInput);
     }
     if (this.textarea && this.boundCompositionStart) {
-      this.textarea.removeEventListener('compositionstart', this.boundCompositionStart);
+      this.textarea.removeEventListener("compositionstart", this.boundCompositionStart);
     }
     if (this.textarea && this.boundCompositionEnd) {
-      this.textarea.removeEventListener('compositionend', this.boundCompositionEnd);
+      this.textarea.removeEventListener("compositionend", this.boundCompositionEnd);
     }
     if (this.textarea && this.boundPaste) {
-      this.textarea.removeEventListener('paste', this.boundPaste);
+      this.textarea.removeEventListener("paste", this.boundPaste);
     }
     if (this.textarea && this.boundFocus) {
-      this.textarea.removeEventListener('focus', this.boundFocus);
+      this.textarea.removeEventListener("focus", this.boundFocus);
     }
     if (this.textarea && this.boundBlur) {
-      this.textarea.removeEventListener('blur', this.boundBlur);
+      this.textarea.removeEventListener("blur", this.boundBlur);
     }
     // Remove textarea from DOM
-    if (this.textarea && this.textarea.parentNode) {
+    if (this.textarea?.parentNode) {
       this.textarea.parentNode.removeChild(this.textarea);
     }
 
     // Container listeners
     if (this.container && this.boundMouseDown) {
-      this.container.removeEventListener('mousedown', this.boundMouseDown);
+      this.container.removeEventListener("mousedown", this.boundMouseDown);
     }
     if (this.container && this.boundWheel) {
-      this.container.removeEventListener('wheel', this.boundWheel);
+      this.container.removeEventListener("wheel", this.boundWheel);
     }
     if (this.container && this.boundTouchStart) {
-      this.container.removeEventListener('touchstart', this.boundTouchStart);
+      this.container.removeEventListener("touchstart", this.boundTouchStart);
     }
     if (this.container && this.boundTouchMove) {
-      this.container.removeEventListener('touchmove', this.boundTouchMove);
+      this.container.removeEventListener("touchmove", this.boundTouchMove);
     }
     if (this.container && this.boundTouchEnd) {
-      this.container.removeEventListener('touchend', this.boundTouchEnd);
+      this.container.removeEventListener("touchend", this.boundTouchEnd);
     }
     if (this.container && this.boundTouchCancel) {
-      this.container.removeEventListener('touchcancel', this.boundTouchCancel);
+      this.container.removeEventListener("touchcancel", this.boundTouchCancel);
     }
 
     // Document listeners
     if (this.boundMouseMove) {
-      document.removeEventListener('mousemove', this.boundMouseMove);
+      document.removeEventListener("mousemove", this.boundMouseMove);
     }
     if (this.boundMouseUp) {
-      document.removeEventListener('mouseup', this.boundMouseUp);
+      document.removeEventListener("mouseup", this.boundMouseUp);
     }
 
     if (this.copyTooltip?.parentNode) {
@@ -448,27 +444,36 @@ export class InputHandler {
     if (this.composing) return;
 
     // Ctrl+C or Cmd+C with active selection → copy to clipboard
-    if ((e.ctrlKey || e.metaKey) && e.key === 'c' && this.selection && this.grid) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "c" && this.selection && this.grid) {
       e.preventDefault();
       const text = extractText(
         this.grid,
-        this.selection.startRow, this.selection.startCol,
-        this.selection.endRow, this.selection.endCol,
+        this.selection.startRow,
+        this.selection.startCol,
+        this.selection.endRow,
+        this.selection.endCol,
       );
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        navigator.clipboard.writeText(text).catch(() => {/* ignore */});
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        navigator.clipboard.writeText(text).catch(() => {
+          /* ignore */
+        });
       }
       this.clearSelection();
       return;
     }
 
     // Cmd+V / Ctrl+V: read from clipboard and send to PTY
-    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+    if ((e.ctrlKey || e.metaKey) && e.key === "v") {
       e.preventDefault();
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        navigator.clipboard.readText().then((text) => {
-          if (text) this.sendPastedText(text);
-        }).catch(() => {/* ignore */});
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) this.sendPastedText(text);
+          })
+          .catch(() => {
+            /* ignore */
+          });
       }
       return;
     }
@@ -478,7 +483,7 @@ export class InputHandler {
       e.preventDefault();
       this.onData(toBytes(seq));
       // Clear the textarea so mobile input doesn't accumulate
-      if (this.textarea) this.textarea.value = '';
+      if (this.textarea) this.textarea.value = "";
     }
   }
 
@@ -496,7 +501,7 @@ export class InputHandler {
     const data = this.textarea.value;
     if (data) {
       this.onData(toBytes(data));
-      this.textarea.value = '';
+      this.textarea.value = "";
     }
   }
 
@@ -510,12 +515,12 @@ export class InputHandler {
     if (e.data) {
       this.onData(toBytes(e.data));
     }
-    if (this.textarea) this.textarea.value = '';
+    if (this.textarea) this.textarea.value = "";
   }
 
   private handlePaste(e: ClipboardEvent): void {
     e.preventDefault();
-    const text = e.clipboardData?.getData('text');
+    const text = e.clipboardData?.getData("text");
     if (text) {
       this.sendPastedText(text);
     }
@@ -524,7 +529,7 @@ export class InputHandler {
   /** Send pasted text, wrapping in bracketed paste sequences if enabled. */
   private sendPastedText(text: string): void {
     if (this.bracketedPasteMode) {
-      this.onData(toBytes('\x1b[200~' + text + '\x1b[201~'));
+      this.onData(toBytes(`\x1b[200~${text}\x1b[201~`));
     } else {
       this.onData(toBytes(text));
     }
@@ -550,47 +555,73 @@ export class InputHandler {
 
     // Alt + key → ESC prefix
     if (altKey && !ctrlKey && key.length === 1) {
-      return '\x1b' + key;
+      return `\x1b${key}`;
     }
 
     // Special keys
     const appMode = this.applicationCursorKeys;
     switch (key) {
-      case 'Enter':      return '\r';
-      case 'Backspace':   return ctrlKey ? '\x08' : '\x7f';
-      case 'Tab':         return '\t';
-      case 'Escape':      return '\x1b';
-      case 'Delete':      return '\x1b[3~';
+      case "Enter":
+        return "\r";
+      case "Backspace":
+        return ctrlKey ? "\x08" : "\x7f";
+      case "Tab":
+        return "\t";
+      case "Escape":
+        return "\x1b";
+      case "Delete":
+        return "\x1b[3~";
 
-      case 'ArrowUp':     return appMode ? '\x1bOA' : '\x1b[A';
-      case 'ArrowDown':   return appMode ? '\x1bOB' : '\x1b[B';
-      case 'ArrowRight':  return appMode ? '\x1bOC' : '\x1b[C';
-      case 'ArrowLeft':   return appMode ? '\x1bOD' : '\x1b[D';
+      case "ArrowUp":
+        return appMode ? "\x1bOA" : "\x1b[A";
+      case "ArrowDown":
+        return appMode ? "\x1bOB" : "\x1b[B";
+      case "ArrowRight":
+        return appMode ? "\x1bOC" : "\x1b[C";
+      case "ArrowLeft":
+        return appMode ? "\x1bOD" : "\x1b[D";
 
-      case 'Home':        return '\x1b[H';
-      case 'End':         return '\x1b[F';
-      case 'PageUp':      return '\x1b[5~';
-      case 'PageDown':    return '\x1b[6~';
+      case "Home":
+        return "\x1b[H";
+      case "End":
+        return "\x1b[F";
+      case "PageUp":
+        return "\x1b[5~";
+      case "PageDown":
+        return "\x1b[6~";
 
-      case 'Insert':      return '\x1b[2~';
+      case "Insert":
+        return "\x1b[2~";
 
       // Function keys
-      case 'F1':          return '\x1bOP';
-      case 'F2':          return '\x1bOQ';
-      case 'F3':          return '\x1bOR';
-      case 'F4':          return '\x1bOS';
-      case 'F5':          return '\x1b[15~';
-      case 'F6':          return '\x1b[17~';
-      case 'F7':          return '\x1b[18~';
-      case 'F8':          return '\x1b[19~';
-      case 'F9':          return '\x1b[20~';
-      case 'F10':         return '\x1b[21~';
-      case 'F11':         return '\x1b[23~';
-      case 'F12':         return '\x1b[24~';
+      case "F1":
+        return "\x1bOP";
+      case "F2":
+        return "\x1bOQ";
+      case "F3":
+        return "\x1bOR";
+      case "F4":
+        return "\x1bOS";
+      case "F5":
+        return "\x1b[15~";
+      case "F6":
+        return "\x1b[17~";
+      case "F7":
+        return "\x1b[18~";
+      case "F8":
+        return "\x1b[19~";
+      case "F9":
+        return "\x1b[20~";
+      case "F10":
+        return "\x1b[21~";
+      case "F11":
+        return "\x1b[23~";
+      case "F12":
+        return "\x1b[24~";
     }
 
     // Modifier-only keys
-    if (key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta') {
+    if (key === "Shift" || key === "Control" || key === "Alt" || key === "Meta") {
       return null;
     }
 
@@ -608,13 +639,13 @@ export class InputHandler {
 
   private handleFocus(): void {
     if (this.sendFocusEvents) {
-      this.onData(toBytes('\x1b[I'));
+      this.onData(toBytes("\x1b[I"));
     }
   }
 
   private handleBlur(): void {
     if (this.sendFocusEvents) {
-      this.onData(toBytes('\x1b[O'));
+      this.onData(toBytes("\x1b[O"));
     }
   }
 
@@ -637,8 +668,8 @@ export class InputHandler {
    * button: 0=left, 1=middle, 2=right, 3=release, 64=scrollUp, 65=scrollDown
    */
   private encodeMouseEvent(button: number, col: number, row: number): string {
-    if (this.mouseEncoding === 'sgr') {
-      const final = button === 3 ? 'm' : 'M';
+    if (this.mouseEncoding === "sgr") {
+      const final = button === 3 ? "m" : "M";
       const btn = button === 3 ? 0 : button;
       return `\x1b[<${btn};${col + 1};${row + 1}${final}`;
     }
@@ -653,7 +684,7 @@ export class InputHandler {
     const pos = this.getMouseCellPos(e);
     if (!pos) return;
 
-    if (this.mouseProtocol !== 'none') {
+    if (this.mouseProtocol !== "none") {
       e.preventDefault();
       this.onData(toBytes(this.encodeMouseEvent(0, pos.col, pos.row)));
       this.focus();
@@ -673,11 +704,11 @@ export class InputHandler {
   private handleMouseMove(e: MouseEvent): void {
     const pos = this.getMouseCellPos(e);
 
-    if (pos && this.mouseProtocol === 'any') {
+    if (pos && this.mouseProtocol === "any") {
       this.onData(toBytes(this.encodeMouseEvent(32 + 0, pos.col, pos.row)));
       return;
     }
-    if (pos && this.mouseProtocol === 'drag' && e.buttons & 1) {
+    if (pos && this.mouseProtocol === "drag" && e.buttons & 1) {
       this.onData(toBytes(this.encodeMouseEvent(32 + 0, pos.col, pos.row)));
       return;
     }
@@ -691,7 +722,7 @@ export class InputHandler {
   }
 
   private handleMouseUp(_e: MouseEvent): void {
-    if (this.mouseProtocol !== 'none' && this.mouseProtocol !== 'x10') {
+    if (this.mouseProtocol !== "none" && this.mouseProtocol !== "x10") {
       const pos = this.getMouseCellPos(_e);
       if (pos) {
         this.onData(toBytes(this.encodeMouseEvent(3, pos.col, pos.row)));
@@ -715,8 +746,10 @@ export class InputHandler {
     if (this.selection && this.grid) {
       const text = extractText(
         this.grid,
-        this.selection.startRow, this.selection.startCol,
-        this.selection.endRow, this.selection.endCol,
+        this.selection.startRow,
+        this.selection.startCol,
+        this.selection.endRow,
+        this.selection.endCol,
       );
       if (text) {
         this.showCopyTooltip(text);
@@ -725,7 +758,7 @@ export class InputHandler {
   }
 
   private handleWheel(e: WheelEvent): void {
-    if (this.mouseProtocol !== 'none') {
+    if (this.mouseProtocol !== "none") {
       e.preventDefault();
       const pos = this.getMouseCellPos(e);
       if (!pos) return;
@@ -786,11 +819,11 @@ export class InputHandler {
     this.touchLastX = touch.clientX;
     this.touchLastY = touch.clientY;
     this.isPinching = false;
-    this.swipeDirection = 'none';
+    this.swipeDirection = "none";
     this.hSwipeRemainder = 0;
 
     // Mouse reporting: translate touch to mouse press
-    if (this.mouseProtocol !== 'none') {
+    if (this.mouseProtocol !== "none") {
       const local = this.touchToLocal(touch);
       if (local && this.gestureHandler) {
         const pos = this.gestureHandler.pixelToCell(local.x, local.y);
@@ -836,8 +869,8 @@ export class InputHandler {
     }
 
     // Mouse reporting: translate touch drag
-    if (this.mouseProtocol !== 'none') {
-      if (this.mouseProtocol === 'drag' || this.mouseProtocol === 'any') {
+    if (this.mouseProtocol !== "none") {
+      if (this.mouseProtocol === "drag" || this.mouseProtocol === "any") {
         const local = this.touchToLocal(touch);
         if (local && this.gestureHandler) {
           const pos = this.gestureHandler.pixelToCell(local.x, local.y);
@@ -859,11 +892,11 @@ export class InputHandler {
     // Determine swipe direction on first significant movement.
     // Bias toward vertical (scroll) — require dx > 1.5 * dy for horizontal lock.
     // This prevents near-diagonal swipes from accidentally sending arrow keys.
-    if (this.swipeDirection === 'none' && (dx > TAP_THRESHOLD || dy > TAP_THRESHOLD)) {
-      this.swipeDirection = dx > 1.5 * dy ? 'horizontal' : 'vertical';
+    if (this.swipeDirection === "none" && (dx > TAP_THRESHOLD || dy > TAP_THRESHOLD)) {
+      this.swipeDirection = dx > 1.5 * dy ? "horizontal" : "vertical";
     }
 
-    if (this.swipeDirection === 'horizontal') {
+    if (this.swipeDirection === "horizontal") {
       // Horizontal swipe → send arrow keys for command-line navigation
       const deltaX = touch.clientX - this.touchLastX;
       this.touchLastX = touch.clientX;
@@ -872,13 +905,13 @@ export class InputHandler {
       const steps = Math.trunc(totalPixels / this.cellWidth);
       this.hSwipeRemainder = totalPixels - steps * this.cellWidth;
       if (steps !== 0) {
-        const key = steps > 0 ? '\x1b[C' : '\x1b[D'; // right : left
+        const key = steps > 0 ? "\x1b[C" : "\x1b[D"; // right : left
         const count = Math.abs(steps);
         for (let i = 0; i < count; i++) {
           this.onData(toBytes(key));
         }
       }
-    } else if (this.swipeDirection === 'vertical') {
+    } else if (this.swipeDirection === "vertical") {
       // Vertical swipe → scroll terminal (scrollback buffer)
       const deltaY = touch.clientY - this.touchLastY;
       this.touchLastX = touch.clientX;
@@ -913,7 +946,7 @@ export class InputHandler {
     this.cancelLongPress();
 
     // Mouse reporting: send release
-    if (this.mouseProtocol !== 'none' && this.mouseProtocol !== 'x10') {
+    if (this.mouseProtocol !== "none" && this.mouseProtocol !== "x10") {
       if (e.changedTouches.length > 0) {
         const touch = e.changedTouches[0];
         const local = this.touchToLocal(touch);
@@ -971,34 +1004,34 @@ export class InputHandler {
     const leftPx = midCol * this.cellWidth;
 
     if (!this.copyTooltip) {
-      const tip = document.createElement('div');
+      const tip = document.createElement("div");
       Object.assign(tip.style, {
-        position: 'absolute',
-        zIndex: '100',
-        display: 'flex',
-        gap: '2px',
-        padding: '6px 16px',
-        borderRadius: '8px',
-        backgroundColor: 'rgba(60, 60, 60, 0.95)',
-        color: '#fff',
-        fontSize: '14px',
-        fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
-        cursor: 'pointer',
-        userSelect: 'none',
-        WebkitUserSelect: 'none',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-        whiteSpace: 'nowrap',
-        pointerEvents: 'auto',
-        transform: 'translateX(-50%)',
+        position: "absolute",
+        zIndex: "100",
+        display: "flex",
+        gap: "2px",
+        padding: "6px 16px",
+        borderRadius: "8px",
+        backgroundColor: "rgba(60, 60, 60, 0.95)",
+        color: "#fff",
+        fontSize: "14px",
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        cursor: "pointer",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+        whiteSpace: "nowrap",
+        pointerEvents: "auto",
+        transform: "translateX(-50%)",
       });
-      tip.textContent = 'Copy';
+      tip.textContent = "Copy";
 
-      tip.addEventListener('touchend', (e) => {
+      tip.addEventListener("touchend", (e) => {
         e.preventDefault();
         e.stopPropagation();
         this.doCopy();
       });
-      tip.addEventListener('click', (e) => {
+      tip.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         this.doCopy();
@@ -1012,13 +1045,15 @@ export class InputHandler {
     const tipTop = Math.max(0, topPx - 40);
     this.copyTooltip.style.top = `${tipTop}px`;
     this.copyTooltip.style.left = `${Math.max(30, leftPx)}px`;
-    this.copyTooltip.style.display = 'flex';
+    this.copyTooltip.style.display = "flex";
   }
 
   /** Copy pending text to clipboard and dismiss the tooltip. */
   private doCopy(): void {
-    if (this.pendingCopyText && typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(this.pendingCopyText).catch(() => {/* ignore */});
+    if (this.pendingCopyText && typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(this.pendingCopyText).catch(() => {
+        /* ignore */
+      });
     }
     this.hideCopyTooltip();
     this.clearSelection();
@@ -1027,8 +1062,8 @@ export class InputHandler {
   /** Hide the copy tooltip. */
   private hideCopyTooltip(): void {
     if (this.copyTooltip) {
-      this.copyTooltip.style.display = 'none';
+      this.copyTooltip.style.display = "none";
     }
-    this.pendingCopyText = '';
+    this.pendingCopyText = "";
   }
 }

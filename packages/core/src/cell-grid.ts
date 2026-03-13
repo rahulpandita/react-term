@@ -1,7 +1,7 @@
 // Feature detection for SharedArrayBuffer
 const SAB_AVAILABLE =
-  typeof SharedArrayBuffer !== 'undefined' &&
-  (typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : true);
+  typeof SharedArrayBuffer !== "undefined" &&
+  (typeof crossOriginIsolated !== "undefined" ? crossOriginIsolated : true);
 
 // Cell packing: 2 x Uint32 per cell
 // Word 0: [0-20] codepoint, [21] fg-is-rgb, [22] bg-is-rgb, [23-30] fg-index, [31] dirty
@@ -187,9 +187,11 @@ export class CellGrid {
 
   /** Style string to Int32 encoding for cursorData[3]. */
   private static readonly CURSOR_STYLE_MAP: Record<string, number> = {
-    block: 0, underline: 1, bar: 2,
+    block: 0,
+    underline: 1,
+    bar: 2,
   };
-  private static readonly CURSOR_STYLE_REVERSE = ['block', 'underline', 'bar'] as const;
+  private static readonly CURSOR_STYLE_REVERSE = ["block", "underline", "bar"] as const;
 
   /**
    * Write cursor state into the SAB so render workers can read it atomically.
@@ -217,14 +219,14 @@ export class CellGrid {
         row: Atomics.load(this.cursorData, 0),
         col: Atomics.load(this.cursorData, 1),
         visible: Atomics.load(this.cursorData, 2) !== 0,
-        style: CellGrid.CURSOR_STYLE_REVERSE[Atomics.load(this.cursorData, 3)] ?? 'block',
+        style: CellGrid.CURSOR_STYLE_REVERSE[Atomics.load(this.cursorData, 3)] ?? "block",
       };
     }
     return {
       row: this.cursorData[0],
       col: this.cursorData[1],
       visible: this.cursorData[2] !== 0,
-      style: CellGrid.CURSOR_STYLE_REVERSE[this.cursorData[3]] ?? 'block',
+      style: CellGrid.CURSOR_STYLE_REVERSE[this.cursorData[3]] ?? "block",
     };
   }
 
@@ -286,15 +288,15 @@ export function extractText(
     if (row === sr) colStart = Math.max(0, sel.startCol);
     if (row === er) colEnd = Math.min(grid.cols - 1, sel.endCol);
 
-    let line = '';
+    let line = "";
     for (let col = colStart; col <= colEnd; col++) {
       const cp = grid.getCodepoint(row, col);
-      line += cp > 0x20 ? String.fromCodePoint(cp) : ' ';
+      line += cp > 0x20 ? String.fromCodePoint(cp) : " ";
     }
 
     // Trim trailing spaces
-    lines.push(line.replace(/\s+$/, ''));
+    lines.push(line.replace(/\s+$/, ""));
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }

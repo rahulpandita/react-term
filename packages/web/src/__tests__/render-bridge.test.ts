@@ -1,29 +1,29 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RenderBridge, canUseOffscreenCanvas } from '../render-bridge.js';
-import { DEFAULT_THEME } from '@react-term/core';
-import type { CursorState, Theme } from '@react-term/core';
+import type { CursorState, Theme } from "@react-term/core";
+import { DEFAULT_THEME } from "@react-term/core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { canUseOffscreenCanvas, RenderBridge } from "../render-bridge.js";
 
 // ---------------------------------------------------------------------------
 // Mock Worker
 // ---------------------------------------------------------------------------
 
 class MockWorker {
-  private listeners = new Map<string, Set<Function>>();
+  private listeners = new Map<string, Set<(event: Event) => void>>();
   postMessage = vi.fn();
   terminate = vi.fn();
 
-  addEventListener(type: string, handler: Function): void {
+  addEventListener(type: string, handler: (event: Event) => void): void {
     if (!this.listeners.has(type)) this.listeners.set(type, new Set());
-    this.listeners.get(type)!.add(handler);
+    this.listeners.get(type)?.add(handler);
   }
 
-  removeEventListener(type: string, handler: Function): void {
+  removeEventListener(type: string, handler: (event: Event) => void): void {
     this.listeners.get(type)?.delete(handler);
   }
 
   /** Simulate a message from the worker. */
   simulateMessage(data: unknown): void {
-    const handlers = this.listeners.get('message');
+    const handlers = this.listeners.get("message");
     if (handlers) {
       for (const h of handlers) {
         h({ data } as MessageEvent);
@@ -33,7 +33,7 @@ class MockWorker {
 
   /** Simulate an error from the worker. */
   simulateError(message: string): void {
-    const handlers = this.listeners.get('error');
+    const handlers = this.listeners.get("error");
     if (handlers) {
       for (const h of handlers) {
         h({ message } as ErrorEvent);
@@ -44,25 +44,27 @@ class MockWorker {
 
 let mockWorkerInstance: MockWorker;
 
+function createMockWorkerClass() {
+  return function MockWorkerConstructor() {
+    mockWorkerInstance = new MockWorker();
+    return mockWorkerInstance as unknown as Worker;
+  } as unknown as typeof Worker;
+}
+
+vi.stubGlobal("Worker", createMockWorkerClass());
+
 vi.stubGlobal(
-  'Worker',
+  "URL",
   class {
-    constructor() {
-      mockWorkerInstance = new MockWorker();
-      return mockWorkerInstance as unknown as Worker;
+    href: string;
+    constructor(path: string, base?: string | URL) {
+      this.href = `${base ?? ""}${path}`;
+    }
+    toString(): string {
+      return this.href;
     }
   },
 );
-
-vi.stubGlobal('URL', class {
-  href: string;
-  constructor(path: string, base?: string | URL) {
-    this.href = `${base ?? ''}${path}`;
-  }
-  toString(): string {
-    return this.href;
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Mock HTMLCanvasElement with transferControlToOffscreen
@@ -77,7 +79,7 @@ function createMockCanvas(): HTMLCanvasElement {
   const canvas = {
     width: 100,
     height: 100,
-    style: { display: '', width: '', height: '' },
+    style: { display: "", width: "", height: "" },
     transferControlToOffscreen: vi.fn(() => new MockOffscreenCanvas()),
     getContext: vi.fn(() => null),
     addEventListener: vi.fn(),
@@ -93,7 +95,7 @@ function createMockCanvas(): HTMLCanvasElement {
 function defaultOptions() {
   return {
     fontSize: 14,
-    fontFamily: 'monospace',
+    fontFamily: "monospace",
     theme: { ...DEFAULT_THEME } as Theme,
     devicePixelRatio: 1,
   };
@@ -116,7 +118,7 @@ function makeSharedBuffer(): SharedArrayBuffer {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('RenderBridge', () => {
+describe("RenderBridge", () => {
   let canvas: HTMLCanvasElement;
   let bridge: RenderBridge;
 
@@ -131,40 +133,40 @@ describe('RenderBridge', () => {
 
   // ---- Creation -----------------------------------------------------------
 
-  it('can be created without throwing', () => {
+  it("can be created without throwing", () => {
     expect(bridge).toBeDefined();
   });
 
   // ---- start --------------------------------------------------------------
 
-  it('sends an init message when started', () => {
+  it("sends an init message when started", () => {
     const sab = makeSharedBuffer();
     bridge.start(sab, 10, 5);
 
     expect(canvas.transferControlToOffscreen).toHaveBeenCalled();
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'init',
+        type: "init",
         cols: 10,
         rows: 5,
         sharedBuffer: sab,
         fontSize: 14,
-        fontFamily: 'monospace',
+        fontFamily: "monospace",
       }),
       expect.any(Array), // transferables
     );
   });
 
-  it('transfers the OffscreenCanvas in the init message', () => {
+  it("transfers the OffscreenCanvas in the init message", () => {
     const sab = makeSharedBuffer();
     bridge.start(sab, 10, 5);
 
     const calls = mockWorkerInstance.postMessage.mock.calls;
-    const initCall = calls.find((c) => c[0]?.type === 'init');
+    const initCall = calls.find((c) => c[0]?.type === "init");
     expect(initCall).toBeDefined();
 
     // Second argument is transferables array containing the OffscreenCanvas
-    const transferables = initCall![1];
+    const transferables = initCall?.[1];
     expect(Array.isArray(transferables)).toBe(true);
     expect(transferables.length).toBe(1);
     expect(transferables[0]).toBeInstanceOf(MockOffscreenCanvas);
@@ -172,24 +174,24 @@ describe('RenderBridge', () => {
 
   // ---- updateCursor -------------------------------------------------------
 
-  it('sends an update message for cursor changes', () => {
+  it("sends an update message for cursor changes", () => {
     bridge.start(makeSharedBuffer(), 10, 5);
     mockWorkerInstance.postMessage.mockClear();
 
-    const cursor: CursorState = { row: 3, col: 7, visible: true, style: 'bar' };
+    const cursor: CursorState = { row: 3, col: 7, visible: true, style: "bar", wrapPending: false };
     bridge.updateCursor(cursor);
 
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'update',
-        cursor: { row: 3, col: 7, visible: true, style: 'bar' },
+        type: "update",
+        cursor: { row: 3, col: 7, visible: true, style: "bar" },
       }),
     );
   });
 
   // ---- updateSelection ----------------------------------------------------
 
-  it('sends an update message with selection', () => {
+  it("sends an update message with selection", () => {
     bridge.start(makeSharedBuffer(), 10, 5);
     mockWorkerInstance.postMessage.mockClear();
 
@@ -197,13 +199,13 @@ describe('RenderBridge', () => {
 
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'update',
+        type: "update",
         selection: { startRow: 0, startCol: 2, endRow: 1, endCol: 5 },
       }),
     );
   });
 
-  it('sends null selection to clear it', () => {
+  it("sends null selection to clear it", () => {
     bridge.start(makeSharedBuffer(), 10, 5);
     mockWorkerInstance.postMessage.mockClear();
 
@@ -211,7 +213,7 @@ describe('RenderBridge', () => {
 
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'update',
+        type: "update",
         selection: null,
       }),
     );
@@ -219,7 +221,7 @@ describe('RenderBridge', () => {
 
   // ---- resize -------------------------------------------------------------
 
-  it('sends a resize message', () => {
+  it("sends a resize message", () => {
     const sab1 = makeSharedBuffer();
     bridge.start(sab1, 10, 5);
     mockWorkerInstance.postMessage.mockClear();
@@ -229,7 +231,7 @@ describe('RenderBridge', () => {
 
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'resize',
+        type: "resize",
         cols: 20,
         rows: 10,
         sharedBuffer: sab2,
@@ -239,16 +241,16 @@ describe('RenderBridge', () => {
 
   // ---- setTheme -----------------------------------------------------------
 
-  it('sends a theme message', () => {
+  it("sends a theme message", () => {
     bridge.start(makeSharedBuffer(), 10, 5);
     mockWorkerInstance.postMessage.mockClear();
 
-    const newTheme = { ...DEFAULT_THEME, background: '#000000' };
+    const newTheme = { ...DEFAULT_THEME, background: "#000000" };
     bridge.setTheme(newTheme);
 
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'theme',
+        type: "theme",
         theme: newTheme,
       }),
     );
@@ -256,77 +258,77 @@ describe('RenderBridge', () => {
 
   // ---- setFont ------------------------------------------------------------
 
-  it('sends a font message', () => {
+  it("sends a font message", () => {
     bridge.start(makeSharedBuffer(), 10, 5);
     mockWorkerInstance.postMessage.mockClear();
 
-    bridge.setFont(16, 'Courier New');
+    bridge.setFont(16, "Courier New");
 
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'font',
+        type: "font",
         fontSize: 16,
-        fontFamily: 'Courier New',
+        fontFamily: "Courier New",
       }),
     );
   });
 
   // ---- dispose ------------------------------------------------------------
 
-  it('sends a dispose message and terminates the worker', () => {
+  it("sends a dispose message and terminates the worker", () => {
     bridge.start(makeSharedBuffer(), 10, 5);
     bridge.dispose();
 
     const disposeCalls = mockWorkerInstance.postMessage.mock.calls.filter(
-      (c) => c[0]?.type === 'dispose',
+      (c) => c[0]?.type === "dispose",
     );
     expect(disposeCalls.length).toBe(1);
     expect(mockWorkerInstance.terminate).toHaveBeenCalled();
   });
 
-  it('does not send messages after dispose', () => {
+  it("does not send messages after dispose", () => {
     bridge.start(makeSharedBuffer(), 10, 5);
     bridge.dispose();
     mockWorkerInstance.postMessage.mockClear();
 
-    bridge.updateCursor({ row: 0, col: 0, visible: true, style: 'block' });
+    bridge.updateCursor({ row: 0, col: 0, visible: true, style: "block", wrapPending: false });
     bridge.updateSelection(null);
     bridge.resize(80, 24, makeSharedBuffer());
     bridge.setTheme(DEFAULT_THEME);
-    bridge.setFont(14, 'monospace');
+    bridge.setFont(14, "monospace");
 
     expect(mockWorkerInstance.postMessage).not.toHaveBeenCalled();
   });
 
   // ---- FPS callback -------------------------------------------------------
 
-  it('calls onFps when the worker reports frame rate', () => {
+  it("calls onFps when the worker reports frame rate", () => {
     const fpsSpy = vi.fn();
     bridge = new RenderBridge(canvas, { ...defaultOptions(), onFps: fpsSpy });
     bridge.start(makeSharedBuffer(), 10, 5);
 
-    mockWorkerInstance.simulateMessage({ type: 'frame', fps: 60 });
+    mockWorkerInstance.simulateMessage({ type: "frame", fps: 60 });
     expect(fpsSpy).toHaveBeenCalledWith(60);
   });
 
   // ---- Error callback -----------------------------------------------------
 
-  it('calls onError when the worker reports an error message', () => {
+  it("calls onError when the worker reports an error message", () => {
     const errorSpy = vi.fn();
     bridge = new RenderBridge(canvas, { ...defaultOptions(), onError: errorSpy });
     bridge.start(makeSharedBuffer(), 10, 5);
 
-    mockWorkerInstance.simulateMessage({ type: 'error', message: 'GL failed' });
-    expect(errorSpy).toHaveBeenCalledWith('GL failed');
+    mockWorkerInstance.simulateMessage({ type: "error", message: "GL failed" });
+    expect(errorSpy).toHaveBeenCalledWith("GL failed");
   });
 
-  it('calls onError on worker runtime error', () => {
+  it("calls onError on worker runtime error", () => {
     const errorSpy = vi.fn();
     bridge = new RenderBridge(canvas, { ...defaultOptions(), onError: errorSpy });
     bridge.start(makeSharedBuffer(), 10, 5);
 
-    mockWorkerInstance.simulateError('runtime crash');
-    expect(errorSpy).toHaveBeenCalledWith('Render worker error: runtime crash');
+    mockWorkerInstance.simulateError("runtime crash");
+    expect(errorSpy).toHaveBeenCalledWith("Render worker error: runtime crash");
   });
 });
 
@@ -334,13 +336,13 @@ describe('RenderBridge', () => {
 // Feature detection
 // ---------------------------------------------------------------------------
 
-describe('canUseOffscreenCanvas', () => {
-  it('returns a boolean', () => {
+describe("canUseOffscreenCanvas", () => {
+  it("returns a boolean", () => {
     const result = canUseOffscreenCanvas();
-    expect(typeof result).toBe('boolean');
+    expect(typeof result).toBe("boolean");
   });
 
-  it('returns false when OffscreenCanvas is not defined', () => {
+  it("returns false when OffscreenCanvas is not defined", () => {
     const original = globalThis.OffscreenCanvas;
     // @ts-expect-error - testing undefined
     delete globalThis.OffscreenCanvas;

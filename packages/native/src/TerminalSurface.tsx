@@ -9,7 +9,7 @@
  * all logic and passes render commands through.
  */
 
-import React from 'react';
+import React from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,22 +43,22 @@ export interface TerminalSurfaceProps {
 export const TerminalSurface: React.FC<TerminalSurfaceProps> = ({
   width,
   height,
-  accessibilityLabel = 'Terminal',
+  accessibilityLabel = "Terminal",
   style,
   children,
 }) => {
   return React.createElement(
-    'RCTView',
+    "RCTView",
     {
       style: {
         width,
         height,
-        backgroundColor: '#1e1e1e',
-        overflow: 'hidden',
+        backgroundColor: "#1e1e1e",
+        overflow: "hidden",
         ...style,
       },
       accessibilityLabel,
-      accessibilityRole: 'text',
+      accessibilityRole: "text",
     },
     children,
   );

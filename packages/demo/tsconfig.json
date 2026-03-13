@@ -6,7 +6,7 @@
     "jsx": "react-jsx",
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts"],
+  "include": ["src"],
   "references": [
     { "path": "../core" },
     { "path": "../web" },

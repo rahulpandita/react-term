@@ -10,9 +10,9 @@
  * when the PTY produces data faster than the worker can parse it.
  */
 
-import { CellGrid, CELL_SIZE } from '@react-term/core';
-import type { CursorState } from '@react-term/core';
-import type { FlushMessage, ErrorMessage, OutboundMessage } from './parser-worker.js';
+import type { CursorState } from "@react-term/core";
+import { CELL_SIZE, type CellGrid } from "@react-term/core";
+import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 
 // ---- Flow-control constants ------------------------------------------------
 
@@ -25,8 +25,8 @@ const LOW_WATERMARK = 100 * 1024; // 100 KB
 // ---- Feature detection -----------------------------------------------------
 
 const SAB_AVAILABLE =
-  typeof SharedArrayBuffer !== 'undefined' &&
-  (typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : true);
+  typeof SharedArrayBuffer !== "undefined" &&
+  (typeof crossOriginIsolated !== "undefined" ? crossOriginIsolated : true);
 
 // ---- WorkerBridge ----------------------------------------------------------
 
@@ -65,22 +65,19 @@ export class WorkerBridge {
   start(cols: number, rows: number, scrollback: number): void {
     if (this.disposed) return;
 
-    this.worker = new Worker(
-      new URL('./parser-worker.ts', import.meta.url),
-      { type: 'module' },
-    );
+    this.worker = new Worker(new URL("./parser-worker.ts", import.meta.url), { type: "module" });
 
-    this.worker.addEventListener('message', this.handleWorkerMessage);
-    this.worker.addEventListener('error', this.handleWorkerError);
+    this.worker.addEventListener("message", this.handleWorkerMessage);
+    this.worker.addEventListener("error", this.handleWorkerError);
 
     const init: {
-      type: 'init';
+      type: "init";
       cols: number;
       rows: number;
       scrollback: number;
       sharedBuffer?: SharedArrayBuffer;
     } = {
-      type: 'init',
+      type: "init",
       cols,
       rows,
       scrollback,
@@ -118,7 +115,7 @@ export class WorkerBridge {
     this.paused = false;
     this.writeQueue.length = 0;
 
-    this.worker.postMessage({ type: 'resize', cols, rows, scrollback });
+    this.worker.postMessage({ type: "resize", cols, rows, scrollback });
   }
 
   /**
@@ -129,9 +126,9 @@ export class WorkerBridge {
     this.disposed = true;
 
     if (this.worker) {
-      this.worker.postMessage({ type: 'dispose' });
-      this.worker.removeEventListener('message', this.handleWorkerMessage);
-      this.worker.removeEventListener('error', this.handleWorkerError);
+      this.worker.postMessage({ type: "dispose" });
+      this.worker.removeEventListener("message", this.handleWorkerMessage);
+      this.worker.removeEventListener("error", this.handleWorkerError);
       this.worker.terminate();
       this.worker = null;
     }
@@ -162,22 +159,20 @@ export class WorkerBridge {
     if (!this.worker) return;
 
     // Copy into a transferable ArrayBuffer.
-    const buf = data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    );
+    const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
 
     this.pendingBytes += data.byteLength;
     if (this.pendingBytes >= HIGH_WATERMARK) {
       this.paused = true;
     }
 
-    this.worker.postMessage({ type: 'write', data: buf }, [buf]);
+    this.worker.postMessage({ type: "write", data: buf }, [buf]);
   }
 
   private drainQueue = (): void => {
     while (this.writeQueue.length > 0 && !this.paused) {
-      const next = this.writeQueue.shift()!;
+      const next = this.writeQueue.shift();
+      if (!next) break;
       this.sendWrite(next);
     }
   };
@@ -185,12 +180,12 @@ export class WorkerBridge {
   private handleWorkerMessage = (event: MessageEvent<OutboundMessage>): void => {
     const msg = event.data;
 
-    if (msg.type === 'error') {
+    if (msg.type === "error") {
       this.onError?.(msg.message);
       return;
     }
 
-    if (msg.type === 'flush') {
+    if (msg.type === "flush") {
       this.applyFlush(msg);
     }
   };
@@ -204,7 +199,7 @@ export class WorkerBridge {
     this.cursor.row = msg.cursor.row;
     this.cursor.col = msg.cursor.col;
     this.cursor.visible = msg.cursor.visible;
-    this.cursor.style = msg.cursor.style as CursorState['style'];
+    this.cursor.style = msg.cursor.style as CursorState["style"];
 
     // In non-SAB mode, apply transferred cell data to the main-thread grid.
     if (msg.cellData && msg.dirtyRows) {

@@ -8,26 +8,20 @@
  * Layout is described as a recursive tree of horizontal / vertical splits.
  */
 
-import React, {
-  useRef,
-  useEffect,
-  forwardRef,
-  useImperativeHandle,
-  useCallback,
-  useState,
-} from 'react';
-import type { Theme } from '@react-term/core';
-import { Terminal } from './Terminal.js';
-import type { TerminalHandle } from './Terminal.js';
+import type { Theme } from "@react-term/core";
+import type React from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
+import type { TerminalHandle } from "./Terminal.js";
+import { Terminal } from "./Terminal.js";
 
 // ---------------------------------------------------------------------------
 // Layout types
 // ---------------------------------------------------------------------------
 
 export type PaneLayout =
-  | { type: 'single'; id: string }
-  | { type: 'horizontal'; children: PaneLayout[]; sizes?: number[] }
-  | { type: 'vertical'; children: PaneLayout[]; sizes?: number[] };
+  | { type: "single"; id: string }
+  | { type: "horizontal"; children: PaneLayout[]; sizes?: number[] }
+  | { type: "vertical"; children: PaneLayout[]; sizes?: number[] };
 
 // ---------------------------------------------------------------------------
 // Props
@@ -56,7 +50,7 @@ export interface TerminalPaneHandle {
 
 /** Collect all leaf pane ids from a layout tree. */
 function collectPaneIds(layout: PaneLayout): string[] {
-  if (layout.type === 'single') {
+  if (layout.type === "single") {
     return [layout.id];
   }
   const ids: string[] = [];
@@ -104,7 +98,7 @@ function PaneLeaf({ id, onData, theme, fontSize, fontFamily, onRef }: PaneLeafPr
       fontSize={fontSize}
       fontFamily={fontFamily}
       onData={handleData}
-      style={{ width: '100%', height: '100%' }}
+      style={{ width: "100%", height: "100%" }}
     />
   );
 }
@@ -123,7 +117,7 @@ interface PaneNodeProps {
 }
 
 function PaneNode({ layout, onData, theme, fontSize, fontFamily, onRef }: PaneNodeProps) {
-  if (layout.type === 'single') {
+  if (layout.type === "single") {
     return (
       <PaneLeaf
         id={layout.id}
@@ -136,35 +130,35 @@ function PaneNode({ layout, onData, theme, fontSize, fontFamily, onRef }: PaneNo
     );
   }
 
-  const isHorizontal = layout.type === 'horizontal';
+  const isHorizontal = layout.type === "horizontal";
   const children = layout.children;
   const sizes = layout.sizes ?? children.map(() => 1 / children.length);
 
   return (
     <div
       style={{
-        display: 'flex',
-        flexDirection: isHorizontal ? 'row' : 'column',
-        width: '100%',
-        height: '100%',
+        display: "flex",
+        flexDirection: isHorizontal ? "row" : "column",
+        width: "100%",
+        height: "100%",
       }}
     >
       {children.map((child, i) => {
         const basis = `${(sizes[i] ?? 1 / children.length) * 100}%`;
         return (
           <div
-            key={child.type === 'single' ? child.id : `split-${i}`}
+            key={child.type === "single" ? child.id : `split-${i}`}
             style={{
               flexBasis: basis,
               flexGrow: 0,
               flexShrink: 0,
-              overflow: 'hidden',
-              position: 'relative',
+              overflow: "hidden",
+              position: "relative",
               // Add a small border between panes
               ...(i > 0
                 ? isHorizontal
-                  ? { borderLeft: '1px solid #444' }
-                  : { borderTop: '1px solid #444' }
+                  ? { borderLeft: "1px solid #444" }
+                  : { borderTop: "1px solid #444" }
                 : {}),
             }}
           >
@@ -217,8 +211,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       <div
         className={className}
         style={{
-          position: 'relative',
-          overflow: 'hidden',
+          position: "relative",
+          overflow: "hidden",
           ...style,
         }}
       >
