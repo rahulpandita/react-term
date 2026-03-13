@@ -23,8 +23,9 @@ export class VTParser {
   private state: State = State.GROUND;
   private readonly bufferSet: BufferSet;
 
-  // CSI parameter collection — reuse fixed array to avoid allocation per sequence
-  private params: number[] = [];
+  // CSI parameter collection — pre-allocated typed array avoids GC/hidden-class overhead
+  private static readonly MAX_PARAMS = 16;
+  private readonly params = new Int32Array(VTParser.MAX_PARAMS);
   private paramCount = 0;
   private currentParam = 0;
   private hasParam = false;
@@ -46,8 +47,9 @@ export class VTParser {
   private fgRGB = 0;
   private bgRGB = 0;
 
-  // OSC string collection — use array + join to avoid O(n²) concatenation
-  private oscParts: number[] = [];
+  // OSC string collection — pre-allocated typed array avoids GC/hidden-class overhead
+  private static readonly MAX_OSC_LENGTH = 4096;
+  private readonly oscParts = new Uint8Array(VTParser.MAX_OSC_LENGTH);
   private oscLength = 0;
 
   // UTF-8 decoding state
@@ -128,6 +130,31 @@ export class VTParser {
     const len = data.length;
     for (let i = 0; i < len; i++) {
       const byte = data[i];
+
+      // ESC sequence fast-path: \x1b[ (CSI) and \x1b] (OSC) are the most
+      // common escape sequences. Detecting them here skips 2 table lookups
+      // and 2 switch dispatches per sequence.
+      // Note: ESC is an "anywhere" transition so this is valid from all states.
+      // In DCS_PASSTHROUGH this skips the UNHOOK action, which is acceptable
+      // since we don't implement DCS handlers.
+      if (byte === 0x1b && i + 1 < len) {
+        const next = data[i + 1];
+        if (next === 0x5b) {
+          // ESC [ → CSI_ENTRY (combines CLEAR + CLEAR)
+          this.clear();
+          state = State.CSI_ENTRY;
+          i++;
+          continue;
+        }
+        if (next === 0x5d) {
+          // ESC ] → OSC_STRING (combines CLEAR + OSC_START)
+          this.clear();
+          this.oscLength = 0;
+          state = State.OSC_STRING;
+          i++;
+          continue;
+        }
+      }
 
       // Batch ASCII fast path: when in GROUND state and we see a printable
       // ASCII byte (0x20-0x7E), scan ahead for the full run and write cells
@@ -233,53 +260,92 @@ export class VTParser {
 
       const packed = TABLE[state * 256 + byte];
       const action = packed >>> 4;
-      const nextState = packed & 0x0f;
+      state = packed & 0x0f;
 
-      // Inline PRINT fast path (most common action)
-      if (action === Action.PRINT) {
-        this.printCodepoint(byte);
-      } else if (action !== Action.NONE) {
-        this.performAction(action, byte);
+      // Inlined action dispatch — eliminates performAction() call overhead
+      // and adds read-ahead loops for PARAM, OSC_PUT, and DCS PUT.
+      switch (action) {
+        case Action.PRINT:
+          this.printCodepoint(byte);
+          break;
+        case Action.EXECUTE:
+          this.execute(byte);
+          break;
+        case Action.COLLECT:
+          if (byte === 0x3f || byte === 0x3e || byte === 0x3d) {
+            this.prefixByte = byte;
+          } else {
+            this.intermediatesByte = byte;
+          }
+          break;
+        case Action.PARAM: {
+          // Read-ahead: consume all consecutive param bytes (digits 0x30-0x39
+          // and semicolons 0x3B) in a tight loop. For a typical CSI like
+          // \x1b[38;2;128;64;32m this reduces 10 table lookups + 10 function
+          // calls to 1 table lookup + 1 tight loop.
+          let j = i;
+          do {
+            const b = data[j];
+            if (b === 0x3b) {
+              if (this.paramCount < VTParser.MAX_PARAMS) {
+                this.params[this.paramCount++] = this.hasParam ? this.currentParam : 0;
+              }
+              this.currentParam = 0;
+              this.hasParam = false;
+            } else {
+              if (this.currentParam <= 99999) {
+                this.currentParam = this.currentParam * 10 + (b - 0x30);
+              }
+              this.hasParam = true;
+            }
+          } while (++j < len && ((data[j] >= 0x30 && data[j] <= 0x39) || data[j] === 0x3b));
+          i = j - 1;
+          break;
+        }
+        case Action.ESC_DISPATCH:
+          this.escDispatch(byte);
+          break;
+        case Action.CSI_DISPATCH:
+          this.csiDispatch(byte);
+          break;
+        case Action.PUT:
+          // DCS passthrough read-ahead — skip printable content bytes.
+          // We don't implement DCS handlers, so just advance past the data.
+          while (i + 1 < len && data[i + 1] >= 0x20 && data[i + 1] <= 0x7e) {
+            i++;
+          }
+          break;
+        case Action.OSC_START:
+          this.oscLength = 0;
+          break;
+        case Action.OSC_PUT: {
+          // Read-ahead: consume all consecutive OSC content bytes (0x20-0x7E)
+          // Cap at MAX_OSC_LENGTH to prevent unbounded growth on malformed input.
+          if (this.oscLength < VTParser.MAX_OSC_LENGTH) {
+            this.oscParts[this.oscLength++] = byte;
+          }
+          while (i + 1 < len && data[i + 1] >= 0x20 && data[i + 1] <= 0x7e) {
+            i++;
+            if (this.oscLength < VTParser.MAX_OSC_LENGTH) {
+              this.oscParts[this.oscLength++] = data[i];
+            }
+          }
+          break;
+        }
+        case Action.OSC_END:
+          this.oscDispatch();
+          break;
+        case Action.CLEAR:
+          this.clear();
+          break;
+        // NONE, HOOK, UNHOOK, IGNORE — no-op
       }
-      state = nextState;
     }
 
     // Write back locals
     this.state = state as State;
     this.utf8Bytes = utf8Bytes;
     this.utf8Codepoint = utf8Codepoint;
-  }
-
-  private performAction(action: number, byte: number): void {
-    switch (action) {
-      case Action.EXECUTE:
-        this.execute(byte);
-        break;
-      case Action.COLLECT:
-        this.collect(byte);
-        break;
-      case Action.PARAM:
-        this.param(byte);
-        break;
-      case Action.CSI_DISPATCH:
-        this.csiDispatch(byte);
-        break;
-      case Action.ESC_DISPATCH:
-        this.escDispatch(byte);
-        break;
-      case Action.CLEAR:
-        this.clear();
-        break;
-      case Action.OSC_START:
-        this.oscLength = 0;
-        break;
-      case Action.OSC_PUT:
-        this.oscParts[this.oscLength++] = byte;
-        break;
-      case Action.OSC_END:
-        this.oscDispatch();
-        break;
-    }
   }
 
   private printCodepoint(cp: number): void {
@@ -402,31 +468,11 @@ export class VTParser {
     this.prefixByte = 0;
   }
 
-  private collect(byte: number): void {
-    if (byte === 0x3f || byte === 0x3e || byte === 0x3d) {
-      // '?', '>', '='
-      this.prefixByte = byte;
-    } else {
-      this.intermediatesByte = byte;
-    }
-  }
-
-  private param(byte: number): void {
-    if (byte === 0x3b) {
-      // semicolon - store current param
-      this.params[this.paramCount++] = this.hasParam ? this.currentParam : 0;
-      this.currentParam = 0;
-      this.hasParam = false;
-    } else {
-      // digit - clamp to prevent overflow
-      this.currentParam = Math.min(this.currentParam * 10 + (byte - 0x30), 99999);
-      this.hasParam = true;
-    }
-  }
-
   private finalizeParams(): number {
     if (this.hasParam || this.paramCount > 0) {
-      this.params[this.paramCount++] = this.hasParam ? this.currentParam : 0;
+      if (this.paramCount < VTParser.MAX_PARAMS) {
+        this.params[this.paramCount++] = this.hasParam ? this.currentParam : 0;
+      }
     }
     return this.paramCount;
   }
@@ -1252,31 +1298,13 @@ export class VTParser {
   private fullReset(): void {
     this.state = State.GROUND;
     this.clear();
-    this.attrs = 0;
-    this.fgIndex = 7;
-    this.bgIndex = 0;
-    this.fgIsRGB = false;
-    this.bgIsRGB = false;
-    this.lineFeedMode = false;
-    this.autoWrapMode = true;
-    this.originMode = false;
-    this.applicationCursorKeys = false;
-    this.applicationKeypad = false;
-    this.bracketedPasteMode = false;
-    this.mouseProtocol = "none";
-    this.mouseEncoding = "default";
-    this.sendFocusEvents = false;
     this.lastPrintedCodepoint = 0;
     this.responseBuffer = [];
     this.titleStack = [];
     this.bufferSet.activateNormal();
+    this.softReset();
     this.buf.cursor.row = 0;
     this.buf.cursor.col = 0;
-    this.buf.cursor.visible = true;
-    this.buf.cursor.style = "block";
-    this.buf.cursor.wrapPending = false;
-    this.buf.scrollTop = 0;
-    this.buf.scrollBottom = this.rows - 1;
     this.grid.clear();
   }
 }
