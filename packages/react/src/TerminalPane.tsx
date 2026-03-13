@@ -11,17 +11,11 @@
 import type { Theme } from "@react-term/core";
 import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
+import { collectPaneIds } from "./pane-layout.js";
 import type { TerminalHandle } from "./Terminal.js";
 import { Terminal } from "./Terminal.js";
 
-// ---------------------------------------------------------------------------
-// Layout types
-// ---------------------------------------------------------------------------
-
-export type PaneLayout =
-  | { type: "single"; id: string }
-  | { type: "horizontal"; children: PaneLayout[]; sizes?: number[] }
-  | { type: "vertical"; children: PaneLayout[]; sizes?: number[] };
+export type { PaneLayout } from "./pane-layout.js";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -48,17 +42,7 @@ export interface TerminalPaneHandle {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Collect all leaf pane ids from a layout tree. */
-function collectPaneIds(layout: PaneLayout): string[] {
-  if (layout.type === "single") {
-    return [layout.id];
-  }
-  const ids: string[] = [];
-  for (const child of layout.children) {
-    ids.push(...collectPaneIds(child));
-  }
-  return ids;
-}
+// (collectPaneIds is imported from ./pane-layout.js)
 
 // ---------------------------------------------------------------------------
 // PaneLeaf — renders a single Terminal inside a flex child
