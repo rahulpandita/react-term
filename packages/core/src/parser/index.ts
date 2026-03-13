@@ -125,8 +125,82 @@ export class VTParser {
     let utf8Bytes = this.utf8Bytes;
     let utf8Codepoint = this.utf8Codepoint;
 
-    for (let i = 0; i < data.length; i++) {
+    const len = data.length;
+    for (let i = 0; i < len; i++) {
       const byte = data[i];
+
+      // Batch ASCII fast path: when in GROUND state and we see a printable
+      // ASCII byte (0x20-0x7E), scan ahead for the full run and write cells
+      // in a tight loop without per-byte state machine overhead.
+      if (state === State.GROUND && utf8Bytes === 0 && byte >= 0x20 && byte <= 0x7e) {
+        let runEnd = i + 1;
+        while (runEnd < len && data[runEnd] >= 0x20 && data[runEnd] <= 0x7e) runEnd++;
+
+        const buf = this.bufferSet.active;
+        const cursor = buf.cursor;
+        const grid = buf.grid;
+        const gridData = grid.data;
+        const gridCols = this.cols;
+
+        // Pre-compute cell template values — attrs/colors don't change within a run
+        const fgVal = this.fgIsRGB ? this.fgRGB & 0xff : this.fgIndex;
+        const word0Base =
+          (this.fgIsRGB ? 1 << 21 : 0) | (this.bgIsRGB ? 1 << 22 : 0) | ((fgVal & 0xff) << 23);
+        const word1 =
+          ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
+
+        // Cache rowStart — only recompute when cursor.row changes or scroll rotates buffer
+        let cachedRow = cursor.row;
+        let cachedRowStart = grid.rowStart(cachedRow);
+
+        for (let j = i; j < runEnd; j++) {
+          // Resolve pending wrap from a previous print at the last column
+          let scrolled = false;
+          if (cursor.wrapPending) {
+            cursor.wrapPending = false;
+            if (this.autoWrapMode) {
+              cursor.col = 0;
+              cursor.row++;
+              if (cursor.row > buf.scrollBottom) {
+                cursor.row = buf.scrollBottom;
+                this.bufferSet.scrollUpWithHistory();
+                scrolled = true;
+              }
+            }
+          }
+
+          if (cursor.col >= gridCols) {
+            cursor.col = gridCols - 1;
+          }
+
+          // Recompute rowStart + mark dirty when row changes or scroll rotated the buffer
+          if (cursor.row !== cachedRow || scrolled) {
+            grid.markDirty(cachedRow);
+            cachedRow = cursor.row;
+            cachedRowStart = grid.rowStart(cachedRow);
+          }
+
+          const idx = cachedRowStart + cursor.col * CELL_SIZE;
+          gridData[idx] = (data[j] & 0x1fffff) | word0Base;
+          gridData[idx + 1] = word1;
+
+          if (this.fgIsRGB) grid.rgbColors[cursor.col] = this.fgRGB;
+          if (this.bgIsRGB) grid.rgbColors[256 + cursor.col] = this.bgRGB;
+
+          if (cursor.col >= gridCols - 1) {
+            cursor.wrapPending = true;
+          } else {
+            cursor.col++;
+          }
+        }
+
+        // Fence: mark the final row dirty after all cell data writes
+        grid.markDirty(cachedRow);
+
+        this.lastPrintedCodepoint = data[runEnd - 1];
+        i = runEnd - 1; // loop will i++
+        continue;
+      }
 
       // UTF-8 continuation handling in GROUND state
       if (state === State.GROUND && utf8Bytes > 0) {
@@ -231,16 +305,17 @@ export class VTParser {
       cursor.col = this.cols - 1;
     }
 
-    grid.setCell(
-      cursor.row,
-      cursor.col,
-      cp,
-      this.fgIsRGB ? this.fgRGB & 0xff : this.fgIndex,
-      this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex,
-      this.attrs,
-      this.fgIsRGB,
-      this.bgIsRGB,
-    );
+    // Inline cell write — avoids setCell() function call overhead.
+    const idx = grid.rowStart(cursor.row) + cursor.col * CELL_SIZE;
+    const fgVal = this.fgIsRGB ? this.fgRGB & 0xff : this.fgIndex;
+    grid.data[idx] =
+      (cp & 0x1fffff) |
+      (this.fgIsRGB ? 1 << 21 : 0) |
+      (this.bgIsRGB ? 1 << 22 : 0) |
+      ((fgVal & 0xff) << 23);
+    grid.data[idx + 1] =
+      ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
+    grid.markDirty(cursor.row);
 
     // Store full RGB values in the rgbColors lookup if using RGB
     if (this.fgIsRGB) {
@@ -900,10 +975,11 @@ export class VTParser {
     const row = cursor.row;
     // Clamp n to remaining space
     n = Math.min(n, this.cols - cursor.col);
-    // Shift cells right
+    // Shift cells right using physical row offset
+    const rowBase = this.grid.rowStart(row);
     for (let c = this.cols - 1; c >= cursor.col + n; c--) {
-      const src = (row * this.cols + c - n) * CELL_SIZE;
-      const dst = (row * this.cols + c) * CELL_SIZE;
+      const src = rowBase + (c - n) * CELL_SIZE;
+      const dst = rowBase + c * CELL_SIZE;
       this.grid.data[dst] = this.grid.data[src];
       this.grid.data[dst + 1] = this.grid.data[src + 1];
     }
@@ -919,10 +995,11 @@ export class VTParser {
     const row = cursor.row;
     // Clamp n to remaining space
     n = Math.min(n, this.cols - cursor.col);
-    // Shift cells left
+    // Shift cells left using physical row offset
+    const rowBase = this.grid.rowStart(row);
     for (let c = cursor.col; c < this.cols - n; c++) {
-      const src = (row * this.cols + c + n) * CELL_SIZE;
-      const dst = (row * this.cols + c) * CELL_SIZE;
+      const src = rowBase + (c + n) * CELL_SIZE;
+      const dst = rowBase + c * CELL_SIZE;
       this.grid.data[dst] = this.grid.data[src];
       this.grid.data[dst + 1] = this.grid.data[src + 1];
     }
