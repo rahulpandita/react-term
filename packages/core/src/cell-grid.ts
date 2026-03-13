@@ -124,6 +124,17 @@ export class CellGrid {
     }
   }
 
+  /** Mark a contiguous range of rows [from..to] dirty. */
+  markDirtyRange(from: number, to: number): void {
+    if (this.isShared) {
+      for (let r = from; r <= to; r++) {
+        Atomics.store(this.dirtyRows, r, 1);
+      }
+    } else {
+      this.dirtyRows.fill(1, from, to + 1);
+    }
+  }
+
   isDirty(row: number): boolean {
     if (this.isShared) {
       return Atomics.load(this.dirtyRows, row) !== 0;

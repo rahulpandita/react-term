@@ -1,7 +1,7 @@
 import type { BufferSet } from "../buffer.js";
 import { CELL_SIZE } from "../cell-grid.js";
 import type { CursorState } from "../types.js";
-import { Action, State, TABLE, unpackAction, unpackState } from "./states.js";
+import { Action, State, TABLE } from "./states.js";
 
 // Attribute bit positions in the attrs byte (word 1, bits 8-15)
 const ATTR_BOLD = 0x01;
@@ -23,12 +23,19 @@ export class VTParser {
   private state: State = State.GROUND;
   private readonly bufferSet: BufferSet;
 
-  // CSI parameter collection
+  // CSI parameter collection — reuse fixed array to avoid allocation per sequence
   private params: number[] = [];
+  private paramCount = 0;
   private currentParam = 0;
   private hasParam = false;
-  private intermediates = "";
-  private prefix = ""; // for private sequences like ?
+  // Stores only the last intermediate byte (0x20-0x2F). All sequences we
+  // implement use at most one intermediate: ' ' (DECSCUSR), '!' (DECSTR),
+  // '#' (DECALN), '(' / ')' (charset). The ISO 2022 spec defines rare
+  // two-intermediate sequences (e.g. ESC $ ( F for 94x94 charsets) where
+  // the first intermediate would be lost — acceptable since we don't
+  // implement ISO 2022 multi-byte charset designation.
+  private intermediatesByte = 0;
+  private prefixByte = 0; // single byte: '?' = 0x3f, '>' = 0x3e, '=' = 0x3d, 0 = none
 
   // SGR state
   private fgIndex = 7; // default foreground (white)
@@ -39,8 +46,9 @@ export class VTParser {
   private fgRGB = 0;
   private bgRGB = 0;
 
-  // OSC string collection
-  private oscString = "";
+  // OSC string collection — use array + join to avoid O(n²) concatenation
+  private oscParts: number[] = [];
+  private oscLength = 0;
 
   // UTF-8 decoding state
   private utf8Bytes = 0;
@@ -112,53 +120,64 @@ export class VTParser {
 
   /** Process raw bytes from the PTY. */
   write(data: Uint8Array): void {
+    // Cache hot state in locals for the duration of the write call
+    let state = this.state;
+    let utf8Bytes = this.utf8Bytes;
+    let utf8Codepoint = this.utf8Codepoint;
+
     for (let i = 0; i < data.length; i++) {
       const byte = data[i];
 
       // UTF-8 continuation handling in GROUND state
-      if (this.state === State.GROUND && this.utf8Bytes > 0) {
+      if (state === State.GROUND && utf8Bytes > 0) {
         if ((byte & 0xc0) === 0x80) {
-          this.utf8Codepoint = (this.utf8Codepoint << 6) | (byte & 0x3f);
-          this.utf8Bytes--;
-          if (this.utf8Bytes === 0) {
-            this.printCodepoint(this.utf8Codepoint);
+          utf8Codepoint = (utf8Codepoint << 6) | (byte & 0x3f);
+          utf8Bytes--;
+          if (utf8Bytes === 0) {
+            this.printCodepoint(utf8Codepoint);
           }
           continue;
-        } else {
-          // Invalid continuation - reset and process byte normally
-          this.utf8Bytes = 0;
         }
+        // Invalid continuation - reset and process byte normally
+        utf8Bytes = 0;
       }
 
       // UTF-8 start byte detection in GROUND state
-      if (this.state === State.GROUND && byte >= 0xc0 && byte <= 0xf7) {
+      if (state === State.GROUND && byte >= 0xc0 && byte <= 0xf7) {
         if (byte < 0xe0) {
-          this.utf8Bytes = 1;
-          this.utf8Codepoint = byte & 0x1f;
+          utf8Bytes = 1;
+          utf8Codepoint = byte & 0x1f;
         } else if (byte < 0xf0) {
-          this.utf8Bytes = 2;
-          this.utf8Codepoint = byte & 0x0f;
+          utf8Bytes = 2;
+          utf8Codepoint = byte & 0x0f;
         } else {
-          this.utf8Bytes = 3;
-          this.utf8Codepoint = byte & 0x07;
+          utf8Bytes = 3;
+          utf8Codepoint = byte & 0x07;
         }
         continue;
       }
 
-      const packed = TABLE[this.state * 256 + byte];
-      const action = unpackAction(packed);
-      const nextState = unpackState(packed);
+      const packed = TABLE[state * 256 + byte];
+      const action = packed >>> 4;
+      const nextState = packed & 0x0f;
 
-      this.performAction(action, byte);
-      this.state = nextState;
+      // Inline PRINT fast path (most common action)
+      if (action === Action.PRINT) {
+        this.printCodepoint(byte);
+      } else if (action !== Action.NONE) {
+        this.performAction(action, byte);
+      }
+      state = nextState;
     }
+
+    // Write back locals
+    this.state = state as State;
+    this.utf8Bytes = utf8Bytes;
+    this.utf8Codepoint = utf8Codepoint;
   }
 
-  private performAction(action: Action, byte: number): void {
+  private performAction(action: number, byte: number): void {
     switch (action) {
-      case Action.PRINT:
-        this.printCodepoint(byte);
-        break;
       case Action.EXECUTE:
         this.execute(byte);
         break;
@@ -178,25 +197,21 @@ export class VTParser {
         this.clear();
         break;
       case Action.OSC_START:
-        this.oscString = "";
+        this.oscLength = 0;
         break;
       case Action.OSC_PUT:
-        this.oscString += String.fromCharCode(byte);
+        this.oscParts[this.oscLength++] = byte;
         break;
       case Action.OSC_END:
         this.oscDispatch();
-        break;
-      case Action.HOOK:
-      case Action.PUT:
-      case Action.UNHOOK:
-      case Action.IGNORE:
-      case Action.NONE:
         break;
     }
   }
 
   private printCodepoint(cp: number): void {
-    const cursor = this.buf.cursor;
+    const buf = this.bufferSet.active;
+    const cursor = buf.cursor;
+    const grid = buf.grid;
 
     // Resolve pending wrap from a previous print at the last column
     if (cursor.wrapPending) {
@@ -204,12 +219,11 @@ export class VTParser {
       if (this.autoWrapMode) {
         cursor.col = 0;
         cursor.row++;
-        if (cursor.row > this.buf.scrollBottom) {
-          cursor.row = this.buf.scrollBottom;
+        if (cursor.row > buf.scrollBottom) {
+          cursor.row = buf.scrollBottom;
           this.bufferSet.scrollUpWithHistory();
         }
       }
-      // If autoWrap is off, cursor stays at cols-1 and will overwrite
     }
 
     // Safety clamp (should not be needed in normal operation)
@@ -217,7 +231,7 @@ export class VTParser {
       cursor.col = this.cols - 1;
     }
 
-    this.grid.setCell(
+    grid.setCell(
       cursor.row,
       cursor.col,
       cp,
@@ -230,10 +244,10 @@ export class VTParser {
 
     // Store full RGB values in the rgbColors lookup if using RGB
     if (this.fgIsRGB) {
-      this.grid.rgbColors[cursor.col] = this.fgRGB;
+      grid.rgbColors[cursor.col] = this.fgRGB;
     }
     if (this.bgIsRGB) {
-      this.grid.rgbColors[256 + cursor.col] = this.bgRGB;
+      grid.rgbColors[256 + cursor.col] = this.bgRGB;
     }
 
     this.lastPrintedCodepoint = cp;
@@ -286,26 +300,26 @@ export class VTParser {
   }
 
   private clear(): void {
-    this.params = [];
+    this.paramCount = 0;
     this.currentParam = 0;
     this.hasParam = false;
-    this.intermediates = "";
-    this.prefix = "";
+    this.intermediatesByte = 0;
+    this.prefixByte = 0;
   }
 
   private collect(byte: number): void {
-    const ch = String.fromCharCode(byte);
-    if (ch === "?" || ch === ">" || ch === "=") {
-      this.prefix = ch;
+    if (byte === 0x3f || byte === 0x3e || byte === 0x3d) {
+      // '?', '>', '='
+      this.prefixByte = byte;
     } else {
-      this.intermediates += ch;
+      this.intermediatesByte = byte;
     }
   }
 
   private param(byte: number): void {
     if (byte === 0x3b) {
-      // semicolon - push current param
-      this.params.push(this.hasParam ? this.currentParam : 0);
+      // semicolon - store current param
+      this.params[this.paramCount++] = this.hasParam ? this.currentParam : 0;
       this.currentParam = 0;
       this.hasParam = false;
     } else {
@@ -315,26 +329,28 @@ export class VTParser {
     }
   }
 
-  private finalizeParams(): number[] {
-    if (this.hasParam || this.params.length > 0) {
-      this.params.push(this.hasParam ? this.currentParam : 0);
+  private finalizeParams(): number {
+    if (this.hasParam || this.paramCount > 0) {
+      this.params[this.paramCount++] = this.hasParam ? this.currentParam : 0;
     }
-    return this.params;
+    return this.paramCount;
   }
 
   private csiDispatch(finalByte: number): void {
-    const params = this.finalizeParams();
-    const ch = String.fromCharCode(finalByte);
+    const paramCount = this.finalizeParams();
+    const p0 = paramCount > 0 ? this.params[0] : 0;
+    const p1 = paramCount > 1 ? this.params[1] : 0;
+    const buf = this.bufferSet.active;
 
-    if (this.prefix === "?") {
-      this.csiPrivate(ch, params);
+    if (this.prefixByte === 0x3f) {
+      // '?' — private modes
+      this.csiPrivate(finalByte, paramCount);
       return;
     }
 
-    if (this.prefix === ">") {
-      // Secondary Device Attributes
-      if (ch === "c" && (params[0] || 0) === 0) {
-        // Report as xterm version 277
+    if (this.prefixByte === 0x3e) {
+      // '>' — Secondary Device Attributes
+      if (finalByte === 0x63 /* 'c' */ && (p0 || 0) === 0) {
         const response = new TextEncoder().encode("\x1b[>0;277;0c");
         this.responseBuffer.push(response);
       }
@@ -342,178 +358,180 @@ export class VTParser {
     }
 
     // Handle intermediates for special sequences
-    if (this.intermediates === " ") {
-      switch (ch) {
-        case "q": // DECSCUSR - Set Cursor Style
-          this.setCursorStyle(params[0] || 0);
-          return;
+    if (this.intermediatesByte === 0x20) {
+      // ' '
+      if (finalByte === 0x71 /* 'q' */) {
+        // DECSCUSR - Set Cursor Style
+        this.setCursorStyle(p0 || 0);
       }
+      return;
     }
 
-    if (this.intermediates === "!") {
-      switch (ch) {
-        case "p": // DECSTR - Soft Terminal Reset
-          this.softReset();
-          return;
+    if (this.intermediatesByte === 0x21) {
+      // '!'
+      if (finalByte === 0x70 /* 'p' */) {
+        // DECSTR - Soft Terminal Reset
+        this.softReset();
       }
+      return;
     }
 
-    switch (ch) {
-      case "A": // CUU - Cursor Up
-        this.cursorUp(params[0] || 1);
+    switch (finalByte) {
+      case 0x41: // 'A' - CUU - Cursor Up
+        this.cursorUp(p0 || 1);
         break;
-      case "B": // CUD - Cursor Down
-        this.cursorDown(params[0] || 1);
+      case 0x42: // 'B' - CUD - Cursor Down
+        this.cursorDown(p0 || 1);
         break;
-      case "C": // CUF - Cursor Forward
-        this.cursorForward(params[0] || 1);
+      case 0x43: // 'C' - CUF - Cursor Forward
+        this.cursorForward(p0 || 1);
         break;
-      case "D": // CUB - Cursor Backward
-        this.cursorBackward(params[0] || 1);
+      case 0x44: // 'D' - CUB - Cursor Backward
+        this.cursorBackward(p0 || 1);
         break;
-      case "E": // CNL - Cursor Next Line
-        this.buf.cursor.col = 0;
-        this.cursorDown(params[0] || 1);
+      case 0x45: // 'E' - CNL - Cursor Next Line
+        buf.cursor.col = 0;
+        this.cursorDown(p0 || 1);
         break;
-      case "F": // CPL - Cursor Previous Line
-        this.buf.cursor.col = 0;
-        this.cursorUp(params[0] || 1);
+      case 0x46: // 'F' - CPL - Cursor Previous Line
+        buf.cursor.col = 0;
+        this.cursorUp(p0 || 1);
         break;
-      case "G": // CHA - Cursor Horizontal Absolute
-        this.buf.cursor.wrapPending = false;
-        this.buf.cursor.col = Math.min((params[0] || 1) - 1, this.cols - 1);
+      case 0x47: // 'G' - CHA - Cursor Horizontal Absolute
+        buf.cursor.wrapPending = false;
+        buf.cursor.col = Math.min((p0 || 1) - 1, this.cols - 1);
         break;
-      case "H": // CUP - Cursor Position
-      case "f": // HVP - Horizontal Vertical Position
-        this.cursorPosition(params[0] || 1, params[1] || 1);
+      case 0x48: // 'H' - CUP - Cursor Position
+      case 0x66: // 'f' - HVP - Horizontal Vertical Position
+        this.cursorPosition(p0 || 1, p1 || 1);
         break;
-      case "I": // CHT - Cursor Forward Tab
-        this.buf.cursor.wrapPending = false;
-        for (let t = 0; t < (params[0] || 1); t++) {
-          this.buf.cursor.col = this.buf.nextTabStop(this.buf.cursor.col);
+      case 0x49: // 'I' - CHT - Cursor Forward Tab
+        buf.cursor.wrapPending = false;
+        for (let t = 0; t < (p0 || 1); t++) {
+          buf.cursor.col = buf.nextTabStop(buf.cursor.col);
         }
         break;
-      case "J": // ED - Erase in Display
-        this.buf.cursor.wrapPending = false;
-        this.eraseInDisplay(params[0] || 0);
+      case 0x4a: // 'J' - ED - Erase in Display
+        buf.cursor.wrapPending = false;
+        this.eraseInDisplay(p0 || 0);
         break;
-      case "K": // EL - Erase in Line
-        this.buf.cursor.wrapPending = false;
-        this.eraseInLine(params[0] || 0);
+      case 0x4b: // 'K' - EL - Erase in Line
+        buf.cursor.wrapPending = false;
+        this.eraseInLine(p0 || 0);
         break;
-      case "L": // IL - Insert Lines
-        this.buf.cursor.wrapPending = false;
-        this.insertLines(params[0] || 1);
+      case 0x4c: // 'L' - IL - Insert Lines
+        buf.cursor.wrapPending = false;
+        this.insertLines(p0 || 1);
         break;
-      case "M": // DL - Delete Lines
-        this.buf.cursor.wrapPending = false;
-        this.deleteLines(params[0] || 1);
+      case 0x4d: // 'M' - DL - Delete Lines
+        buf.cursor.wrapPending = false;
+        this.deleteLines(p0 || 1);
         break;
-      case "P": // DCH - Delete Characters
-        this.buf.cursor.wrapPending = false;
-        this.deleteChars(params[0] || 1);
+      case 0x50: // 'P' - DCH - Delete Characters
+        buf.cursor.wrapPending = false;
+        this.deleteChars(p0 || 1);
         break;
-      case "S": // SU - Scroll Up
-        for (let i = 0; i < (params[0] || 1); i++) {
-          this.buf.scrollUp();
+      case 0x53: // 'S' - SU - Scroll Up
+        for (let i = 0; i < (p0 || 1); i++) {
+          buf.scrollUp();
         }
         break;
-      case "T": // SD - Scroll Down
-        for (let i = 0; i < (params[0] || 1); i++) {
-          this.buf.scrollDown();
+      case 0x54: // 'T' - SD - Scroll Down
+        for (let i = 0; i < (p0 || 1); i++) {
+          buf.scrollDown();
         }
         break;
-      case "Z": // CBT - Cursor Backward Tab
-        this.buf.cursor.wrapPending = false;
-        for (let t = 0; t < (params[0] || 1); t++) {
-          this.buf.cursor.col = this.buf.prevTabStop(this.buf.cursor.col);
+      case 0x5a: // 'Z' - CBT - Cursor Backward Tab
+        buf.cursor.wrapPending = false;
+        for (let t = 0; t < (p0 || 1); t++) {
+          buf.cursor.col = buf.prevTabStop(buf.cursor.col);
         }
         break;
-      case "`": // HPA - Horizontal Position Absolute
-        this.buf.cursor.wrapPending = false;
-        this.buf.cursor.col = Math.min((params[0] || 1) - 1, this.cols - 1);
+      case 0x60: // '`' - HPA - Horizontal Position Absolute
+        buf.cursor.wrapPending = false;
+        buf.cursor.col = Math.min((p0 || 1) - 1, this.cols - 1);
         break;
-      case "a": // HPR - Horizontal Position Relative
-        this.cursorForward(params[0] || 1);
+      case 0x61: // 'a' - HPR - Horizontal Position Relative
+        this.cursorForward(p0 || 1);
         break;
-      case "b": // REP - Repeat Preceding Character
+      case 0x62: // 'b' - REP - Repeat Preceding Character
         if (this.lastPrintedCodepoint > 0) {
-          const count = params[0] || 1;
+          const count = p0 || 1;
           for (let i = 0; i < count; i++) {
             this.printCodepoint(this.lastPrintedCodepoint);
           }
         }
         break;
-      case "c": // DA - Primary Device Attributes
-        if ((params[0] || 0) === 0) {
+      case 0x63: // 'c' - DA - Primary Device Attributes
+        if ((p0 || 0) === 0) {
           this.reportDeviceAttributes();
         }
         break;
-      case "d": // VPA - Line Position Absolute
-        this.buf.cursor.wrapPending = false;
-        this.buf.cursor.row = Math.min(Math.max((params[0] || 1) - 1, 0), this.rows - 1);
+      case 0x64: // 'd' - VPA - Line Position Absolute
+        buf.cursor.wrapPending = false;
+        buf.cursor.row = Math.min(Math.max((p0 || 1) - 1, 0), this.rows - 1);
         break;
-      case "e": // VPR - Vertical Position Relative
-        this.cursorDown(params[0] || 1);
+      case 0x65: // 'e' - VPR - Vertical Position Relative
+        this.cursorDown(p0 || 1);
         break;
-      case "h": // SM - Set Mode
-        this.setMode(params);
+      case 0x68: // 'h' - SM - Set Mode
+        this.setMode(paramCount);
         break;
-      case "l": // RM - Reset Mode
-        this.resetMode(params);
+      case 0x6c: // 'l' - RM - Reset Mode
+        this.resetMode(paramCount);
         break;
-      case "m": // SGR - Select Graphic Rendition
-        this.sgr(params);
+      case 0x6d: // 'm' - SGR - Select Graphic Rendition
+        this.sgr(paramCount);
         break;
-      case "n": // DSR - Device Status Report
-        if (params[0] === 6) {
+      case 0x6e: // 'n' - DSR - Device Status Report
+        if (p0 === 6) {
           this.reportCursorPosition();
         }
         break;
-      case "r": // DECSTBM - Set Top and Bottom Margins
-        this.setScrollRegion(params[0] || 1, params[1] || this.rows);
+      case 0x72: // 'r' - DECSTBM - Set Top and Bottom Margins
+        this.setScrollRegion(p0 || 1, p1 || this.rows);
         break;
-      case "s": // SCP - Save Cursor Position
-        this.buf.saveCursor();
+      case 0x73: // 's' - SCP - Save Cursor Position
+        buf.saveCursor();
         break;
-      case "t": // Window manipulation
-        this.windowManipulation(params);
+      case 0x74: // 't' - Window manipulation
+        this.windowManipulation(paramCount);
         break;
-      case "u": // RCP - Restore Cursor Position
-        this.buf.restoreCursor();
+      case 0x75: // 'u' - RCP - Restore Cursor Position
+        buf.restoreCursor();
         break;
-      case "@": // ICH - Insert Characters
-        this.buf.cursor.wrapPending = false;
-        this.insertChars(params[0] || 1);
+      case 0x40: // '@' - ICH - Insert Characters
+        buf.cursor.wrapPending = false;
+        this.insertChars(p0 || 1);
         break;
-      case "X": // ECH - Erase Characters
-        this.buf.cursor.wrapPending = false;
-        this.eraseChars(params[0] || 1);
+      case 0x58: // 'X' - ECH - Erase Characters
+        buf.cursor.wrapPending = false;
+        this.eraseChars(p0 || 1);
         break;
-      case "g": // TBC - Tab Clear
-        if ((params[0] || 0) === 0) {
-          this.buf.tabStops.delete(this.buf.cursor.col);
-        } else if (params[0] === 3) {
-          this.buf.tabStops.clear();
+      case 0x67: // 'g' - TBC - Tab Clear
+        if ((p0 || 0) === 0) {
+          buf.tabStops.delete(buf.cursor.col);
+        } else if (p0 === 3) {
+          buf.tabStops.clear();
         }
         break;
     }
   }
 
-  private csiPrivate(ch: string, params: number[]): void {
-    switch (ch) {
-      case "h": // DECSET
-        for (const p of params) {
-          this.decset(p, true);
+  private csiPrivate(finalByte: number, paramCount: number): void {
+    switch (finalByte) {
+      case 0x68: // 'h' - DECSET
+        for (let i = 0; i < paramCount; i++) {
+          this.decset(this.params[i], true);
         }
         break;
-      case "l": // DECRST
-        for (const p of params) {
-          this.decset(p, false);
+      case 0x6c: // 'l' - DECRST
+        for (let i = 0; i < paramCount; i++) {
+          this.decset(this.params[i], false);
         }
         break;
-      case "n": // DECDSR — private device status reports
-        if (params[0] === 6) {
+      case 0x6e: // 'n' - DECDSR
+        if (this.params[0] === 6) {
           this.reportCursorPosition();
         }
         break;
@@ -595,33 +613,34 @@ export class VTParser {
   }
 
   /** SM - Set Mode (non-private) */
-  private setMode(params: number[]): void {
-    for (const p of params) {
-      if (p === 20) {
+  private setMode(paramCount: number): void {
+    for (let i = 0; i < paramCount; i++) {
+      if (this.params[i] === 20) {
         this.lineFeedMode = true;
       }
     }
   }
 
   /** RM - Reset Mode (non-private) */
-  private resetMode(params: number[]): void {
-    for (const p of params) {
-      if (p === 20) {
+  private resetMode(paramCount: number): void {
+    for (let i = 0; i < paramCount; i++) {
+      if (this.params[i] === 20) {
         this.lineFeedMode = false;
       }
     }
   }
 
   private escDispatch(byte: number): void {
-    const ch = String.fromCharCode(byte);
+    const buf = this.bufferSet.active;
 
     // Handle ESC # sequences (intermediates contain '#')
-    if (this.intermediates === "#") {
-      if (ch === "8") {
-        // DECALN — Screen Alignment Test: fill screen with 'E'
+    if (this.intermediatesByte === 0x23) {
+      if (byte === 0x38) {
+        // '8' — DECALN: fill screen with 'E'
+        const grid = buf.grid;
         for (let r = 0; r < this.rows; r++) {
           for (let c = 0; c < this.cols; c++) {
-            this.grid.setCell(r, c, 0x45, 7, 0, 0); // 'E'
+            grid.setCell(r, c, 0x45, 7, 0, 0);
           }
         }
       }
@@ -629,46 +648,45 @@ export class VTParser {
     }
 
     // Handle ESC ( / ESC ) for character set designation
-    if (this.intermediates === "(" || this.intermediates === ")") {
-      // Character set switching — acknowledge but no-op for now
+    if (this.intermediatesByte === 0x28 || this.intermediatesByte === 0x29) {
       return;
     }
 
-    switch (ch) {
-      case "7": // DECSC - Save Cursor
-        this.buf.saveCursor();
+    switch (byte) {
+      case 0x37: // '7' - DECSC - Save Cursor
+        buf.saveCursor();
         break;
-      case "8": // DECRC - Restore Cursor
-        this.buf.restoreCursor();
+      case 0x38: // '8' - DECRC - Restore Cursor
+        buf.restoreCursor();
         break;
-      case "=": // DECKPAM - Application Keypad Mode
+      case 0x3d: // '=' - DECKPAM - Application Keypad Mode
         this.applicationKeypad = true;
         break;
-      case ">": // DECKPNM - Normal Keypad Mode
+      case 0x3e: // '>' - DECKPNM - Normal Keypad Mode
         this.applicationKeypad = false;
         break;
-      case "D": // IND - Index (move cursor down, scroll if at bottom)
-        this.buf.cursor.wrapPending = false;
+      case 0x44: // 'D' - IND - Index
+        buf.cursor.wrapPending = false;
         this.linefeed();
         break;
-      case "E": // NEL - Next Line
-        this.buf.cursor.wrapPending = false;
-        this.buf.cursor.col = 0;
+      case 0x45: // 'E' - NEL - Next Line
+        buf.cursor.wrapPending = false;
+        buf.cursor.col = 0;
         this.linefeed();
         break;
-      case "M": // RI - Reverse Index (move cursor up, scroll if at top)
-        this.buf.cursor.wrapPending = false;
-        if (this.buf.cursor.row === this.buf.scrollTop) {
-          this.buf.scrollDown();
-        } else if (this.buf.cursor.row > 0) {
-          this.buf.cursor.row--;
+      case 0x4d: // 'M' - RI - Reverse Index
+        buf.cursor.wrapPending = false;
+        if (buf.cursor.row === buf.scrollTop) {
+          buf.scrollDown();
+        } else if (buf.cursor.row > 0) {
+          buf.cursor.row--;
         }
         break;
-      case "c": // RIS - Full Reset
+      case 0x63: // 'c' - RIS - Full Reset
         this.fullReset();
         break;
-      case "H": // HTS - Horizontal Tab Set
-        this.buf.tabStops.add(this.buf.cursor.col);
+      case 0x48: // 'H' - HTS - Horizontal Tab Set
+        buf.tabStops.add(buf.cursor.col);
         break;
     }
   }
@@ -676,19 +694,38 @@ export class VTParser {
   // ---- OSC dispatch ----
 
   private oscDispatch(): void {
-    const idx = this.oscString.indexOf(";");
-    if (idx === -1) return;
+    // Find ';' separator in the numeric parts buffer
+    let semiIdx = -1;
+    for (let i = 0; i < this.oscLength; i++) {
+      if (this.oscParts[i] === 0x3b) {
+        semiIdx = i;
+        break;
+      }
+    }
+    if (semiIdx === -1) return;
 
-    const code = parseInt(this.oscString.substring(0, idx), 10);
-    const data = this.oscString.substring(idx + 1);
+    // Parse the code (digits before semicolon)
+    let code = 0;
+    for (let i = 0; i < semiIdx; i++) {
+      code = code * 10 + (this.oscParts[i] - 0x30);
+    }
 
     switch (code) {
       case 0: // Set icon name + window title
       case 1: // Set icon name
       case 2: // Set window title
-        // Strip control characters to enforce plain-text contract.
-        // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally matching C0/C1 control chars
-        this.onTitleChange?.(data.replace(/[\u0000-\u001f\u007f-\u009f]/g, ""));
+        if (this.onTitleChange) {
+          // Build string only when callback exists
+          let data = "";
+          for (let i = semiIdx + 1; i < this.oscLength; i++) {
+            const ch = this.oscParts[i];
+            // Strip control characters (C0/C1)
+            if (ch >= 0x20 && ch < 0x7f) {
+              data += String.fromCharCode(ch);
+            }
+          }
+          this.onTitleChange(data);
+        }
         break;
       // Other OSC codes (4, 7, 8, 10, 11, 12, 52, 104, 133) can be added later
     }
@@ -768,11 +805,10 @@ export class VTParser {
 
   // ---- Window manipulation ----
 
-  private windowManipulation(params: number[]): void {
-    const ps = params[0] || 0;
+  private windowManipulation(paramCount: number): void {
+    const ps = paramCount > 0 ? this.params[0] : 0;
     switch (ps) {
       case 22: // Push title to stack
-        // We don't track the actual title, but maintain the stack
         this.titleStack.push("");
         break;
       case 23: // Pop title from stack
@@ -918,13 +954,14 @@ export class VTParser {
 
   // ---- SGR ----
 
-  private sgr(params: number[]): void {
-    if (params.length === 0) {
-      params = [0];
+  private sgr(paramCount: number): void {
+    if (paramCount === 0) {
+      this.params[0] = 0;
+      paramCount = 1;
     }
 
-    for (let i = 0; i < params.length; i++) {
-      const p = params[i];
+    for (let i = 0; i < paramCount; i++) {
+      const p = this.params[i];
       switch (p) {
         case 0: // Reset
           this.attrs = 0;
@@ -988,7 +1025,7 @@ export class VTParser {
 
         // Extended foreground (38)
         case 38:
-          i = this.parseSgrColor(params, i, true);
+          i = this.parseSgrColor(paramCount, i, true);
           break;
 
         // Default foreground (39)
@@ -1012,7 +1049,7 @@ export class VTParser {
 
         // Extended background (48)
         case 48:
-          i = this.parseSgrColor(params, i, false);
+          i = this.parseSgrColor(paramCount, i, false);
           break;
 
         // Default background (49)
@@ -1051,14 +1088,14 @@ export class VTParser {
   }
 
   /** Parse SGR 38/48 extended color. Returns updated index. */
-  private parseSgrColor(params: number[], i: number, isFg: boolean): number {
-    if (i + 1 >= params.length) return i;
+  private parseSgrColor(paramCount: number, i: number, isFg: boolean): number {
+    if (i + 1 >= paramCount) return i;
 
-    const mode = params[i + 1];
+    const mode = this.params[i + 1];
     if (mode === 5) {
       // 256-color: 38;5;n or 48;5;n
-      if (i + 2 < params.length) {
-        const colorIdx = params[i + 2];
+      if (i + 2 < paramCount) {
+        const colorIdx = this.params[i + 2];
         if (isFg) {
           this.fgIndex = colorIdx & 0xff;
           this.fgIsRGB = false;
@@ -1070,10 +1107,10 @@ export class VTParser {
       }
     } else if (mode === 2) {
       // 24-bit RGB: 38;2;r;g;b or 48;2;r;g;b
-      if (i + 4 < params.length) {
-        const r = params[i + 2] & 0xff;
-        const g = params[i + 3] & 0xff;
-        const b = params[i + 4] & 0xff;
+      if (i + 4 < paramCount) {
+        const r = this.params[i + 2] & 0xff;
+        const g = this.params[i + 3] & 0xff;
+        const b = this.params[i + 4] & 0xff;
         const rgb = (r << 16) | (g << 8) | b;
         if (isFg) {
           this.fgRGB = rgb;

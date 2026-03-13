@@ -1,4 +1,4 @@
-import { CellGrid } from "./cell-grid.js";
+import { CELL_SIZE, CellGrid } from "./cell-grid.js";
 import type { CursorState } from "./types.js";
 
 export class Buffer {
@@ -57,23 +57,30 @@ export class Buffer {
     }
   }
 
-  /** Scroll the scroll region up by one line. */
+  /** Scroll the scroll region up by one line using copyWithin (zero-alloc). */
   scrollUp(): void {
-    // Move rows [scrollTop+1 .. scrollBottom] up by one
-    for (let r = this.scrollTop; r < this.scrollBottom; r++) {
-      const src = this.grid.copyRow(r + 1);
-      this.grid.pasteRow(r, src);
-    }
+    const rowSize = this.cols * CELL_SIZE;
+    const dstStart = this.scrollTop * rowSize;
+    const srcStart = (this.scrollTop + 1) * rowSize;
+    const srcEnd = (this.scrollBottom + 1) * rowSize;
+    this.grid.data.copyWithin(dstStart, srcStart, srcEnd);
     this.grid.clearRow(this.scrollBottom);
+    this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
   }
 
-  /** Scroll the scroll region down by one line. */
+  /**
+   * Scroll the scroll region down by one line using copyWithin (zero-alloc).
+   * copyWithin handles overlapping src/dst correctly (copies as if via a
+   * temporary buffer), so shifting rows down by one is safe.
+   */
   scrollDown(): void {
-    for (let r = this.scrollBottom; r > this.scrollTop; r--) {
-      const src = this.grid.copyRow(r - 1);
-      this.grid.pasteRow(r, src);
-    }
+    const rowSize = this.cols * CELL_SIZE;
+    const srcStart = this.scrollTop * rowSize;
+    const srcEnd = this.scrollBottom * rowSize;
+    const dstStart = (this.scrollTop + 1) * rowSize;
+    this.grid.data.copyWithin(dstStart, srcStart, srcEnd);
     this.grid.clearRow(this.scrollTop);
+    this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
   }
 }
 
@@ -126,7 +133,7 @@ export class BufferSet {
 
   /** Scroll the active buffer up, pushing the top line into scrollback if normal buffer. */
   scrollUpWithHistory(): void {
-    if (this.active === this.normal && this.active.scrollTop === 0) {
+    if (this.maxScrollback > 0 && this.active === this.normal && this.active.scrollTop === 0) {
       this.pushScrollback(this.active.grid.copyRow(0));
     }
     this.active.scrollUp();
