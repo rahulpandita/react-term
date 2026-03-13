@@ -13,20 +13,20 @@
  * - KeyboardHandler translates key events to VT sequences
  */
 
+import type { SelectionRange, Theme } from "@react-term/core";
+import { BufferSet, DEFAULT_THEME, VTParser } from "@react-term/core";
 import React, {
   forwardRef,
-  useRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
-  useCallback,
+  useRef,
   useState,
-} from 'react';
-import { BufferSet, VTParser, DEFAULT_THEME } from '@react-term/core';
-import type { Theme, CursorState, SelectionRange } from '@react-term/core';
-import { GestureHandler } from './input/GestureHandler.js';
-import { KeyboardHandler } from './input/KeyboardHandler.js';
-import { SkiaRenderer } from './renderer/SkiaRenderer.js';
-import type { RenderCommand } from './renderer/SkiaRenderer.js';
+} from "react";
+import { GestureHandler } from "./input/GestureHandler.js";
+import { KeyboardHandler } from "./input/KeyboardHandler.js";
+import type { RenderCommand } from "./renderer/SkiaRenderer.js";
+import { SkiaRenderer } from "./renderer/SkiaRenderer.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,7 +60,7 @@ export interface NativeTerminalHandle {
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const DEFAULT_FONT_SIZE = 14;
-const DEFAULT_FONT_FAMILY = 'Menlo';
+const DEFAULT_FONT_FAMILY = "Menlo";
 const DEFAULT_SCROLLBACK = 1000;
 
 function mergeTheme(partial?: Partial<Theme>): Theme {
@@ -92,9 +92,15 @@ export const NativeTerminal = forwardRef<NativeTerminalHandle, NativeTerminalPro
     const onResizeRef = useRef(onResize);
     const onRenderCommandsRef = useRef(onRenderCommands);
 
-    useEffect(() => { onDataRef.current = onData; }, [onData]);
-    useEffect(() => { onResizeRef.current = onResize; }, [onResize]);
-    useEffect(() => { onRenderCommandsRef.current = onRenderCommands; }, [onRenderCommands]);
+    useEffect(() => {
+      onDataRef.current = onData;
+    }, [onData]);
+    useEffect(() => {
+      onResizeRef.current = onResize;
+    }, [onResize]);
+    useEffect(() => {
+      onRenderCommandsRef.current = onRenderCommands;
+    }, [onRenderCommands]);
 
     // Core state
     const bufferSetRef = useRef<BufferSet | null>(null);
@@ -103,7 +109,7 @@ export const NativeTerminal = forwardRef<NativeTerminalHandle, NativeTerminalPro
     const gestureHandlerRef = useRef<GestureHandler | null>(null);
     const keyboardHandlerRef = useRef<KeyboardHandler | null>(null);
 
-    const [focused, setFocused] = useState(false);
+    const [_focused, setFocused] = useState(false);
     const [selection, setSelection] = useState<SelectionRange | null>(null);
 
     const encoder = useRef(new TextEncoder());
@@ -205,7 +211,7 @@ export const NativeTerminal = forwardRef<NativeTerminalHandle, NativeTerminalPro
         keyboardHandlerRef.current = null;
         initialized.current = false;
       };
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [cols, fontFamily, fontSize, rows, scrollback, selection, theme]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Update theme
     useEffect(() => {
@@ -228,29 +234,32 @@ export const NativeTerminal = forwardRef<NativeTerminalHandle, NativeTerminalPro
     const focus = useCallback(() => setFocused(true), []);
     const blur = useCallback(() => setFocused(false), []);
 
-    useImperativeHandle(ref, () => ({
-      write(data: string | Uint8Array) {
-        if (!parserRef.current) return;
-        const bytes = typeof data === 'string'
-          ? encoder.current.encode(data)
-          : data;
-        parserRef.current.write(bytes);
-      },
+    useImperativeHandle(
+      ref,
+      () => ({
+        write(data: string | Uint8Array) {
+          if (!parserRef.current) return;
+          const bytes = typeof data === "string" ? encoder.current.encode(data) : data;
+          parserRef.current.write(bytes);
+        },
 
-      resize(newCols: number, newRows: number) {
-        if (!isFinite(newCols) || !isFinite(newRows) || newCols < 2 || newRows < 1) return;
+        resize(newCols: number, newRows: number) {
+          if (!Number.isFinite(newCols) || !Number.isFinite(newRows) || newCols < 2 || newRows < 1)
+            return;
 
-        const bufferSet = new BufferSet(newCols, newRows, scrollback);
-        const parser = new VTParser(bufferSet);
-        bufferSetRef.current = bufferSet;
-        parserRef.current = parser;
+          const bufferSet = new BufferSet(newCols, newRows, scrollback);
+          const parser = new VTParser(bufferSet);
+          bufferSetRef.current = bufferSet;
+          parserRef.current = parser;
 
-        onResizeRef.current?.({ cols: newCols, rows: newRows });
-      },
+          onResizeRef.current?.({ cols: newCols, rows: newRows });
+        },
 
-      focus,
-      blur,
-    }), [scrollback, focus, blur]);
+        focus,
+        blur,
+      }),
+      [scrollback, focus, blur],
+    );
 
     // -----------------------------------------------------------------------
     // Render
@@ -263,16 +272,16 @@ export const NativeTerminal = forwardRef<NativeTerminalHandle, NativeTerminalPro
     const surfaceWidth = cols * cellSize.width;
     const surfaceHeight = rows * cellSize.height;
 
-    return React.createElement('RCTView', {
+    return React.createElement("RCTView", {
       style: {
         width: surfaceWidth,
         height: surfaceHeight,
         backgroundColor: theme.background,
-        overflow: 'hidden',
+        overflow: "hidden",
         ...style,
       },
-      accessibilityLabel: 'Terminal',
-      accessibilityRole: 'text',
+      accessibilityLabel: "Terminal",
+      accessibilityRole: "text",
     });
   },
 );

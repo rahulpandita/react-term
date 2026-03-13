@@ -1,5 +1,5 @@
 // VT500-series parser states (Paul Williams state diagram)
-export const enum State {
+export enum State {
   GROUND = 0,
   ESCAPE = 1,
   ESCAPE_INTERMEDIATE = 2,
@@ -17,7 +17,7 @@ export const enum State {
 }
 
 // Actions performed during transitions
-export const enum Action {
+export enum Action {
   NONE = 0,
   PRINT = 1,
   EXECUTE = 2,
@@ -75,7 +75,15 @@ function buildTable(): Uint8Array {
     // C1 controls 0x80-0x8f, 0x91-0x97, 0x99, 0x9a -> execute in GROUND
     for (const b of [
       ...Array.from({ length: 0x90 - 0x80 }, (_, i) => 0x80 + i),
-      0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x99, 0x9a,
+      0x91,
+      0x92,
+      0x93,
+      0x94,
+      0x95,
+      0x96,
+      0x97,
+      0x99,
+      0x9a,
     ]) {
       entry(s as State, b, Action.EXECUTE, State.GROUND);
     }

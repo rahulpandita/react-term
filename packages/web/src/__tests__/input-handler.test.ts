@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
-import { InputHandler } from '../input-handler.js';
-import { CellGrid } from '@react-term/core';
+import { CellGrid } from "@react-term/core";
+import { describe, expect, it, vi } from "vitest";
+import { InputHandler } from "../input-handler.js";
 
-describe('InputHandler', () => {
-  describe('Ctrl+C with selection', () => {
-    it('does not send ^C to PTY when there is an active selection', () => {
+describe("InputHandler", () => {
+  describe("Ctrl+C with selection", () => {
+    it("does not send ^C to PTY when there is an active selection", () => {
       const onData = vi.fn();
       const onSelectionChange = vi.fn();
       const handler = new InputHandler({ onData, onSelectionChange });
@@ -12,7 +12,7 @@ describe('InputHandler', () => {
       // Set up a grid with text
       const grid = new CellGrid(20, 5);
       for (let c = 0; c < 5; c++) {
-        grid.setCell(0, c, 'Hello'.charCodeAt(c), 7, 0, 0);
+        grid.setCell(0, c, "Hello".charCodeAt(c), 7, 0, 0);
       }
       handler.setGrid(grid);
 
@@ -20,7 +20,7 @@ describe('InputHandler', () => {
       // We need to test handleKeyDown behavior, which is private.
       // Instead, we test via keyToSequence that the sequence would be ^C
       const seq = handler.keyToSequence({
-        key: 'c',
+        key: "c",
         ctrlKey: true,
         altKey: false,
         metaKey: false,
@@ -28,25 +28,25 @@ describe('InputHandler', () => {
       } as KeyboardEvent);
 
       // keyToSequence returns \x03 for Ctrl+C (normal behavior)
-      expect(seq).toBe('\x03');
+      expect(seq).toBe("\x03");
     });
 
-    it('keyToSequence returns ^C (\\x03) for Ctrl+C without selection', () => {
+    it("keyToSequence returns ^C (\\x03) for Ctrl+C without selection", () => {
       const handler = new InputHandler({ onData: vi.fn() });
       const seq = handler.keyToSequence({
-        key: 'c',
+        key: "c",
         ctrlKey: true,
         altKey: false,
         metaKey: false,
         shiftKey: false,
       } as KeyboardEvent);
-      expect(seq).toBe('\x03');
+      expect(seq).toBe("\x03");
     });
 
-    it('keyToSequence returns null for Meta+C (lets browser handle it)', () => {
+    it("keyToSequence returns null for Meta+C (lets browser handle it)", () => {
       const handler = new InputHandler({ onData: vi.fn() });
       const seq = handler.keyToSequence({
-        key: 'c',
+        key: "c",
         ctrlKey: false,
         altKey: false,
         metaKey: true,
@@ -56,13 +56,13 @@ describe('InputHandler', () => {
     });
   });
 
-  describe('selection management', () => {
-    it('getSelection returns null initially', () => {
+  describe("selection management", () => {
+    it("getSelection returns null initially", () => {
       const handler = new InputHandler({ onData: vi.fn() });
       expect(handler.getSelection()).toBeNull();
     });
 
-    it('clearSelection clears the selection and notifies', () => {
+    it("clearSelection clears the selection and notifies", () => {
       const onSelectionChange = vi.fn();
       const handler = new InputHandler({ onData: vi.fn(), onSelectionChange });
       handler.clearSelection();

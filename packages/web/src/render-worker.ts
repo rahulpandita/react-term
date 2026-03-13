@@ -10,24 +10,32 @@
  * and resize events.
  */
 
-import { CellGrid, DEFAULT_THEME } from '@react-term/core';
-import type { Theme } from '@react-term/core';
+import type { Theme } from "@react-term/core";
+import { CellGrid, DEFAULT_THEME } from "@react-term/core";
+import { build256Palette } from "./renderer.js";
+
+// Type declaration for Web Worker global scope (not included in DOM lib)
+declare type DedicatedWorkerGlobalScope = typeof globalThis & {
+  postMessage(message: unknown, transfer?: Transferable[]): void;
+  close(): void;
+  addEventListener(type: string, listener: (event: MessageEvent) => void): void;
+};
+
 import {
-  GlyphAtlas,
-  hexToFloat4,
   BG_INSTANCE_FLOATS,
   GLYPH_INSTANCE_FLOATS,
+  GlyphAtlas,
+  hexToFloat4,
   packBgInstance,
   packGlyphInstance,
-} from './webgl-renderer.js';
-import { build256Palette } from './renderer.js';
+} from "./webgl-renderer.js";
 
 // ---------------------------------------------------------------------------
 // Message types
 // ---------------------------------------------------------------------------
 
 export interface RenderWorkerInitMessage {
-  type: 'init';
+  type: "init";
   canvas: OffscreenCanvas;
   sharedBuffer: SharedArrayBuffer;
   cols: number;
@@ -39,31 +47,31 @@ export interface RenderWorkerInitMessage {
 }
 
 export interface RenderWorkerUpdateMessage {
-  type: 'update';
+  type: "update";
   cursor: { row: number; col: number; visible: boolean; style: string };
   selection: { startRow: number; startCol: number; endRow: number; endCol: number } | null;
 }
 
 export interface RenderWorkerResizeMessage {
-  type: 'resize';
+  type: "resize";
   cols: number;
   rows: number;
   sharedBuffer: SharedArrayBuffer;
 }
 
 export interface RenderWorkerThemeMessage {
-  type: 'theme';
+  type: "theme";
   theme: Theme;
 }
 
 export interface RenderWorkerFontMessage {
-  type: 'font';
+  type: "font";
   fontSize: number;
   fontFamily: string;
 }
 
 export interface RenderWorkerDisposeMessage {
-  type: 'dispose';
+  type: "dispose";
 }
 
 export type RenderWorkerInboundMessage =
@@ -75,7 +83,7 @@ export type RenderWorkerInboundMessage =
   | RenderWorkerDisposeMessage;
 
 export interface RenderWorkerFrameMessage {
-  type: 'frame';
+  type: "frame";
   fps: number;
 }
 
@@ -167,11 +175,7 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
   return shader;
 }
 
-function createProgram(
-  gl: WebGL2RenderingContext,
-  vertSrc: string,
-  fragSrc: string,
-): WebGLProgram {
+function createProgram(gl: WebGL2RenderingContext, vertSrc: string, fragSrc: string): WebGLProgram {
   const vert = compileShader(gl, gl.VERTEX_SHADER, vertSrc);
   const frag = compileShader(gl, gl.FRAGMENT_SHADER, fragSrc);
   const program = gl.createProgram()!;
@@ -203,7 +207,7 @@ let cols = 0;
 let rows = 0;
 let dpr = 1;
 let fontSize = 14;
-let fontFamily = 'monospace';
+let fontFamily = "monospace";
 let theme: Theme = DEFAULT_THEME;
 let palette: string[] = [];
 let paletteFloat: Array<[number, number, number, number]> = [];
@@ -220,7 +224,7 @@ let cursorCol = 0;
 let cursorVisible = true;
 let prevCursorRow = -1;
 let prevCursorCol = -1;
-let cursorStyle = 'block';
+let cursorStyle = "block";
 let selection: { startRow: number; startCol: number; endRow: number; endCol: number } | null = null;
 
 // GL resources
@@ -251,7 +255,7 @@ let currentFps = 0;
 
 function buildPaletteFloat(): void {
   palette = build256Palette(theme);
-  paletteFloat = palette.map(c => hexToFloat4(c));
+  paletteFloat = palette.map((c) => hexToFloat4(c));
   themeFgFloat = hexToFloat4(theme.foreground);
   themeBgFloat = hexToFloat4(theme.background);
   themeCursorFloat = hexToFloat4(theme.cursor);
@@ -259,7 +263,7 @@ function buildPaletteFloat(): void {
 
 function measureCellSize(): void {
   const measureCanvas = new OffscreenCanvas(100, 100);
-  const ctx = measureCanvas.getContext('2d');
+  const ctx = measureCanvas.getContext("2d");
   if (!ctx) {
     cellWidth = Math.ceil(fontSize * 0.6);
     cellHeight = Math.ceil(fontSize * 1.2);
@@ -267,12 +271,12 @@ function measureCellSize(): void {
   }
 
   ctx.font = `${fontSize}px ${fontFamily}`;
-  const metrics = ctx.measureText('M');
+  const metrics = ctx.measureText("M");
 
   cellWidth = Math.ceil(metrics.width);
   if (
-    typeof metrics.fontBoundingBoxAscent === 'number' &&
-    typeof metrics.fontBoundingBoxDescent === 'number'
+    typeof metrics.fontBoundingBoxAscent === "number" &&
+    typeof metrics.fontBoundingBoxDescent === "number"
   ) {
     cellHeight = Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent);
   } else {
@@ -321,27 +325,27 @@ function createGridFromSAB(buffer: SharedArrayBuffer, c: number, r: number): Cel
   const rgbBytes = 512 * 4;
 
   // Use Object.defineProperty to set readonly properties
-  Object.defineProperty(g, 'cols', { value: c, writable: false });
-  Object.defineProperty(g, 'rows', { value: r, writable: false });
-  Object.defineProperty(g, 'isShared', { value: true, writable: false });
-  Object.defineProperty(g, 'data', {
+  Object.defineProperty(g, "cols", { value: c, writable: false });
+  Object.defineProperty(g, "rows", { value: r, writable: false });
+  Object.defineProperty(g, "isShared", { value: true, writable: false });
+  Object.defineProperty(g, "data", {
     value: new Uint32Array(buffer, 0, c * r * CELL_SIZE),
     writable: false,
   });
-  Object.defineProperty(g, 'dirtyRows', {
+  Object.defineProperty(g, "dirtyRows", {
     value: new Int32Array(buffer, cellBytes, r),
     writable: false,
   });
-  Object.defineProperty(g, 'rgbColors', {
+  Object.defineProperty(g, "rgbColors", {
     value: new Uint32Array(buffer, cellBytes + dirtyBytes, 512),
     writable: false,
   });
-  Object.defineProperty(g, 'cursorData', {
+  Object.defineProperty(g, "cursorData", {
     value: new Int32Array(buffer, cellBytes + dirtyBytes + rgbBytes, 4),
     writable: false,
   });
   // Set private buffer field for getBuffer()
-  Object.defineProperty(g, 'buffer', { value: buffer, writable: false });
+  Object.defineProperty(g, "buffer", { value: buffer, writable: false });
 
   return g;
 }
@@ -387,7 +391,7 @@ function setupBgVAO(g: WebGL2RenderingContext): void {
   const FLOAT = 4;
   const program = bgProgram!;
 
-  const aPos = g.getAttribLocation(program, 'a_position');
+  const aPos = g.getAttribLocation(program, "a_position");
   g.bindBuffer(g.ARRAY_BUFFER, quadVBO);
   g.enableVertexAttribArray(aPos);
   g.vertexAttribPointer(aPos, 2, g.FLOAT, false, 0, 0);
@@ -397,12 +401,12 @@ function setupBgVAO(g: WebGL2RenderingContext): void {
   g.bindBuffer(g.ARRAY_BUFFER, bgInstanceVBO);
   const stride = BG_INSTANCE_FLOATS * FLOAT;
 
-  const aCellPos = g.getAttribLocation(program, 'a_cellPos');
+  const aCellPos = g.getAttribLocation(program, "a_cellPos");
   g.enableVertexAttribArray(aCellPos);
   g.vertexAttribPointer(aCellPos, 2, g.FLOAT, false, stride, 0);
   g.vertexAttribDivisor(aCellPos, 1);
 
-  const aColor = g.getAttribLocation(program, 'a_color');
+  const aColor = g.getAttribLocation(program, "a_color");
   g.enableVertexAttribArray(aColor);
   g.vertexAttribPointer(aColor, 4, g.FLOAT, false, stride, 2 * FLOAT);
   g.vertexAttribDivisor(aColor, 1);
@@ -412,7 +416,7 @@ function setupGlyphVAO(g: WebGL2RenderingContext): void {
   const FLOAT = 4;
   const program = glyphProgram!;
 
-  const aPos = g.getAttribLocation(program, 'a_position');
+  const aPos = g.getAttribLocation(program, "a_position");
   g.bindBuffer(g.ARRAY_BUFFER, quadVBO);
   g.enableVertexAttribArray(aPos);
   g.vertexAttribPointer(aPos, 2, g.FLOAT, false, 0, 0);
@@ -422,22 +426,22 @@ function setupGlyphVAO(g: WebGL2RenderingContext): void {
   g.bindBuffer(g.ARRAY_BUFFER, glyphInstanceVBO);
   const stride = GLYPH_INSTANCE_FLOATS * FLOAT;
 
-  const aCellPos = g.getAttribLocation(program, 'a_cellPos');
+  const aCellPos = g.getAttribLocation(program, "a_cellPos");
   g.enableVertexAttribArray(aCellPos);
   g.vertexAttribPointer(aCellPos, 2, g.FLOAT, false, stride, 0);
   g.vertexAttribDivisor(aCellPos, 1);
 
-  const aColor = g.getAttribLocation(program, 'a_color');
+  const aColor = g.getAttribLocation(program, "a_color");
   g.enableVertexAttribArray(aColor);
   g.vertexAttribPointer(aColor, 4, g.FLOAT, false, stride, 2 * FLOAT);
   g.vertexAttribDivisor(aColor, 1);
 
-  const aTexCoord = g.getAttribLocation(program, 'a_texCoord');
+  const aTexCoord = g.getAttribLocation(program, "a_texCoord");
   g.enableVertexAttribArray(aTexCoord);
   g.vertexAttribPointer(aTexCoord, 4, g.FLOAT, false, stride, 6 * FLOAT);
   g.vertexAttribDivisor(aTexCoord, 1);
 
-  const aGlyphSize = g.getAttribLocation(program, 'a_glyphSize');
+  const aGlyphSize = g.getAttribLocation(program, "a_glyphSize");
   g.enableVertexAttribArray(aGlyphSize);
   g.vertexAttribPointer(aGlyphSize, 2, g.FLOAT, false, stride, 10 * FLOAT);
   g.vertexAttribDivisor(aGlyphSize, 1);
@@ -479,8 +483,11 @@ function render(): void {
   cursorStyle = cursor.style;
 
   // If cursor moved, mark old and new rows dirty to erase ghost and draw fresh
-  if (prevCursorRow >= 0 && prevCursorRow < rows &&
-      (prevCursorRow !== cursorRow || prevCursorCol !== cursorCol)) {
+  if (
+    prevCursorRow >= 0 &&
+    prevCursorRow < rows &&
+    (prevCursorRow !== cursorRow || prevCursorCol !== cursorCol)
+  ) {
     grid.markDirty(prevCursorRow);
   }
   if (cursorRow >= 0 && cursorRow < rows) {
@@ -520,19 +527,39 @@ function render(): void {
         bg = tmp;
       }
 
-      packBgInstance(bgInstances, bgCount * BG_INSTANCE_FLOATS, col, row, bg[0], bg[1], bg[2], bg[3]);
+      packBgInstance(
+        bgInstances,
+        bgCount * BG_INSTANCE_FLOATS,
+        col,
+        row,
+        bg[0],
+        bg[1],
+        bg[2],
+        bg[3],
+      );
       bgCount++;
 
       if (codepoint > 0x20) {
         const bold = !!(attrs & ATTR_BOLD);
         const italic = !!(attrs & ATTR_ITALIC);
-        const glyph = atlas!.getGlyph(codepoint, bold, italic);
+        const glyph = atlas?.getGlyph(codepoint, bold, italic);
 
         if (glyph) {
           packGlyphInstance(
-            glyphInstances, glyphCount * GLYPH_INSTANCE_FLOATS,
-            col, row, fg[0], fg[1], fg[2], fg[3],
-            glyph.u, glyph.v, glyph.w, glyph.h, glyph.pw, glyph.ph,
+            glyphInstances,
+            glyphCount * GLYPH_INSTANCE_FLOATS,
+            col,
+            row,
+            fg[0],
+            fg[1],
+            fg[2],
+            fg[3],
+            glyph.u,
+            glyph.v,
+            glyph.w,
+            glyph.h,
+            glyph.pw,
+            glyph.ph,
           );
           glyphCount++;
         }
@@ -542,10 +569,10 @@ function render(): void {
   }
 
   // Upload atlas
-  atlas!.upload(gl);
+  atlas?.upload(gl);
 
-  const canvasWidth = canvas!.width;
-  const canvasHeight = canvas!.height;
+  const canvasWidth = canvas?.width ?? 0;
+  const canvasHeight = canvas?.height ?? 0;
   gl.viewport(0, 0, canvasWidth, canvasHeight);
   gl.clearColor(themeBgFloat[0], themeBgFloat[1], themeBgFloat[2], 1.0);
   gl.clear(gl.COLOR_BUFFER_BIT);
@@ -556,11 +583,15 @@ function render(): void {
   // Background pass
   if (bgCount > 0 && bgProgram && bgVAO && bgInstanceVBO) {
     gl.useProgram(bgProgram);
-    gl.uniform2f(gl.getUniformLocation(bgProgram, 'u_resolution'), canvasWidth, canvasHeight);
-    gl.uniform2f(gl.getUniformLocation(bgProgram, 'u_cellSize'), cellW, cellH);
+    gl.uniform2f(gl.getUniformLocation(bgProgram, "u_resolution"), canvasWidth, canvasHeight);
+    gl.uniform2f(gl.getUniformLocation(bgProgram, "u_cellSize"), cellW, cellH);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, bgInstanceVBO);
-    gl.bufferData(gl.ARRAY_BUFFER, bgInstances.subarray(0, bgCount * BG_INSTANCE_FLOATS), gl.DYNAMIC_DRAW);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      bgInstances.subarray(0, bgCount * BG_INSTANCE_FLOATS),
+      gl.DYNAMIC_DRAW,
+    );
 
     gl.bindVertexArray(bgVAO);
     gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, bgCount);
@@ -572,15 +603,19 @@ function render(): void {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     gl.useProgram(glyphProgram);
-    gl.uniform2f(gl.getUniformLocation(glyphProgram, 'u_resolution'), canvasWidth, canvasHeight);
-    gl.uniform2f(gl.getUniformLocation(glyphProgram, 'u_cellSize'), cellW, cellH);
+    gl.uniform2f(gl.getUniformLocation(glyphProgram, "u_resolution"), canvasWidth, canvasHeight);
+    gl.uniform2f(gl.getUniformLocation(glyphProgram, "u_cellSize"), cellW, cellH);
 
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, atlas!.getTexture());
-    gl.uniform1i(gl.getUniformLocation(glyphProgram, 'u_atlas'), 0);
+    gl.bindTexture(gl.TEXTURE_2D, atlas?.getTexture() ?? null);
+    gl.uniform1i(gl.getUniformLocation(glyphProgram, "u_atlas"), 0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, glyphInstanceVBO);
-    gl.bufferData(gl.ARRAY_BUFFER, glyphInstances.subarray(0, glyphCount * GLYPH_INSTANCE_FLOATS), gl.DYNAMIC_DRAW);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      glyphInstances.subarray(0, glyphCount * GLYPH_INSTANCE_FLOATS),
+      gl.DYNAMIC_DRAW,
+    );
 
     gl.bindVertexArray(glyphVAO);
     gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, glyphCount);
@@ -640,8 +675,12 @@ function drawSelection(): void {
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
   gl.useProgram(bgProgram);
-  gl.uniform2f(gl.getUniformLocation(bgProgram, 'u_resolution'), canvas!.width, canvas!.height);
-  gl.uniform2f(gl.getUniformLocation(bgProgram, 'u_cellSize'), cellWidth * dpr, cellHeight * dpr);
+  gl.uniform2f(
+    gl.getUniformLocation(bgProgram, "u_resolution"),
+    canvas?.width ?? 0,
+    canvas?.height ?? 0,
+  );
+  gl.uniform2f(gl.getUniformLocation(bgProgram, "u_cellSize"), cellWidth * dpr, cellHeight * dpr);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, bgInstanceVBO);
   gl.bufferData(gl.ARRAY_BUFFER, selData, gl.DYNAMIC_DRAW);
@@ -662,22 +701,26 @@ function drawCursor(): void {
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
   gl.useProgram(bgProgram);
-  gl.uniform2f(gl.getUniformLocation(bgProgram, 'u_resolution'), canvas!.width, canvas!.height);
-  gl.uniform2f(gl.getUniformLocation(bgProgram, 'u_cellSize'), cellWidth * dpr, cellHeight * dpr);
+  gl.uniform2f(
+    gl.getUniformLocation(bgProgram, "u_resolution"),
+    canvas?.width ?? 0,
+    canvas?.height ?? 0,
+  );
+  gl.uniform2f(gl.getUniformLocation(bgProgram, "u_cellSize"), cellWidth * dpr, cellHeight * dpr);
 
   let cursorData: Float32Array;
 
   switch (cursorStyle) {
-    case 'block':
+    case "block":
       cursorData = new Float32Array([cursorCol, cursorRow, cc[0], cc[1], cc[2], 0.5]);
       break;
-    case 'underline': {
+    case "underline": {
       const lineH = Math.max(2 * dpr, 1);
       const fractionalRow = cursorRow + (cellHeight * dpr - lineH) / (cellHeight * dpr);
       cursorData = new Float32Array([cursorCol, fractionalRow, cc[0], cc[1], cc[2], cc[3]]);
       break;
     }
-    case 'bar':
+    case "bar":
       cursorData = new Float32Array([cursorCol, cursorRow, cc[0], cc[1], cc[2], cc[3]]);
       break;
     default:
@@ -717,7 +760,7 @@ function startRenderLoop(): void {
       lastFpsTime = now;
 
       // Report FPS back to main thread
-      const msg: RenderWorkerFrameMessage = { type: 'frame', fps: currentFps };
+      const msg: RenderWorkerFrameMessage = { type: "frame", fps: currentFps };
       (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg);
     }
 
@@ -765,7 +808,7 @@ function disposeResources(): void {
 
 function handleMessage(msg: RenderWorkerInboundMessage): void {
   switch (msg.type) {
-    case 'init': {
+    case "init": {
       canvas = msg.canvas;
       cols = msg.cols;
       rows = msg.rows;
@@ -781,7 +824,7 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
 
       atlas = new GlyphAtlas(Math.round(fontSize * dpr), fontFamily);
 
-      gl = canvas.getContext('webgl2', {
+      gl = canvas.getContext("webgl2", {
         alpha: false,
         antialias: false,
         premultipliedAlpha: false,
@@ -789,18 +832,18 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       }) as WebGL2RenderingContext | null;
 
       if (!gl) {
-        const err = { type: 'error' as const, message: 'WebGL2 not available in worker' };
+        const err = { type: "error" as const, message: "WebGL2 not available in worker" };
         (self as unknown as DedicatedWorkerGlobalScope).postMessage(err);
         return;
       }
 
       // Handle context loss on the OffscreenCanvas
-      canvas.addEventListener('webglcontextlost', (e: Event) => {
+      canvas.addEventListener("webglcontextlost", (e: Event) => {
         e.preventDefault();
         contextLost = true;
         stopRenderLoop();
       });
-      canvas.addEventListener('webglcontextrestored', () => {
+      canvas.addEventListener("webglcontextrestored", () => {
         contextLost = false;
         initGLResources();
         if (grid) grid.markAllDirty();
@@ -815,7 +858,7 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       break;
     }
 
-    case 'update': {
+    case "update": {
       cursorRow = msg.cursor.row;
       cursorCol = msg.cursor.col;
       cursorVisible = msg.cursor.visible;
@@ -832,7 +875,7 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       break;
     }
 
-    case 'resize': {
+    case "resize": {
       cols = msg.cols;
       rows = msg.rows;
       grid = createGridFromSAB(msg.sharedBuffer, cols, rows);
@@ -843,14 +886,14 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       break;
     }
 
-    case 'theme': {
+    case "theme": {
       theme = msg.theme;
       buildPaletteFloat();
       if (grid) grid.markAllDirty();
       break;
     }
 
-    case 'font': {
+    case "font": {
       fontSize = msg.fontSize;
       fontFamily = msg.fontFamily;
       measureCellSize();
@@ -869,7 +912,7 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       break;
     }
 
-    case 'dispose': {
+    case "dispose": {
       disposeResources();
       (self as unknown as DedicatedWorkerGlobalScope).close();
       break;
@@ -882,14 +925,14 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
 // ---------------------------------------------------------------------------
 
 (self as unknown as DedicatedWorkerGlobalScope).addEventListener(
-  'message',
+  "message",
   (event: MessageEvent<RenderWorkerInboundMessage>) => {
     try {
       handleMessage(event.data);
     } catch (e: unknown) {
       (self as unknown as DedicatedWorkerGlobalScope).postMessage({
-        type: 'error',
-        message: e instanceof Error ? e.message : 'Internal render error',
+        type: "error",
+        message: e instanceof Error ? e.message : "Internal render error",
       });
     }
   },

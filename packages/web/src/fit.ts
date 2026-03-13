@@ -12,7 +12,7 @@ export function calculateFit(
   const rows = Math.max(1, Math.floor(height / cellHeight));
 
   // Guard against Infinity/NaN — critical gotcha from xterm.js
-  if (!isFinite(cols) || !isFinite(rows)) {
+  if (!Number.isFinite(cols) || !Number.isFinite(rows)) {
     return { cols: 80, rows: 24 };
   }
 

@@ -11,7 +11,7 @@
  * Until the native renderer is built, the SkiaRenderer (JS fallback) is used.
  */
 
-import type { Theme, SelectionRange } from '@react-term/core';
+import type { SelectionRange, Theme } from "@react-term/core";
 
 export interface NativeRendererConfig {
   /** Font size in device-independent points. */

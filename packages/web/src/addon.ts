@@ -1,4 +1,4 @@
-import type { WebTerminal } from './web-terminal.js';
+import type { WebTerminal } from "./web-terminal.js";
 
 /**
  * Interface that all terminal addons must implement.

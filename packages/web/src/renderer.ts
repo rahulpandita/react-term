@@ -1,13 +1,5 @@
-import {
-  CellGrid,
-  DEFAULT_THEME,
-  normalizeSelection,
-} from '@react-term/core';
-import type {
-  Theme,
-  CursorState,
-  SelectionRange,
-} from '@react-term/core';
+import type { CursorState, SelectionRange, Theme } from "@react-term/core";
+import { type CellGrid, DEFAULT_THEME, normalizeSelection } from "@react-term/core";
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -54,10 +46,22 @@ export function build256Palette(theme: Theme): string[] {
 
   // 0-15 from theme — map named colors to indexed positions
   const themeColors = [
-    theme.black, theme.red, theme.green, theme.yellow,
-    theme.blue, theme.magenta, theme.cyan, theme.white,
-    theme.brightBlack, theme.brightRed, theme.brightGreen, theme.brightYellow,
-    theme.brightBlue, theme.brightMagenta, theme.brightCyan, theme.brightWhite,
+    theme.black,
+    theme.red,
+    theme.green,
+    theme.yellow,
+    theme.blue,
+    theme.magenta,
+    theme.cyan,
+    theme.white,
+    theme.brightBlack,
+    theme.brightRed,
+    theme.brightGreen,
+    theme.brightYellow,
+    theme.brightBlue,
+    theme.brightMagenta,
+    theme.brightCyan,
+    theme.brightWhite,
   ];
   for (let i = 0; i < 16; i++) {
     palette[i] = themeColors[i];
@@ -124,7 +128,8 @@ export class Canvas2DRenderer implements IRenderer {
     this.fontSize = options.fontSize;
     this.fontFamily = options.fontFamily;
     this.theme = options.theme ?? DEFAULT_THEME;
-    this.dpr = options.devicePixelRatio ?? (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
+    this.dpr =
+      options.devicePixelRatio ?? (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1);
     this.palette = build256Palette(this.theme);
     this.measureCellSize();
   }
@@ -135,7 +140,7 @@ export class Canvas2DRenderer implements IRenderer {
 
   attach(canvas: HTMLCanvasElement, grid: CellGrid, cursor: CursorState): void {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d')!;
+    this.ctx = canvas.getContext("2d")!;
     this.grid = grid;
     this.cursor = cursor;
 
@@ -153,8 +158,11 @@ export class Canvas2DRenderer implements IRenderer {
     // If the cursor moved rows, mark the old row dirty so the cursor ghost is erased
     const curRow = this.cursor.row;
     const curCol = this.cursor.col;
-    if (this.prevCursorRow >= 0 && this.prevCursorRow < rows &&
-        (this.prevCursorRow !== curRow || this.prevCursorCol !== curCol)) {
+    if (
+      this.prevCursorRow >= 0 &&
+      this.prevCursorRow < rows &&
+      (this.prevCursorRow !== curRow || this.prevCursorCol !== curCol)
+    ) {
       grid.markDirty(this.prevCursorRow);
     }
     // Also mark the current cursor row dirty so the cursor is drawn fresh
@@ -331,19 +339,19 @@ export class Canvas2DRenderer implements IRenderer {
   private measureCellSize(): void {
     // Use an offscreen canvas to measure a monospace character
     const offscreen =
-      typeof OffscreenCanvas !== 'undefined'
+      typeof OffscreenCanvas !== "undefined"
         ? new OffscreenCanvas(100, 100)
         : /* istanbul ignore next */ null;
 
     let measureCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
 
     if (offscreen) {
-      measureCtx = offscreen.getContext('2d');
-    } else if (typeof document !== 'undefined') {
-      const tmpCanvas = document.createElement('canvas');
+      measureCtx = offscreen.getContext("2d");
+    } else if (typeof document !== "undefined") {
+      const tmpCanvas = document.createElement("canvas");
       tmpCanvas.width = 100;
       tmpCanvas.height = 100;
-      measureCtx = tmpCanvas.getContext('2d');
+      measureCtx = tmpCanvas.getContext("2d");
     }
 
     if (!measureCtx) {
@@ -355,13 +363,13 @@ export class Canvas2DRenderer implements IRenderer {
     }
 
     measureCtx.font = this.buildFontString(false, false);
-    const metrics = measureCtx.measureText('M');
+    const metrics = measureCtx.measureText("M");
 
     this.cellWidth = Math.ceil(metrics.width);
     // Use fontBoundingBoxAscent/Descent when available; fall back to heuristic.
     if (
-      typeof metrics.fontBoundingBoxAscent === 'number' &&
-      typeof metrics.fontBoundingBoxDescent === 'number'
+      typeof metrics.fontBoundingBoxAscent === "number" &&
+      typeof metrics.fontBoundingBoxDescent === "number"
     ) {
       const ascent = metrics.fontBoundingBoxAscent;
       const descent = metrics.fontBoundingBoxDescent;
@@ -397,9 +405,9 @@ export class Canvas2DRenderer implements IRenderer {
   }
 
   private buildFontString(bold: boolean, italic: boolean): string {
-    let font = '';
-    if (italic) font += 'italic ';
-    if (bold) font += 'bold ';
+    let font = "";
+    if (italic) font += "italic ";
+    if (bold) font += "bold ";
     font += `${this.fontSize}px ${this.fontFamily}`;
     return font;
   }
@@ -454,10 +462,10 @@ export class Canvas2DRenderer implements IRenderer {
 
       if (hl.isCurrent) {
         // Current match: orange highlight
-        ctx.fillStyle = 'rgba(255, 165, 0, 0.5)';
+        ctx.fillStyle = "rgba(255, 165, 0, 0.5)";
       } else {
         // Other matches: semi-transparent yellow
-        ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
+        ctx.fillStyle = "rgba(255, 255, 0, 0.3)";
       }
 
       ctx.fillRect(x, y, w, h);
@@ -521,19 +529,19 @@ export class Canvas2DRenderer implements IRenderer {
     this.ctx.fillStyle = this.theme.cursor;
 
     switch (cursor.style) {
-      case 'block':
+      case "block":
         this.ctx.globalAlpha = 0.5;
         this.ctx.fillRect(x, y, cellWidth, cellHeight);
         this.ctx.globalAlpha = 1.0;
         break;
 
-      case 'underline': {
+      case "underline": {
         const lineH = 2;
         this.ctx.fillRect(x, y + cellHeight - lineH, cellWidth, lineH);
         break;
       }
 
-      case 'bar': {
+      case "bar": {
         const barW = 2;
         this.ctx.fillRect(x, y, barW, cellHeight);
         break;

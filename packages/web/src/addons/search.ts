@@ -1,6 +1,6 @@
-import type { ITerminalAddon } from '../addon.js';
-import type { WebTerminal } from '../web-terminal.js';
-import type { CellGrid } from '@react-term/core';
+import type { CellGrid } from "@react-term/core";
+import type { ITerminalAddon } from "../addon.js";
+import type { WebTerminal } from "../web-terminal.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,10 +26,10 @@ export interface SearchOptions {
  * Extract the text content of a single row from a CellGrid.
  */
 export function extractRowText(grid: CellGrid, row: number): string {
-  let line = '';
+  let line = "";
   for (let col = 0; col < grid.cols; col++) {
     const cp = grid.getCodepoint(row, col);
-    line += cp > 0x20 ? String.fromCodePoint(cp) : ' ';
+    line += cp > 0x20 ? String.fromCodePoint(cp) : " ";
   }
   return line;
 }
@@ -55,14 +55,14 @@ export function findAllMatches(
       pattern = query;
     } else {
       // Escape special regex characters for literal search
-      pattern = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      pattern = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
     if (wholeWord) {
       pattern = `\\b${pattern}\\b`;
     }
 
-    const flags = caseSensitive ? 'g' : 'gi';
+    const flags = caseSensitive ? "g" : "gi";
     regex = new RegExp(pattern, flags);
   } catch {
     // Invalid regex — return no matches
@@ -77,7 +77,9 @@ export function findAllMatches(
 
     // Reset lastIndex for each row
     regex.lastIndex = 0;
-    while ((m = regex.exec(text)) !== null) {
+    while (true) {
+      m = regex.exec(text);
+      if (m === null) break;
       matches.push({
         row,
         startCol: m.index,
@@ -101,7 +103,7 @@ export class SearchAddon implements ITerminalAddon {
   private terminal: WebTerminal | null = null;
   private matches: SearchMatch[] = [];
   private currentMatchIndex = -1;
-  private lastQuery = '';
+  private lastQuery = "";
   private lastOptions: SearchOptions = {};
 
   activate(terminal: WebTerminal): void {
@@ -147,9 +149,7 @@ export class SearchAddon implements ITerminalAddon {
     if (this.matches.length === 0) return null;
 
     this.currentMatchIndex =
-      this.currentMatchIndex <= 0
-        ? this.matches.length - 1
-        : this.currentMatchIndex - 1;
+      this.currentMatchIndex <= 0 ? this.matches.length - 1 : this.currentMatchIndex - 1;
     this.updateHighlights();
     return this.matches[this.currentMatchIndex];
   }
@@ -160,7 +160,7 @@ export class SearchAddon implements ITerminalAddon {
   clearSearch(): void {
     this.matches = [];
     this.currentMatchIndex = -1;
-    this.lastQuery = '';
+    this.lastQuery = "";
     this.lastOptions = {};
     if (this.terminal) {
       this.terminal.setHighlights([]);

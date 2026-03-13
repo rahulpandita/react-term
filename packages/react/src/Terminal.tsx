@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
-import type { Theme } from '@react-term/core';
-import { WebTerminal, calculateFit } from '@react-term/web';
+import type { Theme } from "@react-term/core";
+import { calculateFit, WebTerminal } from "@react-term/web";
+import type React from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 export interface TerminalProps {
   cols?: number;
@@ -16,9 +17,9 @@ export interface TerminalProps {
   className?: string;
   style?: React.CSSProperties;
   /** Force main-thread rendering ('main') or use auto-detection ('auto'). */
-  renderMode?: 'auto' | 'offscreen' | 'main';
+  renderMode?: "auto" | "offscreen" | "main";
   /** Renderer backend: 'auto', 'webgl', or 'canvas2d'. */
-  renderer?: 'auto' | 'webgl' | 'canvas2d';
+  renderer?: "auto" | "webgl" | "canvas2d";
   /** Whether to use a Web Worker for VT parsing. */
   useWorker?: boolean;
 }
@@ -59,34 +60,44 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const onResizeRef = useRef(onResize);
   const onTitleChangeRef = useRef(onTitleChange);
 
-  useEffect(() => { onDataRef.current = onData; }, [onData]);
-  useEffect(() => { onResizeRef.current = onResize; }, [onResize]);
-  useEffect(() => { onTitleChangeRef.current = onTitleChange; }, [onTitleChange]);
+  useEffect(() => {
+    onDataRef.current = onData;
+  }, [onData]);
+  useEffect(() => {
+    onResizeRef.current = onResize;
+  }, [onResize]);
+  useEffect(() => {
+    onTitleChangeRef.current = onTitleChange;
+  }, [onTitleChange]);
 
   // Expose imperative handle
-  useImperativeHandle(ref, () => ({
-    write(data: string | Uint8Array) {
-      termRef.current?.write(data);
-    },
-    resize(cols: number, rows: number) {
-      termRef.current?.resize(cols, rows);
-    },
-    focus() {
-      termRef.current?.focus();
-    },
-    blur() {
-      termRef.current?.blur();
-    },
-    fit() {
-      const terminal = termRef.current;
-      const container = containerRef.current;
-      if (!terminal || !container) return;
-      const { width, height } = terminal.getCellSize();
-      if (width <= 0 || height <= 0) return;
-      const { cols: fitCols, rows: fitRows } = calculateFit(container, width, height);
-      terminal.resize(fitCols, fitRows);
-    },
-  }), []);
+  useImperativeHandle(
+    ref,
+    () => ({
+      write(data: string | Uint8Array) {
+        termRef.current?.write(data);
+      },
+      resize(cols: number, rows: number) {
+        termRef.current?.resize(cols, rows);
+      },
+      focus() {
+        termRef.current?.focus();
+      },
+      blur() {
+        termRef.current?.blur();
+      },
+      fit() {
+        const terminal = termRef.current;
+        const container = containerRef.current;
+        if (!terminal || !container) return;
+        const { width, height } = terminal.getCellSize();
+        if (width <= 0 || height <= 0) return;
+        const { cols: fitCols, rows: fitRows } = calculateFit(container, width, height);
+        terminal.resize(fitCols, fitRows);
+      },
+    }),
+    [],
+  );
 
   // Initialize WebTerminal on mount (handles StrictMode double-mount)
   useEffect(() => {
@@ -118,7 +129,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       termRef.current = null;
       initialized.current = false;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cols, fontFamily, fontSize, renderMode, rendererProp, rows, scrollback, theme, useWorker]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update theme when it changes
   useEffect(() => {
@@ -176,30 +187,24 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Listen for visualViewport resize (keyboard show/hide on iOS/Android)
     const vv = window.visualViewport;
     if (vv) {
-      vv.addEventListener('resize', doFit);
-      vv.addEventListener('scroll', doFit);
+      vv.addEventListener("resize", doFit);
+      vv.addEventListener("scroll", doFit);
     }
 
     return () => {
       observer.disconnect();
       if (vv) {
-        vv.removeEventListener('resize', doFit);
-        vv.removeEventListener('scroll', doFit);
+        vv.removeEventListener("resize", doFit);
+        vv.removeEventListener("scroll", doFit);
       }
       if (rafId !== null) cancelAnimationFrame(rafId);
       // Reset container styles
       if (container) {
-        container.style.height = '';
-        container.style.marginTop = '';
+        container.style.height = "";
+        container.style.marginTop = "";
       }
     };
   }, [autoFit]);
 
-  return (
-    <div
-      ref={containerRef}
-      className={className}
-      style={style}
-    />
-  );
+  return <div ref={containerRef} className={className} style={style} />;
 });

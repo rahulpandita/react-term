@@ -11,18 +11,17 @@
  * and a viewport rectangle (in CSS pixels relative to the canvas).
  */
 
-import type { CellGrid, CursorState, SelectionRange, Theme } from '@react-term/core';
-import { DEFAULT_THEME } from '@react-term/core';
-import type { RendererOptions } from './renderer.js';
-import { build256Palette } from './renderer.js';
+import type { CellGrid, CursorState, SelectionRange, Theme } from "@react-term/core";
+import { DEFAULT_THEME } from "@react-term/core";
+import { build256Palette } from "./renderer.js";
 import {
-  GlyphAtlas,
-  hexToFloat4,
   BG_INSTANCE_FLOATS,
   GLYPH_INSTANCE_FLOATS,
+  GlyphAtlas,
+  hexToFloat4,
   packBgInstance,
   packGlyphInstance,
-} from './webgl-renderer.js';
+} from "./webgl-renderer.js";
 
 // ---------------------------------------------------------------------------
 // Attribute bit positions
@@ -129,11 +128,7 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
   return shader;
 }
 
-function createProgram(
-  gl: WebGL2RenderingContext,
-  vertSrc: string,
-  fragSrc: string,
-): WebGLProgram {
+function createProgram(gl: WebGL2RenderingContext, vertSrc: string, fragSrc: string): WebGLProgram {
   const vert = compileShader(gl, gl.VERTEX_SHADER, vertSrc);
   const frag = compileShader(gl, gl.FRAGMENT_SHADER, fragSrc);
   const program = gl.createProgram()!;
@@ -203,15 +198,13 @@ export class SharedWebGLContext {
     this.fontSize = options?.fontSize ?? 14;
     this.fontFamily = options?.fontFamily ?? "'Menlo', 'DejaVu Sans Mono', 'Consolas', monospace";
     this.theme = { ...DEFAULT_THEME, ...options?.theme };
-    this.dpr = options?.devicePixelRatio ?? (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
+    this.dpr =
+      options?.devicePixelRatio ?? (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1);
     this.palette = build256Palette(this.theme);
     this.buildPaletteFloat();
     this.measureCellSize();
 
-    this.atlas = new GlyphAtlas(
-      Math.round(this.fontSize * this.dpr),
-      this.fontFamily,
-    );
+    this.atlas = new GlyphAtlas(Math.round(this.fontSize * this.dpr), this.fontFamily);
 
     // Pre-allocate instance buffers
     const maxCells = 80 * 24;
@@ -219,12 +212,12 @@ export class SharedWebGLContext {
     this.glyphInstances = new Float32Array(maxCells * GLYPH_INSTANCE_FLOATS);
 
     // Create the shared canvas
-    this.canvas = document.createElement('canvas');
-    this.canvas.style.display = 'block';
-    this.canvas.style.position = 'absolute';
-    this.canvas.style.top = '0';
-    this.canvas.style.left = '0';
-    this.canvas.style.pointerEvents = 'none';
+    this.canvas = document.createElement("canvas");
+    this.canvas.style.display = "block";
+    this.canvas.style.position = "absolute";
+    this.canvas.style.top = "0";
+    this.canvas.style.left = "0";
+    this.canvas.style.pointerEvents = "none";
   }
 
   /**
@@ -232,7 +225,7 @@ export class SharedWebGLContext {
    * DOM (or at least after construction if you plan to append it yourself).
    */
   init(): void {
-    this.gl = this.canvas.getContext('webgl2', {
+    this.gl = this.canvas.getContext("webgl2", {
       alpha: true,
       antialias: false,
       premultipliedAlpha: false,
@@ -240,7 +233,7 @@ export class SharedWebGLContext {
     }) as WebGL2RenderingContext | null;
 
     if (!this.gl) {
-      throw new Error('WebGL2 is not available');
+      throw new Error("WebGL2 is not available");
     }
 
     this.initGLResources();
@@ -390,12 +383,7 @@ export class SharedWebGLContext {
     gl.scissor(vpX, glY, vpW, vpH);
 
     // Clear this region with background color
-    gl.clearColor(
-      this.themeBgFloat[0],
-      this.themeBgFloat[1],
-      this.themeBgFloat[2],
-      1.0,
-    );
+    gl.clearColor(this.themeBgFloat[0], this.themeBgFloat[1], this.themeBgFloat[2], 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     // Ensure instance buffers are large enough
@@ -432,8 +420,12 @@ export class SharedWebGLContext {
         packBgInstance(
           this.bgInstances,
           bgCount * BG_INSTANCE_FLOATS,
-          col, row,
-          bg[0], bg[1], bg[2], bg[3],
+          col,
+          row,
+          bg[0],
+          bg[1],
+          bg[2],
+          bg[3],
         );
         bgCount++;
 
@@ -446,10 +438,18 @@ export class SharedWebGLContext {
             packGlyphInstance(
               this.glyphInstances,
               glyphCount * GLYPH_INSTANCE_FLOATS,
-              col, row,
-              fg[0], fg[1], fg[2], fg[3],
-              glyph.u, glyph.v, glyph.w, glyph.h,
-              glyph.pw, glyph.ph,
+              col,
+              row,
+              fg[0],
+              fg[1],
+              fg[2],
+              fg[3],
+              glyph.u,
+              glyph.v,
+              glyph.w,
+              glyph.h,
+              glyph.pw,
+              glyph.ph,
             );
             glyphCount++;
           }
@@ -467,11 +467,15 @@ export class SharedWebGLContext {
     // --- Background pass ---
     if (bgCount > 0 && this.bgProgram && this.bgVAO && this.bgInstanceVBO) {
       gl.useProgram(this.bgProgram);
-      gl.uniform2f(gl.getUniformLocation(this.bgProgram, 'u_resolution'), vpW, vpH);
-      gl.uniform2f(gl.getUniformLocation(this.bgProgram, 'u_cellSize'), cellW, cellH);
+      gl.uniform2f(gl.getUniformLocation(this.bgProgram, "u_resolution"), vpW, vpH);
+      gl.uniform2f(gl.getUniformLocation(this.bgProgram, "u_cellSize"), cellW, cellH);
 
       gl.bindBuffer(gl.ARRAY_BUFFER, this.bgInstanceVBO);
-      gl.bufferData(gl.ARRAY_BUFFER, this.bgInstances.subarray(0, bgCount * BG_INSTANCE_FLOATS), gl.DYNAMIC_DRAW);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        this.bgInstances.subarray(0, bgCount * BG_INSTANCE_FLOATS),
+        gl.DYNAMIC_DRAW,
+      );
 
       gl.bindVertexArray(this.bgVAO);
       gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, bgCount);
@@ -483,15 +487,19 @@ export class SharedWebGLContext {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
       gl.useProgram(this.glyphProgram);
-      gl.uniform2f(gl.getUniformLocation(this.glyphProgram, 'u_resolution'), vpW, vpH);
-      gl.uniform2f(gl.getUniformLocation(this.glyphProgram, 'u_cellSize'), cellW, cellH);
+      gl.uniform2f(gl.getUniformLocation(this.glyphProgram, "u_resolution"), vpW, vpH);
+      gl.uniform2f(gl.getUniformLocation(this.glyphProgram, "u_cellSize"), cellW, cellH);
 
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.atlas.getTexture());
-      gl.uniform1i(gl.getUniformLocation(this.glyphProgram, 'u_atlas'), 0);
+      gl.uniform1i(gl.getUniformLocation(this.glyphProgram, "u_atlas"), 0);
 
       gl.bindBuffer(gl.ARRAY_BUFFER, this.glyphInstanceVBO);
-      gl.bufferData(gl.ARRAY_BUFFER, this.glyphInstances.subarray(0, glyphCount * GLYPH_INSTANCE_FLOATS), gl.DYNAMIC_DRAW);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        this.glyphInstances.subarray(0, glyphCount * GLYPH_INSTANCE_FLOATS),
+        gl.DYNAMIC_DRAW,
+      );
 
       gl.bindVertexArray(this.glyphVAO);
       gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, glyphCount);
@@ -506,13 +514,10 @@ export class SharedWebGLContext {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
       gl.useProgram(this.bgProgram);
-      gl.uniform2f(gl.getUniformLocation(this.bgProgram, 'u_resolution'), vpW, vpH);
-      gl.uniform2f(gl.getUniformLocation(this.bgProgram, 'u_cellSize'), cellW, cellH);
+      gl.uniform2f(gl.getUniformLocation(this.bgProgram, "u_resolution"), vpW, vpH);
+      gl.uniform2f(gl.getUniformLocation(this.bgProgram, "u_cellSize"), cellW, cellH);
 
-      const cursorData = new Float32Array([
-        cursor.col, cursor.row,
-        cc[0], cc[1], cc[2], 0.5,
-      ]);
+      const cursorData = new Float32Array([cursor.col, cursor.row, cc[0], cc[1], cc[2], 0.5]);
 
       gl.bindBuffer(gl.ARRAY_BUFFER, this.bgInstanceVBO);
       gl.bufferData(gl.ARRAY_BUFFER, cursorData, gl.DYNAMIC_DRAW);
@@ -566,7 +571,7 @@ export class SharedWebGLContext {
     const FLOAT = 4;
     const program = this.bgProgram!;
 
-    const aPos = gl.getAttribLocation(program, 'a_position');
+    const aPos = gl.getAttribLocation(program, "a_position");
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVBO);
     gl.enableVertexAttribArray(aPos);
     gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
@@ -576,12 +581,12 @@ export class SharedWebGLContext {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bgInstanceVBO);
     const stride = BG_INSTANCE_FLOATS * FLOAT;
 
-    const aCellPos = gl.getAttribLocation(program, 'a_cellPos');
+    const aCellPos = gl.getAttribLocation(program, "a_cellPos");
     gl.enableVertexAttribArray(aCellPos);
     gl.vertexAttribPointer(aCellPos, 2, gl.FLOAT, false, stride, 0);
     gl.vertexAttribDivisor(aCellPos, 1);
 
-    const aColor = gl.getAttribLocation(program, 'a_color');
+    const aColor = gl.getAttribLocation(program, "a_color");
     gl.enableVertexAttribArray(aColor);
     gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, stride, 2 * FLOAT);
     gl.vertexAttribDivisor(aColor, 1);
@@ -591,7 +596,7 @@ export class SharedWebGLContext {
     const FLOAT = 4;
     const program = this.glyphProgram!;
 
-    const aPos = gl.getAttribLocation(program, 'a_position');
+    const aPos = gl.getAttribLocation(program, "a_position");
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVBO);
     gl.enableVertexAttribArray(aPos);
     gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
@@ -601,22 +606,22 @@ export class SharedWebGLContext {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.glyphInstanceVBO);
     const stride = GLYPH_INSTANCE_FLOATS * FLOAT;
 
-    const aCellPos = gl.getAttribLocation(program, 'a_cellPos');
+    const aCellPos = gl.getAttribLocation(program, "a_cellPos");
     gl.enableVertexAttribArray(aCellPos);
     gl.vertexAttribPointer(aCellPos, 2, gl.FLOAT, false, stride, 0);
     gl.vertexAttribDivisor(aCellPos, 1);
 
-    const aColor = gl.getAttribLocation(program, 'a_color');
+    const aColor = gl.getAttribLocation(program, "a_color");
     gl.enableVertexAttribArray(aColor);
     gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, stride, 2 * FLOAT);
     gl.vertexAttribDivisor(aColor, 1);
 
-    const aTexCoord = gl.getAttribLocation(program, 'a_texCoord');
+    const aTexCoord = gl.getAttribLocation(program, "a_texCoord");
     gl.enableVertexAttribArray(aTexCoord);
     gl.vertexAttribPointer(aTexCoord, 4, gl.FLOAT, false, stride, 6 * FLOAT);
     gl.vertexAttribDivisor(aTexCoord, 1);
 
-    const aGlyphSize = gl.getAttribLocation(program, 'a_glyphSize');
+    const aGlyphSize = gl.getAttribLocation(program, "a_glyphSize");
     gl.enableVertexAttribArray(aGlyphSize);
     gl.vertexAttribPointer(aGlyphSize, 2, gl.FLOAT, false, stride, 10 * FLOAT);
     gl.vertexAttribDivisor(aGlyphSize, 1);
@@ -627,7 +632,7 @@ export class SharedWebGLContext {
   // -----------------------------------------------------------------------
 
   private buildPaletteFloat(): void {
-    this.paletteFloat = this.palette.map(c => hexToFloat4(c));
+    this.paletteFloat = this.palette.map((c) => hexToFloat4(c));
     this.themeFgFloat = hexToFloat4(this.theme.foreground);
     this.themeBgFloat = hexToFloat4(this.theme.background);
     this.themeCursorFloat = hexToFloat4(this.theme.cursor);
@@ -664,20 +669,17 @@ export class SharedWebGLContext {
   // -----------------------------------------------------------------------
 
   private measureCellSize(): void {
-    const offscreen =
-      typeof OffscreenCanvas !== 'undefined'
-        ? new OffscreenCanvas(100, 100)
-        : null;
+    const offscreen = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(100, 100) : null;
 
     let measureCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
 
     if (offscreen) {
-      measureCtx = offscreen.getContext('2d');
-    } else if (typeof document !== 'undefined') {
-      const tmpCanvas = document.createElement('canvas');
+      measureCtx = offscreen.getContext("2d");
+    } else if (typeof document !== "undefined") {
+      const tmpCanvas = document.createElement("canvas");
       tmpCanvas.width = 100;
       tmpCanvas.height = 100;
-      measureCtx = tmpCanvas.getContext('2d');
+      measureCtx = tmpCanvas.getContext("2d");
     }
 
     if (!measureCtx) {
@@ -686,14 +688,14 @@ export class SharedWebGLContext {
       return;
     }
 
-    let font = `${this.fontSize}px ${this.fontFamily}`;
+    const font = `${this.fontSize}px ${this.fontFamily}`;
     measureCtx.font = font;
-    const metrics = measureCtx.measureText('M');
+    const metrics = measureCtx.measureText("M");
 
     this.cellWidth = Math.ceil(metrics.width);
     if (
-      typeof metrics.fontBoundingBoxAscent === 'number' &&
-      typeof metrics.fontBoundingBoxDescent === 'number'
+      typeof metrics.fontBoundingBoxAscent === "number" &&
+      typeof metrics.fontBoundingBoxDescent === "number"
     ) {
       this.cellHeight = Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent);
     } else {

@@ -13,27 +13,25 @@
  * RenderBridge, leaving the main thread free for DOM event handling only.
  */
 
-import { BufferSet, VTParser, CellGrid } from '@react-term/core';
-import type { Theme, CursorState } from '@react-term/core';
-import { DEFAULT_THEME } from '@react-term/core';
-import type { IRenderer, RendererOptions } from './renderer.js';
-import { Canvas2DRenderer } from './renderer.js';
-import { WebGLRenderer } from './webgl-renderer.js';
-import { InputHandler } from './input-handler.js';
-import { calculateFit } from './fit.js';
-import { WorkerBridge } from './worker-bridge.js';
-import { RenderBridge, canUseOffscreenCanvas } from './render-bridge.js';
-import type { ITerminalAddon } from './addon.js';
-import type { HighlightRange } from './renderer.js';
-import { AccessibilityManager } from './accessibility.js';
+import type { CursorState, Theme } from "@react-term/core";
+import { BufferSet, CellGrid, DEFAULT_THEME, VTParser } from "@react-term/core";
+import { AccessibilityManager } from "./accessibility.js";
+import type { ITerminalAddon } from "./addon.js";
+import { calculateFit } from "./fit.js";
+import { InputHandler } from "./input-handler.js";
+import { canUseOffscreenCanvas, RenderBridge } from "./render-bridge.js";
+import type { HighlightRange, IRenderer, RendererOptions } from "./renderer.js";
+import { Canvas2DRenderer } from "./renderer.js";
+import { WebGLRenderer } from "./webgl-renderer.js";
+import { WorkerBridge } from "./worker-bridge.js";
 
 // ---------------------------------------------------------------------------
 // Feature detection
 // ---------------------------------------------------------------------------
 
 const SAB_AVAILABLE =
-  typeof SharedArrayBuffer !== 'undefined' &&
-  (typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : true);
+  typeof SharedArrayBuffer !== "undefined" &&
+  (typeof crossOriginIsolated !== "undefined" ? crossOriginIsolated : true);
 
 const OFFSCREEN_CANVAS_AVAILABLE = canUseOffscreenCanvas();
 
@@ -62,7 +60,7 @@ export interface WebTerminalOptions {
    * - `'webgl'`: force WebGL2 (throws if unavailable).
    * - `'canvas2d'`: force Canvas 2D.
    */
-  renderer?: 'auto' | 'webgl' | 'canvas2d';
+  renderer?: "auto" | "webgl" | "canvas2d";
   /**
    * Render mode selection.
    * - `'auto'` (default): use OffscreenCanvas render worker when SAB +
@@ -70,7 +68,7 @@ export interface WebTerminalOptions {
    * - `'offscreen'`: force OffscreenCanvas render worker (throws if unavailable).
    * - `'main'`: always render on the main thread.
    */
-  renderMode?: 'auto' | 'offscreen' | 'main';
+  renderMode?: "auto" | "offscreen" | "main";
   onData?: (data: Uint8Array) => void;
   onResize?: (size: { cols: number; rows: number }) => void;
   onTitleChange?: (title: string) => void;
@@ -100,7 +98,11 @@ export class WebTerminal {
   private canvas: HTMLCanvasElement;
   private bufferSet: BufferSet;
   private parser: VTParser | null = null;
-  private renderer: IRenderer & { startRenderLoop(): void; stopRenderLoop(): void; setFont?(fontSize: number, fontFamily: string): void };
+  private renderer: IRenderer & {
+    startRenderLoop(): void;
+    stopRenderLoop(): void;
+    setFont?(fontSize: number, fontFamily: string): void;
+  };
   private inputHandler: InputHandler;
   private disposed = false;
   private addons: ITerminalAddon[] = [];
@@ -136,10 +138,7 @@ export class WebTerminal {
   private onResizeCallback: ((size: { cols: number; rows: number }) => void) | null;
   private onTitleChangeCallback: ((title: string) => void) | null;
 
-  constructor(
-    container: HTMLElement,
-    options?: WebTerminalOptions,
-  ) {
+  constructor(container: HTMLElement, options?: WebTerminalOptions) {
     this.container = container;
 
     const cols = options?.cols ?? DEFAULT_COLS;
@@ -157,10 +156,10 @@ export class WebTerminal {
     this.useWorkerMode = options?.useWorker ?? SAB_AVAILABLE;
 
     // Determine render mode.
-    const renderMode = options?.renderMode ?? 'auto';
-    if (renderMode === 'offscreen') {
+    const renderMode = options?.renderMode ?? "auto";
+    if (renderMode === "offscreen") {
       this.useOffscreenRender = true;
-    } else if (renderMode === 'main') {
+    } else if (renderMode === "main") {
       this.useOffscreenRender = false;
     } else {
       // 'auto': use offscreen if SAB + OffscreenCanvas both available
@@ -171,17 +170,17 @@ export class WebTerminal {
     this.bufferSet = new BufferSet(cols, rows, scrollback);
 
     // Create canvas element
-    this.canvas = document.createElement('canvas');
-    this.canvas.style.display = 'block';
-    container.style.position = container.style.position || 'relative';
-    container.style.overflow = 'hidden';
+    this.canvas = document.createElement("canvas");
+    this.canvas.style.display = "block";
+    container.style.position = container.style.position || "relative";
+    container.style.overflow = "hidden";
     container.appendChild(this.canvas);
 
     // Create scrollbar overlay
     this.createScrollbar(container);
 
     // Create renderer based on selected backend
-    const rendererType = options?.renderer ?? 'auto';
+    const rendererType = options?.renderer ?? "auto";
     const rendererOpts: RendererOptions = {
       fontSize,
       fontFamily,
@@ -200,7 +199,7 @@ export class WebTerminal {
         theme,
         devicePixelRatio: options?.devicePixelRatio,
         onError: (message: string) => {
-          console.warn('[WebTerminal] Render worker error, falling back:', message);
+          console.warn("[WebTerminal] Render worker error, falling back:", message);
           this.fallbackToMainThreadRenderer(rendererOpts);
         },
       });
@@ -213,16 +212,16 @@ export class WebTerminal {
       // Sync cursor into SAB so the render worker can read it
       this.syncCursorToSAB();
     } else {
-      if (rendererType === 'webgl') {
+      if (rendererType === "webgl") {
         this.renderer = new WebGLRenderer(rendererOpts);
-      } else if (rendererType === 'canvas2d') {
+      } else if (rendererType === "canvas2d") {
         this.renderer = new Canvas2DRenderer(rendererOpts);
       } else {
         // 'auto': try WebGL2 first, fall back to Canvas 2D
         let useWebGL = false;
         try {
-          const testCanvas = document.createElement('canvas');
-          const testGl = testCanvas.getContext('webgl2');
+          const testCanvas = document.createElement("canvas");
+          const testGl = testCanvas.getContext("webgl2");
           useWebGL = testGl !== null;
         } catch {
           // WebGL2 not available
@@ -231,11 +230,7 @@ export class WebTerminal {
           ? new WebGLRenderer(rendererOpts)
           : new Canvas2DRenderer(rendererOpts);
       }
-      this.renderer.attach(
-        this.canvas,
-        this.bufferSet.active.grid,
-        this.bufferSet.active.cursor,
-      );
+      this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
     }
 
     // Create input handler
@@ -323,7 +318,7 @@ export class WebTerminal {
         },
         (message: string) => {
           // On worker error, fall back to main-thread parsing.
-          console.warn('[WebTerminal] Worker error, falling back to main thread:', message);
+          console.warn("[WebTerminal] Worker error, falling back to main thread:", message);
           this.fallbackToMainThread();
         },
       );
@@ -356,19 +351,15 @@ export class WebTerminal {
       this.renderBridge = null;
     }
     // The canvas was transferred; we need a new one.
-    const newCanvas = document.createElement('canvas');
-    newCanvas.style.display = 'block';
+    const newCanvas = document.createElement("canvas");
+    newCanvas.style.display = "block";
     if (this.canvas.parentElement) {
       this.canvas.parentElement.replaceChild(newCanvas, this.canvas);
     }
     this.canvas = newCanvas;
 
     this.renderer = new Canvas2DRenderer(rendererOpts);
-    this.renderer.attach(
-      this.canvas,
-      this.bufferSet.active.grid,
-      this.bufferSet.active.cursor,
-    );
+    this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
     this.renderer.startRenderLoop();
   }
 
@@ -394,7 +385,7 @@ export class WebTerminal {
   }
 
   /** The active grid (for addons to read cell data). */
-  get activeGrid(): import('@react-term/core').CellGrid {
+  get activeGrid(): import("@react-term/core").CellGrid {
     return this.bufferSet.active.grid;
   }
 
@@ -418,7 +409,7 @@ export class WebTerminal {
     // New data arrived — snap back to live view
     this.snapToBottom();
 
-    const bytes = typeof data === 'string' ? this.encoder.encode(data) : data;
+    const bytes = typeof data === "string" ? this.encoder.encode(data) : data;
 
     if (this.workerBridge) {
       this.workerBridge.write(bytes);
@@ -466,7 +457,7 @@ export class WebTerminal {
   resize(cols: number, rows: number): void {
     if (this.disposed) return;
     // Guard against bad values
-    if (!isFinite(cols) || !isFinite(rows) || cols < 2 || rows < 1) return;
+    if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 1) return;
 
     const scrollback = this.bufferSet.maxScrollback;
     const oldBufferSet = this.bufferSet;
@@ -483,7 +474,7 @@ export class WebTerminal {
     // When rows grow, content stays at the top.
     const newGrid = this.bufferSet.active.grid;
     const copyRows = Math.min(oldRows, rows);
-    const copyCols = Math.min(oldCols, cols);
+    const _copyCols = Math.min(oldCols, cols);
 
     // Determine source start row: if cursor was below the new row count,
     // shift content up so cursor remains visible.
@@ -515,10 +506,7 @@ export class WebTerminal {
 
     if (this.workerBridge) {
       // Update the bridge's grid reference and notify the worker.
-      this.workerBridge.updateGrid(
-        this.bufferSet.active.grid,
-        this.bufferSet.active.cursor,
-      );
+      this.workerBridge.updateGrid(this.bufferSet.active.grid, this.bufferSet.active.cursor);
       this.workerBridge.resize(cols, rows, scrollback);
     } else {
       this.parser = new VTParser(this.bufferSet);
@@ -536,11 +524,7 @@ export class WebTerminal {
       );
     } else {
       // Re-attach renderer with new grid
-      this.renderer.attach(
-        this.canvas,
-        this.bufferSet.active.grid,
-        this.bufferSet.active.cursor,
-      );
+      this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
       this.renderer.resize(cols, rows);
     }
 
@@ -623,27 +607,27 @@ export class WebTerminal {
   // -----------------------------------------------------------------------
 
   private createScrollbar(container: HTMLElement): void {
-    const bar = document.createElement('div');
+    const bar = document.createElement("div");
     Object.assign(bar.style, {
-      position: 'absolute',
-      right: '0',
-      top: '0',
-      bottom: '0',
-      width: '6px',
-      zIndex: '10',
-      opacity: '0',
-      transition: 'opacity 0.3s',
-      pointerEvents: 'none',
+      position: "absolute",
+      right: "0",
+      top: "0",
+      bottom: "0",
+      width: "6px",
+      zIndex: "10",
+      opacity: "0",
+      transition: "opacity 0.3s",
+      pointerEvents: "none",
     });
 
-    const thumb = document.createElement('div');
+    const thumb = document.createElement("div");
     Object.assign(thumb.style, {
-      position: 'absolute',
-      right: '1px',
-      width: '4px',
-      borderRadius: '2px',
-      backgroundColor: 'rgba(255, 255, 255, 0.4)',
-      minHeight: '20px',
+      position: "absolute",
+      right: "1px",
+      width: "4px",
+      borderRadius: "2px",
+      backgroundColor: "rgba(255, 255, 255, 0.4)",
+      minHeight: "20px",
     });
 
     bar.appendChild(thumb);
@@ -659,15 +643,16 @@ export class WebTerminal {
 
     if (totalLines <= visibleRows || this.viewportOffset === 0) {
       // At bottom or no scrollback — hide
-      this.scrollbarEl.style.opacity = '0';
+      this.scrollbarEl.style.opacity = "0";
       return;
     }
 
     // Show scrollbar
-    this.scrollbarEl.style.opacity = '1';
+    this.scrollbarEl.style.opacity = "1";
 
     // Calculate thumb size and position
-    const containerHeight = this.scrollbarEl.clientHeight || (visibleRows * this.renderer.getCellSize().height);
+    const containerHeight =
+      this.scrollbarEl.clientHeight || visibleRows * this.renderer.getCellSize().height;
     const thumbHeight = Math.max(20, (visibleRows / totalLines) * containerHeight);
     const maxScroll = this.bufferSet.scrollback.length;
     const scrollFraction = (maxScroll - this.viewportOffset) / maxScroll;
@@ -679,7 +664,7 @@ export class WebTerminal {
     // Auto-hide after 1.5s
     if (this.scrollbarHideTimer) clearTimeout(this.scrollbarHideTimer);
     this.scrollbarHideTimer = setTimeout(() => {
-      if (this.scrollbarEl) this.scrollbarEl.style.opacity = '0';
+      if (this.scrollbarEl) this.scrollbarEl.style.opacity = "0";
     }, 1500);
   }
 
@@ -699,7 +684,11 @@ export class WebTerminal {
       if (this.displayGrid) {
         this.displayGrid = null;
         if (!this.renderBridge) {
-          this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
+          this.renderer.attach(
+            this.canvas,
+            this.bufferSet.active.grid,
+            this.bufferSet.active.cursor,
+          );
         }
       }
     } else {
@@ -758,7 +747,11 @@ export class WebTerminal {
       if (needsAttach) {
         // Create a fake cursor (hidden) when scrolled back
         const fakeCursor: CursorState = {
-          row: 0, col: 0, visible: false, style: 'block', wrapPending: false,
+          row: 0,
+          col: 0,
+          visible: false,
+          style: "block",
+          wrapPending: false,
         };
         this.renderer.attach(this.canvas, this.displayGrid, fakeCursor);
       }

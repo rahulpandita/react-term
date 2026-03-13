@@ -10,23 +10,15 @@
  * Canvas `onDraw` callback or by mapping commands to Skia React components.
  */
 
-import {
-  CellGrid,
-  DEFAULT_THEME,
-  normalizeSelection,
-} from '@react-term/core';
-import type {
-  Theme,
-  CursorState,
-  SelectionRange,
-} from '@react-term/core';
+import type { CursorState, SelectionRange, Theme } from "@react-term/core";
+import { type CellGrid, DEFAULT_THEME, normalizeSelection } from "@react-term/core";
 
 // ---------------------------------------------------------------------------
 // Render command types
 // ---------------------------------------------------------------------------
 
 export interface RenderCommand {
-  type: 'rect' | 'text' | 'line';
+  type: "rect" | "text" | "line";
   x: number;
   y: number;
   width?: number;
@@ -49,10 +41,22 @@ function build256Palette(theme: Theme): string[] {
   const palette: string[] = new Array(256);
 
   const themeColors = [
-    theme.black, theme.red, theme.green, theme.yellow,
-    theme.blue, theme.magenta, theme.cyan, theme.white,
-    theme.brightBlack, theme.brightRed, theme.brightGreen, theme.brightYellow,
-    theme.brightBlue, theme.brightMagenta, theme.brightCyan, theme.brightWhite,
+    theme.black,
+    theme.red,
+    theme.green,
+    theme.yellow,
+    theme.blue,
+    theme.magenta,
+    theme.cyan,
+    theme.white,
+    theme.brightBlack,
+    theme.brightRed,
+    theme.brightGreen,
+    theme.brightYellow,
+    theme.brightBlue,
+    theme.brightMagenta,
+    theme.brightCyan,
+    theme.brightWhite,
   ];
   for (let i = 0; i < 16; i++) {
     palette[i] = themeColors[i];
@@ -79,11 +83,11 @@ function build256Palette(theme: Theme): string[] {
 }
 
 // Attribute bit positions (matching core's packed attrs byte)
-const ATTR_BOLD          = 0x01;
-const ATTR_ITALIC        = 0x02;
-const ATTR_UNDERLINE     = 0x04;
+const ATTR_BOLD = 0x01;
+const ATTR_ITALIC = 0x02;
+const ATTR_UNDERLINE = 0x04;
 const ATTR_STRIKETHROUGH = 0x08;
-const ATTR_INVERSE       = 0x40;
+const ATTR_INVERSE = 0x40;
 
 // ---------------------------------------------------------------------------
 // SkiaRenderer
@@ -132,7 +136,7 @@ export class SkiaRenderer {
     for (let row = 0; row < rows; row++) {
       // Full-row background
       commands.push({
-        type: 'rect',
+        type: "rect",
         x: 0,
         y: row * cellHeight,
         width: cols * cellWidth,
@@ -164,7 +168,7 @@ export class SkiaRenderer {
         // Cell background (only if non-default)
         if (bg !== theme.background) {
           commands.push({
-            type: 'rect',
+            type: "rect",
             x,
             y,
             width: cellWidth,
@@ -179,9 +183,9 @@ export class SkiaRenderer {
           const bold = !!(attrs & ATTR_BOLD);
           const italic = !!(attrs & ATTR_ITALIC);
           commands.push({
-            type: 'text',
+            type: "text",
             x,
-            y: y + Math.ceil(fontSize),  // baseline offset
+            y: y + Math.ceil(fontSize), // baseline offset
             color: fg,
             text: ch,
             fontSize,
@@ -194,7 +198,7 @@ export class SkiaRenderer {
         // Underline
         if (attrs & ATTR_UNDERLINE) {
           commands.push({
-            type: 'line',
+            type: "line",
             x,
             y: y + cellHeight - 1,
             width: cellWidth,
@@ -206,7 +210,7 @@ export class SkiaRenderer {
         // Strikethrough
         if (attrs & ATTR_STRIKETHROUGH) {
           commands.push({
-            type: 'line',
+            type: "line",
             x,
             y: y + Math.floor(cellHeight / 2),
             width: cellWidth,
@@ -243,7 +247,7 @@ export class SkiaRenderer {
           }
 
           commands.push({
-            type: 'rect',
+            type: "rect",
             x: colStart * cellWidth,
             y: row * cellHeight,
             width: (colEnd - colStart + 1) * cellWidth,
@@ -261,9 +265,9 @@ export class SkiaRenderer {
       const cy = cursor.row * cellHeight;
 
       switch (cursor.style) {
-        case 'block':
+        case "block":
           commands.push({
-            type: 'rect',
+            type: "rect",
             x: cx,
             y: cy,
             width: cellWidth,
@@ -273,9 +277,9 @@ export class SkiaRenderer {
           });
           break;
 
-        case 'underline':
+        case "underline":
           commands.push({
-            type: 'rect',
+            type: "rect",
             x: cx,
             y: cy + cellHeight - 2,
             width: cellWidth,
@@ -284,9 +288,9 @@ export class SkiaRenderer {
           });
           break;
 
-        case 'bar':
+        case "bar":
           commands.push({
-            type: 'rect',
+            type: "rect",
             x: cx,
             y: cy,
             width: 2,

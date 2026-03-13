@@ -1,6 +1,6 @@
-import type { ITerminalAddon } from '../addon.js';
-import type { WebTerminal } from '../web-terminal.js';
-import { calculateFit } from '../fit.js';
+import type { ITerminalAddon } from "../addon.js";
+import { calculateFit } from "../fit.js";
+import type { WebTerminal } from "../web-terminal.js";
 
 /**
  * Addon that fits the terminal to its container element.

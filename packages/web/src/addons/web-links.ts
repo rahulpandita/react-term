@@ -1,6 +1,6 @@
-import type { ITerminalAddon } from '../addon.js';
-import type { WebTerminal } from '../web-terminal.js';
-import type { CellGrid } from '@react-term/core';
+import type { CellGrid } from "@react-term/core";
+import type { ITerminalAddon } from "../addon.js";
+import type { WebTerminal } from "../web-terminal.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,16 +21,16 @@ export interface LinkMatch {
  * Regex pattern for detecting URLs in terminal text.
  * Matches http:// and https:// URLs.
  */
-const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g;
+const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
 
 /**
  * Extract the text content of a single row from a CellGrid.
  */
 function extractRowText(grid: CellGrid, row: number): string {
-  let line = '';
+  let line = "";
   for (let col = 0; col < grid.cols; col++) {
     const cp = grid.getCodepoint(row, col);
-    line += cp > 0x20 ? String.fromCodePoint(cp) : ' ';
+    line += cp > 0x20 ? String.fromCodePoint(cp) : " ";
   }
   return line;
 }
@@ -46,7 +46,9 @@ export function findLinks(grid: CellGrid): LinkMatch[] {
     URL_REGEX.lastIndex = 0;
     let m: RegExpExecArray | null;
 
-    while ((m = URL_REGEX.exec(text)) !== null) {
+    while (true) {
+      m = URL_REGEX.exec(text);
+      if (m === null) break;
       // Trim trailing punctuation that is likely not part of the URL
       let url = m[0];
       while (url.length > 0 && /[.,;:!?)']$/.test(url)) {
@@ -74,18 +76,20 @@ export class WebLinksAddon implements ITerminalAddon {
   private terminal: WebTerminal | null = null;
   private handler: (url: string) => void;
   private links: LinkMatch[] = [];
+  private currentHoverLink: LinkMatch | null = null;
 
   private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
   private clickHandler: ((e: MouseEvent) => void) | null = null;
-  private currentHoverLink: LinkMatch | null = null;
 
   constructor(handler?: (url: string) => void) {
-    this.handler = handler ?? ((url: string) => {
-      if (typeof window !== 'undefined') {
-        if (!url.startsWith('http://') && !url.startsWith('https://')) return;
-        window.open(url, '_blank', 'noopener,noreferrer');
-      }
-    });
+    this.handler =
+      handler ??
+      ((url: string) => {
+        if (typeof window !== "undefined") {
+          if (!url.startsWith("http://") && !url.startsWith("https://")) return;
+          window.open(url, "_blank", "noopener,noreferrer");
+        }
+      });
   }
 
   activate(terminal: WebTerminal): void {
@@ -98,8 +102,8 @@ export class WebLinksAddon implements ITerminalAddon {
     this.mouseMoveHandler = (e: MouseEvent) => this.onMouseMove(e);
     this.clickHandler = (e: MouseEvent) => this.onClick(e);
 
-    container.addEventListener('mousemove', this.mouseMoveHandler);
-    container.addEventListener('click', this.clickHandler);
+    container.addEventListener("mousemove", this.mouseMoveHandler);
+    container.addEventListener("click", this.clickHandler);
   }
 
   dispose(): void {
@@ -107,12 +111,12 @@ export class WebLinksAddon implements ITerminalAddon {
       const container = this.terminal.element;
       if (container) {
         if (this.mouseMoveHandler) {
-          container.removeEventListener('mousemove', this.mouseMoveHandler);
+          container.removeEventListener("mousemove", this.mouseMoveHandler);
         }
         if (this.clickHandler) {
-          container.removeEventListener('click', this.clickHandler);
+          container.removeEventListener("click", this.clickHandler);
         }
-        container.style.cursor = '';
+        container.style.cursor = "";
       }
     }
 
@@ -175,10 +179,10 @@ export class WebLinksAddon implements ITerminalAddon {
     const container = this.terminal.element;
 
     if (link) {
-      if (container) container.style.cursor = 'pointer';
+      if (container) container.style.cursor = "pointer";
       this.currentHoverLink = link;
     } else {
-      if (container) container.style.cursor = '';
+      if (container) container.style.cursor = "";
       this.currentHoverLink = null;
     }
   }
