@@ -59,6 +59,8 @@ export interface FlushMessage {
   cellData?: ArrayBuffer;
   /** Dirty-row flags (Transferable). Only present in non-SAB mode. */
   dirtyRows?: ArrayBuffer;
+  /** Circular buffer row offset. Only present in non-SAB mode. */
+  rowOffset?: number;
 }
 
 export interface ErrorMessage {
@@ -107,6 +109,7 @@ function buildFlush(bytesProcessed: number): FlushMessage {
     const dirtyCopy = grid.dirtyRows.slice().buffer;
     msg.cellData = cellCopy;
     msg.dirtyRows = dirtyCopy;
+    msg.rowOffset = grid.rowOffsetData[0];
   }
 
   return msg;

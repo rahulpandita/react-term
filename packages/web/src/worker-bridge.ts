@@ -11,7 +11,7 @@
  */
 
 import type { CursorState } from "@react-term/core";
-import { CELL_SIZE, type CellGrid } from "@react-term/core";
+import { CELL_SIZE, type CellGrid, modPositive } from "@react-term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 
 // ---- Flow-control constants ------------------------------------------------
@@ -205,14 +205,22 @@ export class WorkerBridge {
     if (msg.cellData && msg.dirtyRows) {
       const cellView = new Uint32Array(msg.cellData);
       const dirtyView = new Int32Array(msg.dirtyRows);
-
-      // Only copy rows that were marked dirty by the worker.
       const cols = this.grid.cols;
       const rows = this.grid.rows;
+      const rowOffset = modPositive(msg.rowOffset ?? 0, rows);
+
+      // Sync circular buffer row offset so physical layout matches the worker's.
+      this.grid.rowOffsetData[0] = rowOffset;
+
+      // Only copy rows that were marked dirty by the worker.
+      // Dirty flags are indexed by logical row; map to physical positions
+      // in both source and destination (same offset, so same physical row).
+      const rowLen = cols * CELL_SIZE;
       for (let r = 0; r < rows; r++) {
         if (dirtyView[r] !== 0) {
-          const start = r * cols * CELL_SIZE;
-          const end = start + cols * CELL_SIZE;
+          const physRow = modPositive(r + rowOffset, rows);
+          const start = physRow * rowLen;
+          const end = start + rowLen;
           this.grid.data.set(cellView.subarray(start, end), start);
           this.grid.markDirty(r);
         }

@@ -325,6 +325,7 @@ function createGridFromSAB(buffer: SharedArrayBuffer, c: number, r: number): Cel
   const cellBytes = c * r * CELL_SIZE * 4;
   const dirtyBytes = r * 4;
   const rgbBytes = 512 * 4;
+  const cursorBytes = 4 * 4;
 
   // Use Object.defineProperty to set readonly properties
   Object.defineProperty(g, "cols", { value: c, writable: false });
@@ -344,6 +345,10 @@ function createGridFromSAB(buffer: SharedArrayBuffer, c: number, r: number): Cel
   });
   Object.defineProperty(g, "cursorData", {
     value: new Int32Array(buffer, cellBytes + dirtyBytes + rgbBytes, 4),
+    writable: false,
+  });
+  Object.defineProperty(g, "rowOffsetData", {
+    value: new Int32Array(buffer, cellBytes + dirtyBytes + rgbBytes + cursorBytes, 1),
     writable: false,
   });
   // Set private buffer field for getBuffer()
