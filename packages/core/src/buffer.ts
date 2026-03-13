@@ -57,30 +57,46 @@ export class Buffer {
     }
   }
 
-  /** Scroll the scroll region up by one line using copyWithin (zero-alloc). */
+  /** Scroll the scroll region up by one line. */
   scrollUp(): void {
-    const rowSize = this.cols * CELL_SIZE;
-    const dstStart = this.scrollTop * rowSize;
-    const srcStart = (this.scrollTop + 1) * rowSize;
-    const srcEnd = (this.scrollBottom + 1) * rowSize;
-    this.grid.data.copyWithin(dstStart, srcStart, srcEnd);
-    this.grid.clearRow(this.scrollBottom);
-    this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
+    if (this.scrollTop === 0 && this.scrollBottom === this.rows - 1) {
+      // Full-screen scroll: O(1) rotation instead of O(rows×cols) copy
+      this.grid.rotateUp();
+      this.grid.clearRow(this.scrollBottom);
+      this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
+    } else {
+      // Partial scroll region: shift rows up using copyWithin on physical offsets
+      const rowSize = this.cols * CELL_SIZE;
+      for (let r = this.scrollTop; r < this.scrollBottom; r++) {
+        const dst = this.grid.rowStart(r);
+        const src = this.grid.rowStart(r + 1);
+        this.grid.data.copyWithin(dst, src, src + rowSize);
+      }
+      this.grid.clearRow(this.scrollBottom);
+      this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
+    }
   }
 
   /**
-   * Scroll the scroll region down by one line using copyWithin (zero-alloc).
-   * copyWithin handles overlapping src/dst correctly (copies as if via a
-   * temporary buffer), so shifting rows down by one is safe.
+   * Scroll the scroll region down by one line.
    */
   scrollDown(): void {
-    const rowSize = this.cols * CELL_SIZE;
-    const srcStart = this.scrollTop * rowSize;
-    const srcEnd = this.scrollBottom * rowSize;
-    const dstStart = (this.scrollTop + 1) * rowSize;
-    this.grid.data.copyWithin(dstStart, srcStart, srcEnd);
-    this.grid.clearRow(this.scrollTop);
-    this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
+    if (this.scrollTop === 0 && this.scrollBottom === this.rows - 1) {
+      // Full-screen scroll: O(1) rotation
+      this.grid.rotateDown();
+      this.grid.clearRow(this.scrollTop);
+      this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
+    } else {
+      // Partial scroll region: shift rows down using copyWithin on physical offsets
+      const rowSize = this.cols * CELL_SIZE;
+      for (let r = this.scrollBottom; r > this.scrollTop; r--) {
+        const dst = this.grid.rowStart(r);
+        const src = this.grid.rowStart(r - 1);
+        this.grid.data.copyWithin(dst, src, src + rowSize);
+      }
+      this.grid.clearRow(this.scrollTop);
+      this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
+    }
   }
 }
 
