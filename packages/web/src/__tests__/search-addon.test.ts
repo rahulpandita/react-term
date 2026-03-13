@@ -1,6 +1,7 @@
 import { CellGrid } from "@react-term/core";
 import { describe, expect, it } from "vitest";
 import { extractRowText, findAllMatches, SearchAddon } from "../addons/search.js";
+import type { WebTerminal } from "../web-terminal.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -140,7 +141,7 @@ describe("SearchAddon", () => {
   it("findNext returns first match", () => {
     const { terminal } = createMockTerminal(["Hello World"]);
     const addon = new SearchAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     const match = addon.findNext("Hello");
     expect(match).toEqual({ row: 0, startCol: 0, endCol: 4 });
@@ -149,7 +150,7 @@ describe("SearchAddon", () => {
   it("findNext cycles through matches", () => {
     const { terminal } = createMockTerminal(["Hello Hello"]);
     const addon = new SearchAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     const m1 = addon.findNext("Hello");
     expect(m1).toEqual({ row: 0, startCol: 0, endCol: 4 });
@@ -165,7 +166,7 @@ describe("SearchAddon", () => {
   it("findPrevious cycles backwards", () => {
     const { terminal } = createMockTerminal(["Hello Hello"]);
     const addon = new SearchAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     // First call starts from the last match
     const m1 = addon.findPrevious("Hello");
@@ -182,7 +183,7 @@ describe("SearchAddon", () => {
   it("clearSearch empties matches", () => {
     const { terminal } = createMockTerminal(["Hello World"]);
     const addon = new SearchAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.findNext("Hello");
     expect(addon.getMatches()).toHaveLength(1);
@@ -195,7 +196,7 @@ describe("SearchAddon", () => {
   it("no matches returns null", () => {
     const { terminal } = createMockTerminal(["Hello World"]);
     const addon = new SearchAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     const match = addon.findNext("xyz");
     expect(match).toBeNull();
@@ -204,7 +205,7 @@ describe("SearchAddon", () => {
   it("getMatches returns all matches", () => {
     const { terminal } = createMockTerminal(["Hello World Hello"]);
     const addon = new SearchAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.findNext("Hello");
     const matches = addon.getMatches();
@@ -214,7 +215,7 @@ describe("SearchAddon", () => {
   it("getCurrentMatch returns the current match", () => {
     const { terminal } = createMockTerminal(["Hello World"]);
     const addon = new SearchAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     expect(addon.getCurrentMatch()).toBeNull();
 
@@ -225,7 +226,7 @@ describe("SearchAddon", () => {
   it("updates highlights on the terminal", () => {
     const { terminal, getHighlights } = createMockTerminal(["Hello World"]);
     const addon = new SearchAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.findNext("Hello");
     const highlights = getHighlights();
@@ -241,7 +242,7 @@ describe("SearchAddon", () => {
   it("dispose clears state", () => {
     const { terminal } = createMockTerminal(["Hello World"]);
     const addon = new SearchAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.findNext("Hello");
     addon.dispose();

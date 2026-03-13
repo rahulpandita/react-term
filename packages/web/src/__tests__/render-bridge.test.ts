@@ -8,16 +8,16 @@ import { canUseOffscreenCanvas, RenderBridge } from "../render-bridge.js";
 // ---------------------------------------------------------------------------
 
 class MockWorker {
-  private listeners = new Map<string, Set<Function>>();
+  private listeners = new Map<string, Set<(event: Event) => void>>();
   postMessage = vi.fn();
   terminate = vi.fn();
 
-  addEventListener(type: string, handler: Function): void {
+  addEventListener(type: string, handler: (event: Event) => void): void {
     if (!this.listeners.has(type)) this.listeners.set(type, new Set());
     this.listeners.get(type)?.add(handler);
   }
 
-  removeEventListener(type: string, handler: Function): void {
+  removeEventListener(type: string, handler: (event: Event) => void): void {
     this.listeners.get(type)?.delete(handler);
   }
 

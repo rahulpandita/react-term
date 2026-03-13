@@ -9,17 +9,10 @@
       "recommended": true,
       "correctness": {
         "noUnusedVariables": "warn",
-        "noUnusedImports": "warn",
-        "noUnusedFunctionParameters": "warn"
+        "noUnusedImports": "warn"
       },
       "style": {
         "noNonNullAssertion": "warn"
-      },
-      "suspicious": {
-        "noExplicitAny": "warn"
-      },
-      "complexity": {
-        "noBannedTypes": "warn"
       }
     }
   },

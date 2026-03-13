@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FitAddon } from "../addons/fit.js";
+import type { WebTerminal } from "../web-terminal.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,7 +59,7 @@ describe("FitAddon", () => {
     const container = mockContainer(800, 600);
     const terminal = createMockTerminal(80, 24, 8, 16, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     const dims = addon.proposeDimensions();
     expect(dims).not.toBeNull();
@@ -75,7 +76,7 @@ describe("FitAddon", () => {
     const container = mockContainer(800, 600);
     const terminal = createMockTerminal(80, 24, 0, 0, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     expect(addon.proposeDimensions()).toBeNull();
   });
@@ -84,7 +85,7 @@ describe("FitAddon", () => {
     const container = mockContainer(800, 600);
     const terminal = createMockTerminal(80, 24, 8, 16, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.fit();
     expect(terminal.cols).toBe(100);
@@ -96,7 +97,7 @@ describe("FitAddon", () => {
     // 640/8 = 80 cols, 384/16 = 24 rows — same as current
     const terminal = createMockTerminal(80, 24, 8, 16, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.fit();
     // Should remain the same (no resize called)
@@ -108,7 +109,7 @@ describe("FitAddon", () => {
     const container = mockContainer(800, 600);
     const terminal = createMockTerminal(80, 24, 8, 16, container);
     const addon = new FitAddon();
-    addon.activate(terminal as any);
+    addon.activate(terminal as unknown as WebTerminal);
 
     addon.dispose();
     expect(addon.proposeDimensions()).toBeNull();

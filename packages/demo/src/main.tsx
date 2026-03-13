@@ -146,7 +146,7 @@ const PROMPT = "\x1b[1;33m$ \x1b[0m";
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
-function StatusIndicator({ status, mode }: { status: ConnectionStatus; mode: "local" | "pty" }) {
+function StatusIndicator({ status }: { status: ConnectionStatus }) {
   const colors: Record<ConnectionStatus, string> = {
     disconnected: "#666",
     connecting: "#e5e510",
@@ -241,7 +241,7 @@ function HUD({
         userSelect: "none",
       }}
     >
-      <StatusIndicator status={status} mode={status === "connected" ? "pty" : "local"} />
+      <StatusIndicator status={status} />
       <div
         style={{
           display: "flex",
