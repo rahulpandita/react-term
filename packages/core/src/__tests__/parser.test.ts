@@ -14,7 +14,7 @@ function _readLine(bs: BufferSet, row: number, startCol = 0, endCol?: number): s
   let result = "";
   for (let c = startCol; c < end; c++) {
     const cp = grid.getCodepoint(row, c);
-    if (cp === 0x20 && c >= endCol!) break;
+    if (cp === 0x20 && c >= end) break;
     result += String.fromCodePoint(cp);
   }
   return result;

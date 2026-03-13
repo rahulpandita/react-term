@@ -12,7 +12,7 @@
         "noUnusedImports": "error"
       },
       "style": {
-        "noNonNullAssertion": "warn"
+        "noNonNullAssertion": "error"
       }
     }
   },

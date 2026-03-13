@@ -104,7 +104,9 @@ export class GlyphAtlas {
 
     if (typeof OffscreenCanvas !== "undefined") {
       this.canvas = new OffscreenCanvas(this.width, this.height);
-      this.ctx = this.canvas.getContext("2d", { willReadFrequently: true })!;
+      const ctx = this.canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) throw new Error("Failed to get 2d context for glyph atlas");
+      this.ctx = ctx;
     }
   }
 
@@ -235,7 +237,8 @@ export class GlyphAtlas {
     this.canvas.height = newHeight;
 
     // Restore content
-    this.ctx = this.canvas.getContext("2d", { willReadFrequently: true })!;
+    this.ctx = this.canvas.getContext("2d", { willReadFrequently: true });
+    if (!this.ctx) return;
     this.ctx.putImageData(imageData, 0, 0);
 
     // Recalculate UV coordinates for all cached glyphs
@@ -401,7 +404,8 @@ export function packGlyphInstance(
 // ---------------------------------------------------------------------------
 
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)!;
+  const shader = gl.createShader(type);
+  if (!shader) throw new Error("Failed to create shader");
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
@@ -415,7 +419,8 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
 function createProgram(gl: WebGL2RenderingContext, vertSrc: string, fragSrc: string): WebGLProgram {
   const vert = compileShader(gl, gl.VERTEX_SHADER, vertSrc);
   const frag = compileShader(gl, gl.FRAGMENT_SHADER, fragSrc);
-  const program = gl.createProgram()!;
+  const program = gl.createProgram();
+  if (!program) throw new Error("Failed to create program");
   gl.attachShader(program, vert);
   gl.attachShader(program, frag);
   gl.linkProgram(program);
@@ -896,7 +901,8 @@ export class WebGLRenderer implements IRenderer {
 
   private setupBgVAO(gl: WebGL2RenderingContext): void {
     const FLOAT = 4;
-    const program = this.bgProgram!;
+    if (!this.bgProgram) return;
+    const program = this.bgProgram;
 
     // Quad vertex positions
     const aPos = gl.getAttribLocation(program, "a_position");
@@ -924,7 +930,8 @@ export class WebGLRenderer implements IRenderer {
 
   private setupGlyphVAO(gl: WebGL2RenderingContext): void {
     const FLOAT = 4;
-    const program = this.glyphProgram!;
+    if (!this.glyphProgram) return;
+    const program = this.glyphProgram;
 
     // Quad vertex positions
     const aPos = gl.getAttribLocation(program, "a_position");

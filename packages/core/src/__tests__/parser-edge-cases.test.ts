@@ -341,7 +341,7 @@ describe("VTParser Edge Cases", () => {
       expect(parser.hasResponse()).toBe(true);
       const response = parser.readResponse();
       expect(response).not.toBeNull();
-      const decoded = new TextDecoder().decode(response!);
+      const decoded = new TextDecoder().decode(response as Uint8Array);
       expect(decoded).toBe("\x1b[5;10R");
     });
 
@@ -349,7 +349,8 @@ describe("VTParser Edge Cases", () => {
       write(parser, "\x1b[H"); // home
       write(parser, "\x1b[6n");
       const response = parser.readResponse();
-      const decoded = new TextDecoder().decode(response!);
+      expect(response).not.toBeNull();
+      const decoded = new TextDecoder().decode(response as Uint8Array);
       expect(decoded).toBe("\x1b[1;1R");
     });
 
@@ -364,7 +365,8 @@ describe("VTParser Edge Cases", () => {
       write(parser, "\x1b[c");
       expect(parser.hasResponse()).toBe(true);
       const response = parser.readResponse();
-      const decoded = new TextDecoder().decode(response!);
+      expect(response).not.toBeNull();
+      const decoded = new TextDecoder().decode(response as Uint8Array);
       expect(decoded).toBe("\x1b[?1;2c");
     });
 
@@ -372,7 +374,8 @@ describe("VTParser Edge Cases", () => {
       write(parser, "\x1b[0c");
       expect(parser.hasResponse()).toBe(true);
       const response = parser.readResponse();
-      const decoded = new TextDecoder().decode(response!);
+      expect(response).not.toBeNull();
+      const decoded = new TextDecoder().decode(response as Uint8Array);
       expect(decoded).toBe("\x1b[?1;2c");
     });
   });

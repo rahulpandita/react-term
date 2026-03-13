@@ -171,7 +171,8 @@ export class WorkerBridge {
 
   private drainQueue = (): void => {
     while (this.writeQueue.length > 0 && !this.paused) {
-      const next = this.writeQueue.shift()!;
+      const next = this.writeQueue.shift();
+      if (!next) break;
       this.sendWrite(next);
     }
   };

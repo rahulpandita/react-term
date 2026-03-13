@@ -149,7 +149,8 @@ export class AccessibilityManager {
 
     // Keep the live region from growing unboundedly.
     while (this.liveRegion.childNodes.length > 20) {
-      this.liveRegion.removeChild(this.liveRegion.firstChild!);
+      const first = this.liveRegion.firstChild;
+      if (first) this.liveRegion.removeChild(first);
     }
   }
 
@@ -163,8 +164,8 @@ export class AccessibilityManager {
 
     // Rebuild row elements if the count changed
     while (this.rowElements.length > rows) {
-      const el = this.rowElements.pop()!;
-      this.treeContainer.removeChild(el);
+      const el = this.rowElements.pop();
+      if (el) this.treeContainer.removeChild(el);
     }
     while (this.rowElements.length < rows) {
       const rowEl = document.createElement("div");

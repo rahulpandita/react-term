@@ -140,7 +140,9 @@ export class Canvas2DRenderer implements IRenderer {
 
   attach(canvas: HTMLCanvasElement, grid: CellGrid, cursor: CursorState): void {
     this.canvas = canvas;
-    this.ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Failed to get 2d context");
+    this.ctx = ctx;
     this.grid = grid;
     this.cursor = cursor;
 

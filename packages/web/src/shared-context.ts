@@ -117,7 +117,8 @@ export interface TerminalEntry {
 // ---------------------------------------------------------------------------
 
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)!;
+  const shader = gl.createShader(type);
+  if (!shader) throw new Error("Failed to create shader");
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
@@ -131,7 +132,8 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
 function createProgram(gl: WebGL2RenderingContext, vertSrc: string, fragSrc: string): WebGLProgram {
   const vert = compileShader(gl, gl.VERTEX_SHADER, vertSrc);
   const frag = compileShader(gl, gl.FRAGMENT_SHADER, fragSrc);
-  const program = gl.createProgram()!;
+  const program = gl.createProgram();
+  if (!program) throw new Error("Failed to create program");
   gl.attachShader(program, vert);
   gl.attachShader(program, frag);
   gl.linkProgram(program);
@@ -363,7 +365,8 @@ export class SharedWebGLContext {
   // -----------------------------------------------------------------------
 
   private renderTerminal(entry: TerminalEntry): void {
-    const gl = this.gl!;
+    if (!this.gl) return;
+    const gl = this.gl;
     const { grid, cursor, viewport } = entry;
     const cols = grid.cols;
     const rows = grid.rows;
@@ -569,7 +572,8 @@ export class SharedWebGLContext {
 
   private setupBgVAO(gl: WebGL2RenderingContext): void {
     const FLOAT = 4;
-    const program = this.bgProgram!;
+    if (!this.bgProgram) return;
+    const program = this.bgProgram;
 
     const aPos = gl.getAttribLocation(program, "a_position");
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVBO);
@@ -594,7 +598,8 @@ export class SharedWebGLContext {
 
   private setupGlyphVAO(gl: WebGL2RenderingContext): void {
     const FLOAT = 4;
-    const program = this.glyphProgram!;
+    if (!this.glyphProgram) return;
+    const program = this.glyphProgram;
 
     const aPos = gl.getAttribLocation(program, "a_position");
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVBO);

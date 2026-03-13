@@ -430,7 +430,8 @@ describe("E2E Full Pipeline Tests", () => {
 
       expect(parser.hasResponse()).toBe(true);
       const response = parser.readResponse();
-      const decoded = new TextDecoder().decode(response!);
+      expect(response).toBeDefined();
+      const decoded = new TextDecoder().decode(response as Uint8Array);
       // Cursor should be at row 5, col 5 (after writing "Text" starting at col 1)
       expect(decoded).toBe("\x1b[5;5R");
 
@@ -445,9 +446,15 @@ describe("E2E Full Pipeline Tests", () => {
       write(parser, "\x1b[10;10H\x1b[6n");
 
       expect(parser.hasResponse()).toBe(true);
-      expect(new TextDecoder().decode(parser.readResponse()!)).toBe("\x1b[1;1R");
-      expect(new TextDecoder().decode(parser.readResponse()!)).toBe("\x1b[5;5R");
-      expect(new TextDecoder().decode(parser.readResponse()!)).toBe("\x1b[10;10R");
+      const r1 = parser.readResponse();
+      const r2 = parser.readResponse();
+      const r3 = parser.readResponse();
+      expect(r1).toBeDefined();
+      expect(r2).toBeDefined();
+      expect(r3).toBeDefined();
+      expect(new TextDecoder().decode(r1 as Uint8Array)).toBe("\x1b[1;1R");
+      expect(new TextDecoder().decode(r2 as Uint8Array)).toBe("\x1b[5;5R");
+      expect(new TextDecoder().decode(r3 as Uint8Array)).toBe("\x1b[10;10R");
       expect(parser.hasResponse()).toBe(false);
     });
   });

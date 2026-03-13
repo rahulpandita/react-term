@@ -638,4 +638,7 @@ function Root() {
   return <App />;
 }
 
-createRoot(document.getElementById("root")!).render(<Root />);
+const rootEl = document.getElementById("root");
+if (rootEl) {
+  createRoot(rootEl).render(<Root />);
+}
