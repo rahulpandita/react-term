@@ -320,8 +320,8 @@ function App() {
       }
     };
 
-    ws.onerror = () => {
-      // onclose will fire after this
+    ws.onerror = (event) => {
+      console.error('WebSocket error:', event.type);
     };
   }, []);
 
