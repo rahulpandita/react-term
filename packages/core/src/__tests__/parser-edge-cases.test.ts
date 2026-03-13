@@ -515,4 +515,95 @@ describe("VTParser Edge Cases", () => {
       expect(readLineTrimmed(bs, 0)).toBe("A");
     });
   });
+
+  // ============================================================
+  // Read-ahead & fast-path edge cases
+  // ============================================================
+  describe("Read-ahead and fast-path edge cases", () => {
+    it("handles CSI split across two write() calls mid-param", () => {
+      // ESC [ 3 arrives in first write, 8;5;208m in second
+      write(parser, "\x1b[3");
+      write(parser, "8;5;208m");
+      write(parser, "A");
+      const grid = bs.active.grid;
+      expect(readLineTrimmed(bs, 0)).toBe("A");
+      // 38;5;208 = 256-color foreground index 208
+      expect(grid.getFgIndex(0, 0)).toBe(208);
+    });
+
+    it("handles ESC at the very end of a write() buffer", () => {
+      // ESC is last byte — should transition to ESCAPE state, not crash
+      write(parser, "Hello\x1b");
+      // Next write completes the CSI sequence
+      write(parser, "[0mWorld");
+      expect(readLineTrimmed(bs, 0)).toBe("HelloWorld");
+    });
+
+    it("handles ESC [ at the very end of a write() buffer", () => {
+      // ESC [ consumed by fast-path, next write has params + final byte
+      write(parser, "Hi\x1b[");
+      write(parser, "1mBold");
+      const grid = bs.active.grid;
+      expect(readLineTrimmed(bs, 0)).toBe("HiBold");
+      expect(grid.getAttrs(0, 2) & 0x01).toBe(0x01); // bold
+    });
+
+    it("handles ESC ] at the very end of a write() buffer", () => {
+      // ESC ] consumed by fast-path, OSC content arrives in next write
+      let title = "";
+      parser.setTitleChangeCallback((t) => {
+        title = t;
+      });
+      write(parser, "\x1b]");
+      write(parser, "0;MyTitle\x07");
+      expect(title).toBe("MyTitle");
+    });
+
+    it("handles >16 CSI params with graceful truncation", () => {
+      // 20 params: first 16 stored, rest silently dropped, no crash
+      const params = Array.from({ length: 20 }, (_, i) => String(i + 1)).join(";");
+      write(parser, `\x1b[${params}m`);
+      write(parser, "A");
+      expect(readLineTrimmed(bs, 0)).toBe("A");
+    });
+
+    it("handles PARAM read-ahead across semicolons correctly", () => {
+      // Verify multi-param SGR parsed correctly via read-ahead
+      write(parser, "\x1b[1;31;42mX");
+      const grid = bs.active.grid;
+      expect(readLineTrimmed(bs, 0)).toBe("X");
+      // bold (attr bit 0)
+      expect(grid.getAttrs(0, 0) & 0x01).toBe(0x01);
+      // fg = 1 (red, from 31-30)
+      expect(grid.getFgIndex(0, 0)).toBe(1);
+      // bg = 2 (green, from 42-40)
+      expect(grid.getBgIndex(0, 0)).toBe(2);
+    });
+
+    it("handles OSC with content exceeding MAX_OSC_LENGTH", () => {
+      // Very long OSC should be capped without crashing
+      const longStr = "A".repeat(5000);
+      write(parser, `\x1b]0;${longStr}\x07`);
+      // Should not crash, title may be truncated
+      write(parser, "OK");
+      expect(readLineTrimmed(bs, 0)).toBe("OK");
+    });
+
+    it("handles DCS passthrough content correctly", () => {
+      // DCS p <content> ST — content should be skipped without crash
+      write(parser, "\x1bPpHello World\x1b\\");
+      write(parser, "After");
+      expect(readLineTrimmed(bs, 0)).toBe("After");
+    });
+
+    it("handles ESC fast-path from non-GROUND state", () => {
+      // Start an OSC, then interrupt with ESC [ (CSI)
+      // \x1b] starts OSC, then \x1b[ should abort OSC and start CSI
+      write(parser, "\x1b]0;partial");
+      write(parser, "\x1b[1mBold");
+      const grid = bs.active.grid;
+      expect(readLineTrimmed(bs, 0)).toBe("Bold");
+      expect(grid.getAttrs(0, 0) & 0x01).toBe(0x01); // bold
+    });
+  });
 });
