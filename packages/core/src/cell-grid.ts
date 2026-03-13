@@ -23,6 +23,7 @@ export class CellGrid {
   readonly rgbColors: Uint32Array;
   private readonly buffer: SharedArrayBuffer | ArrayBuffer;
   readonly isShared: boolean;
+  private readonly _templateRow: Uint32Array;
 
   /**
    * Cursor data stored in the SAB for cross-worker access.
@@ -62,6 +63,13 @@ export class CellGrid {
       cellBytes + dirtyBytes + rgbBytes + cursorBytes,
       1,
     );
+
+    // Build a template row: each cell is a space (0x20) with default fg=7
+    this._templateRow = new Uint32Array(cols * CELL_SIZE);
+    for (let c = 0; c < cols; c++) {
+      this._templateRow[c * CELL_SIZE] = 0x20 | (7 << 23); // space + default fg=7
+      // [c * CELL_SIZE + 1] is already 0 (bg=0, no attrs)
+    }
 
     this.clear();
   }
@@ -195,14 +203,9 @@ export class CellGrid {
   }
 
   clear(): void {
-    // Reset circular buffer offset
     this.rowOffsetData[0] = 0;
-    this.data.fill(0);
     for (let r = 0; r < this.rows; r++) {
-      for (let c = 0; c < this.cols; c++) {
-        const idx = (r * this.cols + c) * CELL_SIZE;
-        this.data[idx] = 0x20 | (7 << 23); // space with default fg index 7
-      }
+      this.data.set(this._templateRow, r * this.cols * CELL_SIZE);
     }
     this.markAllDirty();
   }
@@ -229,10 +232,7 @@ export class CellGrid {
   /** Fill a logical row with spaces and default attributes. */
   clearRow(row: number): void {
     const start = this.rowStart(row);
-    for (let c = 0; c < this.cols; c++) {
-      this.data[start + c * CELL_SIZE] = 0x20 | (7 << 23); // space with default fg index 7
-      this.data[start + c * CELL_SIZE + 1] = 0;
-    }
+    this.data.set(this._templateRow, start);
     this.markDirty(row);
   }
 
