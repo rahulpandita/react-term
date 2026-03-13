@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { CellGrid } from '@react-term/core';
-import { findLinks } from '../addons/web-links.js';
+import { findLinks, WebLinksAddon } from '../addons/web-links.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,5 +128,56 @@ describe('findLinks', () => {
     expect(links).toHaveLength(1);
     expect(links[0].startCol).toBe(5);
     expect(links[0].endCol).toBe(17);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Default handler URL scheme guard
+// ---------------------------------------------------------------------------
+
+describe('WebLinksAddon default handler', () => {
+  it('opens http URLs', () => {
+    const openSpy = vi.fn();
+    vi.stubGlobal('window', { open: openSpy });
+
+    const addon = new WebLinksAddon();
+    // Access the default handler via a click simulation — invoke handler directly
+    (addon as unknown as { handler: (url: string) => void }).handler('http://example.com');
+
+    expect(openSpy).toHaveBeenCalledWith('http://example.com', '_blank', 'noopener,noreferrer');
+    vi.unstubAllGlobals();
+  });
+
+  it('opens https URLs', () => {
+    const openSpy = vi.fn();
+    vi.stubGlobal('window', { open: openSpy });
+
+    const addon = new WebLinksAddon();
+    (addon as unknown as { handler: (url: string) => void }).handler('https://example.com');
+
+    expect(openSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer');
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects javascript: URLs', () => {
+    const openSpy = vi.fn();
+    vi.stubGlobal('window', { open: openSpy });
+
+    const addon = new WebLinksAddon();
+    (addon as unknown as { handler: (url: string) => void }).handler('javascript:alert(1)');
+
+    expect(openSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects data: URLs', () => {
+    const openSpy = vi.fn();
+    vi.stubGlobal('window', { open: openSpy });
+
+    const addon = new WebLinksAddon();
+    (addon as unknown as { handler: (url: string) => void }).handler('data:text/html,<script>alert(1)</script>');
+
+    expect(openSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });
