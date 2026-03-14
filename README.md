@@ -40,9 +40,9 @@ function App() {
 |---------|------------|-------:|------:|------:|
 | `@react-term/core` | Cell grid, VT parser, buffer management | 2.1K | 4.9K | 7.1K |
 | `@react-term/web` | Canvas 2D, WebGL2, workers, addons | 6.7K | 2.4K | 9.1K |
-| `@react-term/react` | React component, multi-pane layout | 445 | — | 445 |
+| `@react-term/react` | React component, multi-pane layout | 445 | 8 | 453 |
 | `@react-term/native` | React Native, gesture/keyboard, Skia | 979 | 872 | 1.9K |
-| **Total** | | **10.2K** | **8.2K** | **18.5K** |
+| **Total** | | **10.2K** | **8.2K+** | **18.5K+** |
 
 ## Architecture
 
@@ -105,14 +105,27 @@ import { TerminalPane } from '@react-term/react';
 />
 ```
 
+The `collectPaneIds` helper is also exported from `@react-term/react` and can be used to extract all leaf pane IDs from a `PaneLayout` tree:
+
+```ts
+import { collectPaneIds } from '@react-term/react';
+
+const ids = collectPaneIds(layout); // ['left', 'top-right', 'bottom-right']
+```
+
 ## Development
 
 ```bash
 pnpm install
 pnpm test          # Run all tests
+pnpm lint          # Lint all packages (Biome)
+pnpm lint:fix      # Lint and auto-fix
+pnpm typecheck     # Run TypeScript type checking
 pnpm dev           # Start demo (local echo)
 pnpm start         # Start demo with PTY server
 ```
+
+A CI pipeline (`.github/workflows/ci.yml`) runs lint, typecheck, and tests on every pull request and push to `main`. Pre-commit hooks (`lint-staged`) also run Biome checks on staged TypeScript files.
 
 ### Agentic Workflows
 
