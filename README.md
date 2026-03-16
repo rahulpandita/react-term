@@ -105,12 +105,27 @@ import { TerminalPane } from '@react-term/react';
 />
 ```
 
-The `collectPaneIds` helper is also exported from `@react-term/react` and can be used to extract all leaf pane IDs from a `PaneLayout` tree:
+### `collectPaneIds`
+
+`collectPaneIds` is exported as a public helper from `@react-term/react`. It performs a depth-first traversal of a `PaneLayout` tree and returns all leaf pane IDs in order. Useful when you need the full set of pane IDs to initialize connections or manage state outside of the component.
 
 ```ts
 import { collectPaneIds } from '@react-term/react';
+import type { PaneLayout } from '@react-term/react';
 
-const ids = collectPaneIds(layout); // ['left', 'top-right', 'bottom-right']
+const layout: PaneLayout = {
+  type: 'horizontal',
+  children: [
+    { type: 'single', id: 'left' },
+    { type: 'vertical', children: [
+      { type: 'single', id: 'top-right' },
+      { type: 'single', id: 'bottom-right' },
+    ]},
+  ],
+};
+
+const ids = collectPaneIds(layout);
+// => ['left', 'top-right', 'bottom-right']
 ```
 
 ## Development
@@ -125,7 +140,23 @@ pnpm dev           # Start demo (local echo)
 pnpm start         # Start demo with PTY server
 ```
 
-A CI pipeline (`.github/workflows/ci.yml`) runs lint, typecheck, and tests on every pull request and push to `main`. Pre-commit hooks (`lint-staged`) also run Biome checks on staged TypeScript files.
+### CI & Code Quality
+
+The repository enforces code quality via:
+
+- **CI workflow** (`.github/workflows/ci.yml`) — runs on every pull request and push to `main`: installs, type-checks, lints with Biome, and runs the full test suite.
+- **Pre-commit hook** (`.githooks/pre-commit`) — runs `lint-staged` before every commit. Install once with `git config core.hooksPath .githooks`.
+- **Biome** (`biome.json`) — opinionated formatter and linter for TypeScript/JavaScript.
+
+### Benchmarking
+
+Two benchmark packages measure parser and end-to-end rendering throughput:
+
+- **`@react-term/bench`** — unit-level parser benchmarks via `vitest bench`. Includes vtebench-compatible scenarios (dense cells, light cells, Unicode, cursor motion, scrolling) for apples-to-apples comparisons with alacritty/vtebench. Run with `pnpm --filter @react-term/bench bench`.
+  - Slow scroll-region scenarios (2–4 s/iteration) are exported separately as `slowScenarios` for local profiling.
+- **`@react-term/e2e-bench`** — end-to-end Playwright benchmarks that drive a Vite dev server and compare react-term against xterm.js across multiple scenarios. Results are written as JSON to `packages/e2e-bench/results/`. Run with `pnpm --filter @react-term/e2e-bench bench`.
+
+A **benchmark CI workflow** (`.github/workflows/benchmark.yml`) runs both suites in parallel and posts a throughput summary table to the GitHub Actions run page.
 
 ### Agentic Workflows
 
