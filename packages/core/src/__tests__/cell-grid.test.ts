@@ -98,4 +98,175 @@ describe("CellGrid", () => {
     const buf = grid.getBuffer();
     expect(buf instanceof ArrayBuffer || buf instanceof SharedArrayBuffer).toBe(true);
   });
+
+  // -------------------------------------------------------------------------
+  // Ring-buffer rotation (rotateUp / rotateDown)
+  // -------------------------------------------------------------------------
+
+  describe("ring-buffer rotation", () => {
+    it("rotateUp(1) shifts logical rows up: row[n] gets old row[n+1] content", () => {
+      // 3-row grid; write distinct codepoints in each row
+      const grid = new CellGrid(5, 3);
+      grid.setCell(0, 0, 0x41, 7, 0, 0); // 'A'
+      grid.setCell(1, 0, 0x42, 7, 0, 0); // 'B'
+      grid.setCell(2, 0, 0x43, 7, 0, 0); // 'C'
+
+      grid.rotateUp(1);
+
+      // After scrolling up by 1: logical row 0 → old row 1, row 1 → old row 2,
+      // row 2 wraps to the physical slot that held old row 0 (available for new content).
+      expect(grid.getCodepoint(0, 0)).toBe(0x42); // was row 1
+      expect(grid.getCodepoint(1, 0)).toBe(0x43); // was row 2
+      expect(grid.getCodepoint(2, 0)).toBe(0x41); // physical slot reused (old row 0)
+    });
+
+    it("rotateDown(1) shifts logical rows down: row[n] gets old row[n-1] content", () => {
+      const grid = new CellGrid(5, 3);
+      grid.setCell(0, 0, 0x41, 7, 0, 0); // 'A'
+      grid.setCell(1, 0, 0x42, 7, 0, 0); // 'B'
+      grid.setCell(2, 0, 0x43, 7, 0, 0); // 'C'
+
+      grid.rotateDown(1);
+
+      // row 0 wraps to old row 2 slot; row 1 → old row 0; row 2 → old row 1
+      expect(grid.getCodepoint(0, 0)).toBe(0x43); // physical slot reused (old row 2)
+      expect(grid.getCodepoint(1, 0)).toBe(0x41); // was row 0
+      expect(grid.getCodepoint(2, 0)).toBe(0x42); // was row 1
+    });
+
+    it("full rotation (rows == grid height) returns to original layout", () => {
+      const rows = 5;
+      const grid = new CellGrid(3, rows);
+      for (let r = 0; r < rows; r++) {
+        grid.setCell(r, 0, 0x41 + r, 7, 0, 0);
+      }
+
+      // Rotating up by the full height should wrap all the way around
+      for (let i = 0; i < rows; i++) {
+        grid.rotateUp(1);
+      }
+
+      // Every logical row should have the same codepoint as before
+      for (let r = 0; r < rows; r++) {
+        expect(grid.getCodepoint(r, 0)).toBe(0x41 + r);
+      }
+    });
+
+    it("rotateUp then rotateDown cancels out", () => {
+      const grid = new CellGrid(4, 4);
+      for (let r = 0; r < 4; r++) {
+        grid.setCell(r, 0, 0x41 + r, 7, 0, 0);
+      }
+      grid.rotateUp(2);
+      grid.rotateDown(2);
+      for (let r = 0; r < 4; r++) {
+        expect(grid.getCodepoint(r, 0)).toBe(0x41 + r);
+      }
+    });
+
+    it("cell attributes survive ring-buffer rotation", () => {
+      const ATTR_ITALIC = 0x02;
+      const grid = new CellGrid(5, 3);
+      grid.setCell(1, 0, 0x58, 3, 5, ATTR_ITALIC); // 'X' in row 1
+
+      grid.rotateUp(1); // row 1 content moves to logical row 0
+
+      expect(grid.getCodepoint(0, 0)).toBe(0x58);
+      expect(grid.getFgIndex(0, 0)).toBe(3);
+      expect(grid.getBgIndex(0, 0)).toBe(5);
+      expect(grid.getAttrs(0, 0) & ATTR_ITALIC).toBe(ATTR_ITALIC);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Cursor state
+  // -------------------------------------------------------------------------
+
+  describe("setCursor / getCursor", () => {
+    it("round-trips row, col, visibility, and style", () => {
+      const grid = new CellGrid(80, 24);
+      grid.setCursor(5, 12, true, "bar");
+      const c = grid.getCursor();
+      expect(c.row).toBe(5);
+      expect(c.col).toBe(12);
+      expect(c.visible).toBe(true);
+      expect(c.style).toBe("bar");
+    });
+
+    it("handles all three cursor styles", () => {
+      const grid = new CellGrid(80, 24);
+      for (const style of ["block", "underline", "bar"] as const) {
+        grid.setCursor(0, 0, true, style);
+        expect(grid.getCursor().style).toBe(style);
+      }
+    });
+
+    it("hidden cursor", () => {
+      const grid = new CellGrid(80, 24);
+      grid.setCursor(0, 0, false, "block");
+      expect(grid.getCursor().visible).toBe(false);
+    });
+
+    it("unknown style falls back to block", () => {
+      const grid = new CellGrid(80, 24);
+      grid.setCursor(0, 0, true, "unknown-style");
+      expect(grid.getCursor().style).toBe("block");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // markDirtyRange
+  // -------------------------------------------------------------------------
+
+  describe("markDirtyRange", () => {
+    it("marks a contiguous range of rows dirty", () => {
+      const grid = new CellGrid(10, 5);
+      for (let r = 0; r < 5; r++) grid.clearDirty(r);
+
+      grid.markDirtyRange(1, 3);
+
+      expect(grid.isDirty(0)).toBe(false);
+      expect(grid.isDirty(1)).toBe(true);
+      expect(grid.isDirty(2)).toBe(true);
+      expect(grid.isDirty(3)).toBe(true);
+      expect(grid.isDirty(4)).toBe(false);
+    });
+
+    it("single-row range marks just that row", () => {
+      const grid = new CellGrid(10, 5);
+      for (let r = 0; r < 5; r++) grid.clearDirty(r);
+      grid.markDirtyRange(2, 2);
+      expect(grid.isDirty(2)).toBe(true);
+      expect(grid.isDirty(1)).toBe(false);
+      expect(grid.isDirty(3)).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Wide character flag
+  // -------------------------------------------------------------------------
+
+  describe("wide character flag", () => {
+    it("isWide returns false when wide bit is not set", () => {
+      const grid = new CellGrid(10, 5);
+      grid.setCell(0, 0, 0x41, 7, 0, 0);
+      expect(grid.isWide(0, 0)).toBe(false);
+    });
+
+    it("isWide returns true when ATTR_WIDE (0x80) is set in attrs", () => {
+      const ATTR_WIDE = 0x80;
+      const grid = new CellGrid(10, 5);
+      grid.setCell(0, 0, 0x4e2d, 7, 0, ATTR_WIDE); // U+4E2D '中'
+      expect(grid.isWide(0, 0)).toBe(true);
+    });
+
+    it("wide flag does not interfere with other attribute bits", () => {
+      const ATTR_BOLD = 0x01;
+      const ATTR_WIDE = 0x80;
+      const grid = new CellGrid(10, 5);
+      grid.setCell(0, 0, 0x4e2d, 7, 0, ATTR_BOLD | ATTR_WIDE);
+      expect(grid.isWide(0, 0)).toBe(true);
+      expect(grid.getAttrs(0, 0) & ATTR_BOLD).toBe(ATTR_BOLD);
+    });
+  });
 });
