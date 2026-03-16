@@ -372,4 +372,66 @@ describe("VTParser", () => {
       expect(bs.scrollback.length).toBeGreaterThan(0);
     });
   });
+
+  describe("OSC 52 clipboard", () => {
+    it("calls osc52 callback on clipboard write (BEL terminator)", () => {
+      let calledSelection = "";
+      let calledData: string | null = undefined as unknown as string | null;
+      parser.setOsc52Callback((selection, data) => {
+        calledSelection = selection;
+        calledData = data;
+      });
+      // Base64 of "hello" is "aGVsbG8="
+      write(parser, "\x1b]52;c;aGVsbG8=\x07");
+      expect(calledSelection).toBe("c");
+      expect(calledData).toBe("aGVsbG8=");
+    });
+
+    it("calls osc52 callback on clipboard write (ST terminator)", () => {
+      let calledData: string | null = null;
+      parser.setOsc52Callback((_sel, data) => {
+        calledData = data;
+      });
+      write(parser, "\x1b]52;c;aGVsbG8=\x1b\\");
+      expect(calledData).toBe("aGVsbG8=");
+    });
+
+    it("calls osc52 callback with null data for query (?) request", () => {
+      let calledSelection = "";
+      let calledData: string | null = "not-null";
+      parser.setOsc52Callback((selection, data) => {
+        calledSelection = selection;
+        calledData = data;
+      });
+      write(parser, "\x1b]52;c;?\x07");
+      expect(calledSelection).toBe("c");
+      expect(calledData).toBeNull();
+    });
+
+    it("passes through selection string (multiple chars)", () => {
+      let calledSelection = "";
+      parser.setOsc52Callback((selection) => {
+        calledSelection = selection;
+      });
+      write(parser, "\x1b]52;ps;dGVzdA==\x07");
+      expect(calledSelection).toBe("ps");
+    });
+
+    it("does not call osc52 callback when none registered", () => {
+      // Should not throw when no callback registered
+      expect(() => {
+        write(parser, "\x1b]52;c;aGVsbG8=\x07");
+      }).not.toThrow();
+    });
+
+    it("does not interfere with title after osc52 sequence", () => {
+      let title = "";
+      parser.setTitleChangeCallback((t) => {
+        title = t;
+      });
+      write(parser, "\x1b]52;c;aGVsbG8=\x07");
+      write(parser, "\x1b]0;MyTitle\x07");
+      expect(title).toBe("MyTitle");
+    });
+  });
 });
