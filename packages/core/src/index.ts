@@ -1,6 +1,14 @@
 export { Buffer, BufferSet } from "./buffer.js";
 export type { SelectionRange } from "./cell-grid.js";
-export { CELL_SIZE, CellGrid, extractText, modPositive, normalizeSelection } from "./cell-grid.js";
+export {
+  CELL_SIZE,
+  CellGrid,
+  DEFAULT_CELL_W0,
+  DEFAULT_CELL_W1,
+  extractText,
+  modPositive,
+  normalizeSelection,
+} from "./cell-grid.js";
 export type { GestureConfig } from "./gesture-handler.js";
 export { GestureHandler, GestureState } from "./gesture-handler.js";
 export type { MouseEncoding, MouseProtocol } from "./parser/index.js";

@@ -10,6 +10,11 @@ const SAB_AVAILABLE =
 
 export const CELL_SIZE = 2; // 2 x uint32 per cell
 
+/** Default blank cell word0: space (0x20) + default fg index 7. */
+export const DEFAULT_CELL_W0 = 0x20 | (7 << 23);
+/** Default blank cell word1: bg index 0, no attrs. */
+export const DEFAULT_CELL_W1 = 0;
+
 /** Safe modulo that always returns a non-negative result (JS % preserves sign). */
 export function modPositive(value: number, modulo: number): number {
   return ((value % modulo) + modulo) % modulo;
@@ -64,11 +69,11 @@ export class CellGrid {
       1,
     );
 
-    // Build a template row: each cell is a space (0x20) with default fg=7
+    // Build a template row: each cell is a space with default fg=7
     this._templateRow = new Uint32Array(cols * CELL_SIZE);
     for (let c = 0; c < cols; c++) {
-      this._templateRow[c * CELL_SIZE] = 0x20 | (7 << 23); // space + default fg=7
-      // [c * CELL_SIZE + 1] is already 0 (bg=0, no attrs)
+      this._templateRow[c * CELL_SIZE] = DEFAULT_CELL_W0;
+      // [c * CELL_SIZE + 1] is already DEFAULT_CELL_W1 (0)
     }
 
     this.clear();
@@ -76,7 +81,10 @@ export class CellGrid {
 
   /** Map logical row to physical row in the circular buffer. */
   physicalRow(row: number): number {
-    return modPositive(row + this.rowOffsetData[0], this.rows);
+    // row is in [0, rows) and rowOffsetData[0] is in [0, rows),
+    // so sum is in [0, 2*rows) — branch is cheaper than modulo.
+    const sum = row + this.rowOffsetData[0];
+    return sum >= this.rows ? sum - this.rows : sum;
   }
 
   /** Get the data array offset for the start of a logical row. */
@@ -86,12 +94,14 @@ export class CellGrid {
 
   /** Rotate the circular buffer up by n rows (for scroll-up). */
   rotateUp(n = 1): void {
-    this.rowOffsetData[0] = modPositive(this.rowOffsetData[0] + n, this.rows);
+    const v = this.rowOffsetData[0] + (n % this.rows);
+    this.rowOffsetData[0] = v >= this.rows ? v - this.rows : v;
   }
 
   /** Rotate the circular buffer down by n rows (for scroll-down). */
   rotateDown(n = 1): void {
-    this.rowOffsetData[0] = modPositive(this.rowOffsetData[0] - n, this.rows);
+    const v = this.rowOffsetData[0] - (n % this.rows);
+    this.rowOffsetData[0] = v < 0 ? v + this.rows : v;
   }
 
   getCodepoint(row: number, col: number): number {
@@ -172,8 +182,8 @@ export class CellGrid {
 
   /** Mark a contiguous range of rows [from..to] dirty. */
   markDirtyRange(from: number, to: number): void {
-    // Use fill for speed, then a single Atomics.store on the last row
-    // to act as a release fence ensuring all preceding writes are visible.
+    // fill() is not atomic, but the trailing Atomics.store acts as a release
+    // fence. Render workers that miss a flag will catch it on the next frame.
     this.dirtyRows.fill(1, from, to + 1);
     if (this.isShared) {
       Atomics.store(this.dirtyRows, to, 1);
@@ -234,6 +244,11 @@ export class CellGrid {
     const start = this.rowStart(row);
     this.data.set(this._templateRow, start);
     this.markDirty(row);
+  }
+
+  /** Fill a logical row with defaults without marking dirty (caller will batch-mark). */
+  clearRowRaw(row: number): void {
+    this.data.set(this._templateRow, this.rowStart(row));
   }
 
   // ---- Cursor in SAB -------------------------------------------------------
