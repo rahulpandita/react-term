@@ -62,7 +62,7 @@ export class Buffer {
     if (this.scrollTop === 0 && this.scrollBottom === this.rows - 1) {
       // Full-screen scroll: O(1) rotation instead of O(rows×cols) copy
       this.grid.rotateUp();
-      this.grid.clearRow(this.scrollBottom);
+      this.grid.clearRowRaw(this.scrollBottom);
       this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
     } else {
       // Partial scroll region: shift rows up using copyWithin on physical offsets
@@ -72,7 +72,7 @@ export class Buffer {
         const src = this.grid.rowStart(r + 1);
         this.grid.data.copyWithin(dst, src, src + rowSize);
       }
-      this.grid.clearRow(this.scrollBottom);
+      this.grid.clearRowRaw(this.scrollBottom);
       this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
     }
   }
@@ -84,7 +84,7 @@ export class Buffer {
     if (this.scrollTop === 0 && this.scrollBottom === this.rows - 1) {
       // Full-screen scroll: O(1) rotation
       this.grid.rotateDown();
-      this.grid.clearRow(this.scrollTop);
+      this.grid.clearRowRaw(this.scrollTop);
       this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
     } else {
       // Partial scroll region: shift rows down using copyWithin on physical offsets
@@ -94,7 +94,7 @@ export class Buffer {
         const src = this.grid.rowStart(r - 1);
         this.grid.data.copyWithin(dst, src, src + rowSize);
       }
-      this.grid.clearRow(this.scrollTop);
+      this.grid.clearRowRaw(this.scrollTop);
       this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
     }
   }
