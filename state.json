@@ -1,1 +1,1 @@
-{"issue":"find:[Feature Improver] Terminal Protocol","wip":"osc52-pr","done":["osc52"]}
+{"issue":26,"wip":{"f":"osc52","pr":27},"next":"osc4","done":["vt220-core","true-color","sgr-mouse"],"partial":["bracket-paste-enforce","sync-output"],"runs":[{"d":"2026-03-16","r1":"23153304073"},{"d":"2026-03-16","r2":"23155338945","t":"task4+task5"}]}
