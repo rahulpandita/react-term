@@ -1,1 +1,2 @@
-h:7812
+h:8244
+React terminal emulator. Features: off-main-thread VT parser, WebGL2, SAB, Canvas2D fallback, React Native/Skia, multi-pane, accessibility, addons. New: Daily Feature Improver workflow (OSC/DCS/Kitty, test-first, feature matrix in pinned issue).
