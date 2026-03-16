@@ -81,6 +81,10 @@ export class VTParser {
   // Title change callback
   private onTitleChange: ((title: string) => void) | null = null;
 
+  // OSC 52 clipboard callback: (selection: string, data: string | null) => void
+  // data is null for queries (?), base64 string for writes.
+  private onOsc52: ((selection: string, data: string | null) => void) | null = null;
+
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
   }
@@ -88,6 +92,14 @@ export class VTParser {
   /** Register a callback for title changes (OSC 0/1/2). */
   setTitleChangeCallback(cb: (title: string) => void): void {
     this.onTitleChange = cb;
+  }
+
+  /** Register a callback for OSC 52 clipboard sequences.
+   *  `selection` is the clipboard selection string (e.g. "c" for clipboard).
+   *  `data` is the base64-encoded payload, or null for a query request ("?").
+   */
+  setOsc52Callback(cb: (selection: string, data: string | null) => void): void {
+    this.onOsc52 = cb;
   }
 
   get cursor(): CursorState {
@@ -996,7 +1008,41 @@ export class VTParser {
           this.onTitleChange(data);
         }
         break;
-      // Other OSC codes (4, 7, 8, 10, 11, 12, 52, 104, 133) can be added later
+      case 52: // OSC 52 clipboard read/write
+        if (this.onOsc52) {
+          // Format: 52;<selection>;<base64-data> or 52;<selection>;?
+          // Find second semicolon after semiIdx
+          let semi2 = -1;
+          for (let i = semiIdx + 1; i < this.oscLength; i++) {
+            if (this.oscParts[i] === 0x3b) {
+              semi2 = i;
+              break;
+            }
+          }
+          if (semi2 === -1) break;
+          // Build selection string (bytes between first and second semicolons)
+          let selection = "";
+          for (let i = semiIdx + 1; i < semi2; i++) {
+            selection += String.fromCharCode(this.oscParts[i]);
+          }
+          // Build data string (bytes after second semicolon)
+          // A single "?" byte means query; otherwise it's base64 payload
+          const payloadLen = this.oscLength - semi2 - 1;
+          let osc52data: string | null = null;
+          if (payloadLen === 1 && this.oscParts[semi2 + 1] === 0x3f) {
+            // Query request
+            osc52data = null;
+          } else {
+            let payload = "";
+            for (let i = semi2 + 1; i < this.oscLength; i++) {
+              payload += String.fromCharCode(this.oscParts[i]);
+            }
+            osc52data = payload;
+          }
+          this.onOsc52(selection, osc52data);
+        }
+        break;
+      // Other OSC codes (4, 7, 8, 10, 11, 12, 104, 133) can be added later
     }
   }
 
