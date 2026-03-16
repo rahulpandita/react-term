@@ -434,4 +434,71 @@ describe("VTParser", () => {
       expect(title).toBe("MyTitle");
     });
   });
+
+  describe("OSC 4 color palette", () => {
+    it("calls osc4 callback for a single palette entry (BEL terminator)", () => {
+      const calls: Array<{ index: number; spec: string }> = [];
+      parser.setOsc4Callback((index, spec) => {
+        calls.push({ index, spec });
+      });
+      // Set color index 1 to red
+      write(parser, "\x1b]4;1;rgb:ff/00/00\x07");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].index).toBe(1);
+      expect(calls[0].spec).toBe("rgb:ff/00/00");
+    });
+
+    it("calls osc4 callback with ST terminator", () => {
+      let idx = -1;
+      let sp = "";
+      parser.setOsc4Callback((index, spec) => {
+        idx = index;
+        sp = spec;
+      });
+      write(parser, "\x1b]4;2;#00ff00\x1b\\");
+      expect(idx).toBe(2);
+      expect(sp).toBe("#00ff00");
+    });
+
+    it("calls osc4 callback with null spec for query (?)", () => {
+      let idx = -1;
+      let sp: string | null = "not-null";
+      parser.setOsc4Callback((index, spec) => {
+        idx = index;
+        sp = spec;
+      });
+      write(parser, "\x1b]4;5;?\x07");
+      expect(idx).toBe(5);
+      expect(sp).toBeNull();
+    });
+
+    it("handles multiple index;spec pairs in one OSC 4 sequence", () => {
+      const calls: Array<{ index: number; spec: string | null }> = [];
+      parser.setOsc4Callback((index, spec) => {
+        calls.push({ index, spec });
+      });
+      // Two pairs: index 3 → blue, index 7 → query
+      write(parser, "\x1b]4;3;rgb:00/00/ff;7;?\x07");
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toEqual({ index: 3, spec: "rgb:00/00/ff" });
+      expect(calls[1]).toEqual({ index: 7, spec: null });
+    });
+
+    it("does not call osc4 callback when none registered", () => {
+      expect(() => {
+        write(parser, "\x1b]4;1;rgb:ff/00/00\x07");
+      }).not.toThrow();
+    });
+
+    it("handles color index 0 and 255 (boundary values)", () => {
+      const calls: Array<{ index: number; spec: string | null }> = [];
+      parser.setOsc4Callback((index, spec) => {
+        calls.push({ index, spec });
+      });
+      write(parser, "\x1b]4;0;rgb:00/00/00\x07");
+      write(parser, "\x1b]4;255;rgb:ff/ff/ff\x07");
+      expect(calls[0].index).toBe(0);
+      expect(calls[1].index).toBe(255);
+    });
+  });
 });

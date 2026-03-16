@@ -85,6 +85,10 @@ export class VTParser {
   // data is null for queries (?), base64 string for writes.
   private onOsc52: ((selection: string, data: string | null) => void) | null = null;
 
+  // OSC 4 color palette callback: (index: number, spec: string | null) => void
+  // spec is null for queries (?), color string (e.g. "rgb:ff/00/00") for sets.
+  private onOsc4: ((index: number, spec: string | null) => void) | null = null;
+
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
   }
@@ -100,6 +104,15 @@ export class VTParser {
    */
   setOsc52Callback(cb: (selection: string, data: string | null) => void): void {
     this.onOsc52 = cb;
+  }
+
+  /** Register a callback for OSC 4 color palette sequences.
+   *  Called once per index;spec pair in the sequence.
+   *  `index` is the palette index (0-255).
+   *  `spec` is the color specification string (e.g. "rgb:ff/00/00"), or null for a query ("?").
+   */
+  setOsc4Callback(cb: (index: number, spec: string | null) => void): void {
+    this.onOsc4 = cb;
   }
 
   get cursor(): CursorState {
@@ -1008,6 +1021,51 @@ export class VTParser {
           this.onTitleChange(data);
         }
         break;
+      case 4: // OSC 4 — set/query color palette entries
+        // Format: 4;<index>;<spec>[;<index>;<spec>...] (pairs separated by ';')
+        // spec is a color string (e.g. "rgb:ff/00/00", "#rrggbb") or "?" for a query.
+        if (this.onOsc4) {
+          // Walk pairs starting at semiIdx+1
+          let pos = semiIdx + 1;
+          while (pos < this.oscLength) {
+            // Parse index (digits until ';')
+            let nextSemi = -1;
+            for (let i = pos; i < this.oscLength; i++) {
+              if (this.oscParts[i] === 0x3b) {
+                nextSemi = i;
+                break;
+              }
+            }
+            if (nextSemi === -1) break; // malformed: no spec separator
+            let colorIdx = 0;
+            for (let i = pos; i < nextSemi; i++) {
+              colorIdx = colorIdx * 10 + (this.oscParts[i] - 0x30);
+            }
+            // Find end of spec (next ';' or end of OSC)
+            let specEnd = this.oscLength;
+            for (let i = nextSemi + 1; i < this.oscLength; i++) {
+              if (this.oscParts[i] === 0x3b) {
+                specEnd = i;
+                break;
+              }
+            }
+            // Build spec string
+            const specLen = specEnd - nextSemi - 1;
+            let spec: string | null;
+            if (specLen === 1 && this.oscParts[nextSemi + 1] === 0x3f) {
+              spec = null; // query
+            } else {
+              let s = "";
+              for (let i = nextSemi + 1; i < specEnd; i++) {
+                s += String.fromCharCode(this.oscParts[i]);
+              }
+              spec = s;
+            }
+            this.onOsc4(colorIdx, spec);
+            pos = specEnd + 1; // advance past spec and trailing ';'
+          }
+        }
+        break;
       case 52: // OSC 52 clipboard read/write
         if (this.onOsc52) {
           // Format: 52;<selection>;<base64-data> or 52;<selection>;?
@@ -1042,7 +1100,7 @@ export class VTParser {
           this.onOsc52(selection, osc52data);
         }
         break;
-      // Other OSC codes (4, 7, 8, 10, 11, 12, 104, 133) can be added later
+      // Other OSC codes (7, 8, 10, 11, 12, 104, 133) can be added later
     }
   }
 
