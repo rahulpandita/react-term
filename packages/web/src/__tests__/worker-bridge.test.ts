@@ -1,5 +1,5 @@
 import type { CursorState } from "@react-term/core";
-import { CellGrid } from "@react-term/core";
+import { CELL_SIZE, CellGrid } from "@react-term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkerBridge } from "../worker-bridge.js";
 
@@ -322,6 +322,197 @@ describe("WorkerBridge", () => {
       expect(initCall?.[0]).toEqual(
         expect.objectContaining({ type: "init", cols: 100, rows: 50, scrollback: 5000 }),
       );
+    });
+  });
+
+  // ---- non-SAB applyFlush (cell-data transfer) ----------------------------
+
+  describe("non-SAB applyFlush", () => {
+    /**
+     * Build a small flush message carrying transferred cell and dirty-row data.
+     * `dirtyMask[r]` = 1 means logical row r is dirty.
+     */
+    function buildFlushMsg(
+      cols: number,
+      rows: number,
+      cellValues: Record<number, number>, // index → Uint32 value
+      dirtyMask: number[],
+      rowOffset = 0,
+    ) {
+      const cellData = new Uint32Array(cols * rows * CELL_SIZE);
+      for (const [idx, val] of Object.entries(cellValues)) {
+        cellData[Number(idx)] = val;
+      }
+      const dirtyRows = new Int32Array(rows);
+      for (let r = 0; r < rows; r++) dirtyRows[r] = dirtyMask[r] ?? 0;
+      return {
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 10,
+        cellData: cellData.buffer,
+        dirtyRows: dirtyRows.buffer,
+        rowOffset,
+      };
+    }
+
+    it("copies dirty rows from transferred cellData into the main-thread grid", () => {
+      const cols = 2,
+        rows = 2;
+      const testGrid = new CellGrid(cols, rows);
+      const testCursor = makeCursor();
+      const b = new WorkerBridge(testGrid, testCursor, vi.fn());
+      b.start(cols, rows, 100);
+
+      // Place codepoint 'A' (0x41) at physical (row=0, col=0).
+      // word 0 = codepoint | (fg << 23); word 1 = 0 (bg=0).
+      const msg = buildFlushMsg(cols, rows, { 0: 0x41 | (7 << 23) }, [1, 0]);
+      mockWorkerInstance.simulateMessage(msg);
+
+      expect(testGrid.getCodepoint(0, 0)).toBe(0x41);
+      b.dispose();
+    });
+
+    it("skips non-dirty rows — their content remains unchanged", () => {
+      const cols = 2,
+        rows = 2;
+      const testGrid = new CellGrid(cols, rows);
+      // Write 'Z' into logical row 1 before the flush.
+      testGrid.setCell(1, 0, 0x5a, 7, 0, 0); // 'Z'
+      testGrid.clearDirty(1);
+
+      const testCursor = makeCursor();
+      const b = new WorkerBridge(testGrid, testCursor, vi.fn());
+      b.start(cols, rows, 100);
+
+      // Send a message where only row 0 is dirty; the cellData for row 1 is
+      // all-zeroes (would overwrite 'Z' if incorrectly applied).
+      const msg = buildFlushMsg(cols, rows, { 0: 0x42 | (7 << 23) }, [1, 0]);
+      mockWorkerInstance.simulateMessage(msg);
+
+      // Row 0 updated ('B').
+      expect(testGrid.getCodepoint(0, 0)).toBe(0x42);
+      // Row 1 untouched ('Z' still there).
+      expect(testGrid.getCodepoint(1, 0)).toBe(0x5a);
+      b.dispose();
+    });
+
+    it("marks only the flushed dirty rows as dirty on the grid", () => {
+      const cols = 2,
+        rows = 2;
+      const testGrid = new CellGrid(cols, rows);
+      testGrid.clearDirty(0);
+      testGrid.clearDirty(1);
+
+      const b = new WorkerBridge(testGrid, makeCursor(), vi.fn());
+      b.start(cols, rows, 100);
+
+      const msg = buildFlushMsg(cols, rows, {}, [1, 0]); // only row 0 dirty
+      mockWorkerInstance.simulateMessage(msg);
+
+      expect(testGrid.isDirty(0)).toBe(true);
+      expect(testGrid.isDirty(1)).toBe(false);
+      b.dispose();
+    });
+
+    it("syncs rowOffset to the grid's rowOffsetData", () => {
+      const cols = 2,
+        rows = 2;
+      const testGrid = new CellGrid(cols, rows);
+      const b = new WorkerBridge(testGrid, makeCursor(), vi.fn());
+      b.start(cols, rows, 100);
+
+      const msg = buildFlushMsg(cols, rows, {}, [0, 0], /* rowOffset= */ 1);
+      mockWorkerInstance.simulateMessage(msg);
+
+      expect(testGrid.rowOffsetData[0]).toBe(1);
+      b.dispose();
+    });
+
+    it("updates cursor fields from the flush message", () => {
+      const cols = 2,
+        rows = 2;
+      const testGrid = new CellGrid(cols, rows);
+      const testCursor = makeCursor();
+      const b = new WorkerBridge(testGrid, testCursor, vi.fn());
+      b.start(cols, rows, 100);
+
+      const cellData = new Uint32Array(cols * rows * CELL_SIZE);
+      const dirtyRows = new Int32Array(rows);
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 5, col: 12, visible: false, style: "bar" },
+        isAlternate: true,
+        bytesProcessed: 3,
+        cellData: cellData.buffer,
+        dirtyRows: dirtyRows.buffer,
+        rowOffset: 0,
+      });
+
+      expect(testCursor.row).toBe(5);
+      expect(testCursor.col).toBe(12);
+      expect(testCursor.visible).toBe(false);
+      expect(testCursor.style).toBe("bar");
+      b.dispose();
+    });
+  });
+
+  // ---- updateGrid ---------------------------------------------------------
+
+  describe("updateGrid", () => {
+    it("flush after updateGrid updates the new grid, not the old one", () => {
+      const cols = 2,
+        rows = 2;
+      const oldGrid = new CellGrid(cols, rows);
+      const newGrid = new CellGrid(cols, rows);
+      const testCursor = makeCursor();
+      const b = new WorkerBridge(oldGrid, testCursor, vi.fn());
+      b.start(cols, rows, 100);
+
+      b.updateGrid(newGrid, testCursor);
+
+      const cellData = new Uint32Array(cols * rows * CELL_SIZE);
+      cellData[0] = 0x43 | (7 << 23); // 'C' at row 0, col 0
+      const dirtyRows = new Int32Array(rows);
+      dirtyRows[0] = 1;
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 0,
+        cellData: cellData.buffer,
+        dirtyRows: dirtyRows.buffer,
+        rowOffset: 0,
+      });
+
+      // New grid receives the data.
+      expect(newGrid.getCodepoint(0, 0)).toBe(0x43);
+      // Old grid unchanged — still holds space (0x20).
+      expect(oldGrid.getCodepoint(0, 0)).toBe(0x20);
+      b.dispose();
+    });
+  });
+
+  // ---- Guard conditions ---------------------------------------------------
+
+  describe("guard conditions", () => {
+    it("write after dispose is a no-op and does not throw", () => {
+      bridge.start(80, 24, 1000);
+      bridge.dispose();
+      expect(() => bridge.write(new Uint8Array([0x41]))).not.toThrow();
+    });
+
+    it("resize after dispose is a no-op and does not throw", () => {
+      bridge.start(80, 24, 1000);
+      bridge.dispose();
+      expect(() => bridge.resize(100, 40, 2000)).not.toThrow();
+    });
+
+    it("start after dispose is a no-op and does not throw", () => {
+      bridge.start(80, 24, 1000);
+      bridge.dispose();
+      expect(() => bridge.start(80, 24, 1000)).not.toThrow();
     });
   });
 });
