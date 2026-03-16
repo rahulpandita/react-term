@@ -1,5 +1,5 @@
 import type { BufferSet } from "../buffer.js";
-import { CELL_SIZE } from "../cell-grid.js";
+import { CELL_SIZE, DEFAULT_CELL_W0, DEFAULT_CELL_W1 } from "../cell-grid.js";
 import type { CursorState } from "../types.js";
 import { Action, State, TABLE } from "./states.js";
 
@@ -606,7 +606,7 @@ export class VTParser {
         this.bufferSet.pushScrollback(grid.copyRow(0));
       }
       grid.rotateUp();
-      grid.clearRow(buf.scrollBottom);
+      grid.clearRowRaw(buf.scrollBottom);
       grid.markDirtyRange(buf.scrollTop, buf.scrollBottom);
     } else {
       this.bufferSet.scrollUpWithHistory();
@@ -750,7 +750,8 @@ export class VTParser {
         break;
       case 0x62: // 'b' - REP - Repeat Preceding Character
         if (this.lastPrintedCodepoint > 0) {
-          const count = p0 || 1;
+          // Clamp to one full screen to prevent DoS from large repeat counts
+          const count = Math.min(p0 || 1, this.cols * this.rows);
           for (let i = 0; i < count; i++) {
             this.printCodepoint(this.lastPrintedCodepoint);
           }
@@ -1194,24 +1195,32 @@ export class VTParser {
 
   private eraseInDisplay(mode: number): void {
     const cursor = this.buf.cursor;
+    const grid = this.grid;
     switch (mode) {
       case 0: // from cursor to end
         this.eraseCells(cursor.row, cursor.col, cursor.row, this.cols - 1);
         for (let r = cursor.row + 1; r < this.rows; r++) {
-          this.grid.clearRow(r);
+          grid.clearRowRaw(r);
+        }
+        if (cursor.row + 1 < this.rows) {
+          grid.markDirtyRange(cursor.row + 1, this.rows - 1);
         }
         break;
       case 1: // from beginning to cursor
         for (let r = 0; r < cursor.row; r++) {
-          this.grid.clearRow(r);
+          grid.clearRowRaw(r);
+        }
+        if (cursor.row > 0) {
+          grid.markDirtyRange(0, cursor.row - 1);
         }
         this.eraseCells(cursor.row, 0, cursor.row, cursor.col);
         break;
       case 2: // entire display
       case 3: // entire display + scrollback
         for (let r = 0; r < this.rows; r++) {
-          this.grid.clearRow(r);
+          grid.clearRowRaw(r);
         }
+        grid.markDirtyRange(0, this.rows - 1);
         break;
     }
   }
@@ -1232,16 +1241,30 @@ export class VTParser {
   }
 
   private eraseCells(row: number, startCol: number, _endRow: number, endCol: number): void {
-    for (let c = startCol; c <= endCol && c < this.cols; c++) {
-      this.grid.setCell(row, c, 0x20, 7, 0, 0);
+    // Inline cell writes to avoid per-cell setCell + markDirty overhead
+    const grid = this.grid;
+    const rowBase = grid.rowStart(row);
+    const start = Math.max(startCol, 0);
+    const end = Math.min(endCol, this.cols - 1);
+    for (let c = start; c <= end; c++) {
+      const idx = rowBase + c * CELL_SIZE;
+      grid.data[idx] = DEFAULT_CELL_W0;
+      grid.data[idx + 1] = DEFAULT_CELL_W1;
     }
+    grid.markDirty(row);
   }
 
   private eraseChars(n: number): void {
     const cursor = this.buf.cursor;
-    for (let i = 0; i < n && cursor.col + i < this.cols; i++) {
-      this.grid.setCell(cursor.row, cursor.col + i, 0x20, 7, 0, 0);
+    const grid = this.grid;
+    const rowBase = grid.rowStart(cursor.row);
+    const end = Math.min(cursor.col + n, this.cols);
+    for (let c = cursor.col; c < end; c++) {
+      const idx = rowBase + c * CELL_SIZE;
+      grid.data[idx] = DEFAULT_CELL_W0;
+      grid.data[idx + 1] = DEFAULT_CELL_W1;
     }
+    grid.markDirty(cursor.row);
   }
 
   // ---- Insert / Delete ----
@@ -1249,23 +1272,41 @@ export class VTParser {
   private insertLines(n: number): void {
     const cursor = this.buf.cursor;
     if (cursor.row < this.buf.scrollTop || cursor.row > this.buf.scrollBottom) return;
-    for (let i = 0; i < n; i++) {
-      for (let r = this.buf.scrollBottom; r > cursor.row; r--) {
-        this.grid.pasteRow(r, this.grid.copyRow(r - 1));
-      }
-      this.grid.clearRow(cursor.row);
+    const grid = this.grid;
+    const rowSize = this.cols * CELL_SIZE;
+    // Clamp n to available rows and shift in a single O(H) pass
+    n = Math.min(n, this.buf.scrollBottom - cursor.row + 1);
+    // Shift rows down by n: copy each row to its final position in one pass
+    for (let r = this.buf.scrollBottom; r >= cursor.row + n; r--) {
+      const src = grid.rowStart(r - n);
+      const dst = grid.rowStart(r);
+      grid.data.copyWithin(dst, src, src + rowSize);
     }
+    // Clear the n inserted rows
+    for (let r = cursor.row; r < cursor.row + n; r++) {
+      grid.clearRowRaw(r);
+    }
+    grid.markDirtyRange(cursor.row, this.buf.scrollBottom);
   }
 
   private deleteLines(n: number): void {
     const cursor = this.buf.cursor;
     if (cursor.row < this.buf.scrollTop || cursor.row > this.buf.scrollBottom) return;
-    for (let i = 0; i < n; i++) {
-      for (let r = cursor.row; r < this.buf.scrollBottom; r++) {
-        this.grid.pasteRow(r, this.grid.copyRow(r + 1));
-      }
-      this.grid.clearRow(this.buf.scrollBottom);
+    const grid = this.grid;
+    const rowSize = this.cols * CELL_SIZE;
+    // Clamp n to available rows and shift in a single O(H) pass
+    n = Math.min(n, this.buf.scrollBottom - cursor.row + 1);
+    // Shift rows up by n: copy each row to its final position in one pass
+    for (let r = cursor.row; r <= this.buf.scrollBottom - n; r++) {
+      const src = grid.rowStart(r + n);
+      const dst = grid.rowStart(r);
+      grid.data.copyWithin(dst, src, src + rowSize);
     }
+    // Clear the n vacated rows at the bottom
+    for (let r = this.buf.scrollBottom - n + 1; r <= this.buf.scrollBottom; r++) {
+      grid.clearRowRaw(r);
+    }
+    grid.markDirtyRange(cursor.row, this.buf.scrollBottom);
   }
 
   private insertChars(n: number): void {
