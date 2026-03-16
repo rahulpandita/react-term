@@ -165,6 +165,7 @@ This repository uses several automated workflows powered by GitHub Copilot's age
 - **Daily Documentation Updater** (`.github/workflows/daily-doc-updater.md`) — runs every 24 hours, scans merged pull requests and commits, identifies user-facing changes, and automatically opens a draft PR to keep documentation up to date.
 - **Agentic Wiki Writer** (`.github/workflows/agentic-wiki-writer.md`) — generates GitHub wiki pages from source code using the template defined in `.github/agentic-wiki/PAGES.md`. Triggered on PR merge or manually via workflow dispatch.
 - **Daily Test Improver** (`.github/workflows/daily-test-improver.md`) — runs daily to improve test quality and coverage. Discovers untested code paths and opens draft PRs with new unit tests. Can also be triggered on-demand via a `/test-assist <instructions>` comment.
+- **Daily Feature Improver** (`.github/workflows/daily-feature-improver.md`) — runs daily to incrementally implement modern terminal protocol features (OSC sequences, DCS, Kitty keyboard protocol, etc.) using a test-first approach. Maintains a feature support matrix in a pinned GitHub Issue and selects the next feature based on a dependency graph. Can also be triggered on-demand via a `/feature-assist <instructions>` comment.
 
 ## Design Decisions
 
