@@ -24,6 +24,7 @@ network:
   allowed:
   - defaults
   - node
+  - github
 
 safe-outputs:
   add-comment:
