@@ -54,7 +54,7 @@ describe("VTParser — cursor & editing commands", () => {
       write(parser, "\x1b[23;10H"); // near bottom (row 23, 1-based = row 22, 0-based)
       write(parser, "\x1b[5E"); // CNL 5 — should clamp at row 23 (0-based)
       expect(cursor(bs).col).toBe(0);
-      expect(cursor(bs).row).toBeLessThanOrEqual(23);
+      expect(cursor(bs).row).toBe(23);
     });
   });
 
@@ -415,18 +415,19 @@ describe("VTParser — cursor & editing commands", () => {
     it("clamps repeat count to cols*rows to prevent DoS", () => {
       write(parser, "\x1b[1;1H");
       write(parser, "X");
-      // The clamp is to cols*rows = 80*24 = 1920; 9999999 should not hang
+      // cols*rows = 80*24 = 1920; the large value is clamped to 1920 repetitions
+      // 1 (original) + 1920 (repeated) = 1921 chars fills all 24 rows and triggers one scroll
       write(parser, "\x1b[9999999b");
-      // Just verify it completed and wrote something without error
-      const line = readLineTrimmed(bs, 0);
-      expect(line.length).toBeGreaterThan(0);
+      // The last row must contain X's — only possible if at least 80*23=1840 chars were written,
+      // which confirms the clamp allowed the full cols*rows repetitions (not a trivially-small fallback)
+      expect(readLineTrimmed(bs, 23)).not.toBe("");
     });
 
     it("repeats the last printed codepoint, not a previous one", () => {
       write(parser, "\x1b[1;1H");
-      write(parser, "AB"); // last printed = 'B'
-      write(parser, "\x1b[3b"); // REP 3 — BBB
-      expect(readLineTrimmed(bs, 0).slice(0, 5)).toBe("ABBBB"); // wait, A is col0, B is col1, then BBB
+      write(parser, "AB"); // A at col 0, B at col 1; last printed = 'B', cursor now at col 2
+      write(parser, "\x1b[3b"); // REP 3 — writes B at cols 2, 3, 4
+      expect(readLineTrimmed(bs, 0).slice(0, 5)).toBe("ABBBB");
     });
   });
 
@@ -444,12 +445,16 @@ describe("VTParser — cursor & editing commands", () => {
     it("scrolls up when cursor is at scroll bottom", () => {
       write(parser, "\x1b[H");
       write(parser, "ScrollMe");
+      write(parser, "\x1b[2;1H"); // row 1, write a marker to confirm scroll direction
+      write(parser, "RowTwo");
       // Move to last row
       write(parser, "\x1b[24;1H"); // row 23 (0-based), scroll bottom
-      write(parser, "\x1bD"); // IND — should scroll
-      // ScrollMe should now be on row -1 (scrolled into history) or row 22 shifted
-      // The key thing is cursor stays at bottom
+      write(parser, "\x1bD"); // IND — should scroll up, pushing row 0 into scrollback
+      // Cursor stays at the scroll bottom after the scroll
       expect(cursor(bs).row).toBe(23);
+      // "ScrollMe" was on row 0 — after one scroll-up it moves to scrollback (or off screen)
+      // "RowTwo" was on row 1 — after scroll-up it should now be on row 0
+      expect(readLineTrimmed(bs, 0)).toBe("RowTwo");
     });
   });
 
