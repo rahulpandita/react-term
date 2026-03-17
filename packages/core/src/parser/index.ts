@@ -89,6 +89,9 @@ export class VTParser {
   // spec is null for queries (?), color string (e.g. "rgb:ff/00/00") for sets.
   private onOsc4: ((index: number, spec: string | null) => void) | null = null;
 
+  // OSC 7 current working directory callback: (uri: string) => void
+  private onOsc7: ((uri: string) => void) | null = null;
+
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
   }
@@ -113,6 +116,13 @@ export class VTParser {
    */
   setOsc4Callback(cb: (index: number, spec: string | null) => void): void {
     this.onOsc4 = cb;
+  }
+
+  /** Register a callback for OSC 7 current working directory sequences.
+   *  Called with the URI payload (e.g. "file:///hostname/path").
+   */
+  setOsc7Callback(cb: (uri: string) => void): void {
+    this.onOsc7 = cb;
   }
 
   get cursor(): CursorState {
@@ -1067,6 +1077,15 @@ export class VTParser {
           }
         }
         break;
+      case 7: // OSC 7 — current working directory (URI after semicolon)
+        if (this.onOsc7) {
+          let uri = "";
+          for (let i = semiIdx + 1; i < this.oscLength; i++) {
+            uri += String.fromCharCode(this.oscParts[i]);
+          }
+          this.onOsc7(uri);
+        }
+        break;
       case 52: // OSC 52 clipboard read/write
         if (this.onOsc52) {
           // Format: 52;<selection>;<base64-data> or 52;<selection>;?
@@ -1101,7 +1120,7 @@ export class VTParser {
           this.onOsc52(selection, osc52data);
         }
         break;
-      // Other OSC codes (7, 8, 10, 11, 12, 104, 133) can be added later
+      // Other OSC codes (8, 10, 11, 12, 104, 133) can be added later
     }
   }
 
