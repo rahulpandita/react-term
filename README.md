@@ -12,7 +12,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **Multi-pane** — single shared WebGL context (bypasses Chrome's 16-context limit)
 - **Accessibility** — parallel DOM with ARIA attributes, screen reader support
 - **Addons** — search (regex), web links, fit
-- **Full VT100/ANSI** — SGR (16/256/RGB colors, bold, italic, underline, inverse), cursor control, scroll regions, alternate buffer
+- **Full VT100/ANSI** — SGR (16/256/RGB colors, bold, italic, underline, inverse), cursor control (CUU/CUD/CUF/CUB/CNL/CPL/CHA/CHT/CBT/VPA/VPR/HPA/HPR), line/char editing (IL/DL/ICH/DCH/ECH), buffer scroll (SU/SD), character repeat (REP), ESC sequences (IND/NEL/RI/HTS/RIS), scroll regions, alternate buffer
 - **OSC 52** — clipboard read/write via `setOsc52Callback`
 - **OSC 4** — terminal color palette set/query via `setOsc4Callback`
 
@@ -40,11 +40,11 @@ function App() {
 
 | Package | Description | Source | Tests | Total |
 |---------|------------|-------:|------:|------:|
-| `@react-term/core` | Cell grid, VT parser, buffer management | 2.1K | 4.9K | 7.1K |
-| `@react-term/web` | Canvas 2D, WebGL2, workers, addons | 6.7K | 2.4K | 9.1K |
-| `@react-term/react` | React component, multi-pane layout | 445 | 8 | 453 |
-| `@react-term/native` | React Native, gesture/keyboard, Skia | 979 | 872 | 1.9K |
-| **Total** | | **10.2K** | **8.2K+** | **18.5K+** |
+| `@react-term/core` | Cell grid, VT parser, buffer management | 2.7K | 6.7K | 9.4K |
+| `@react-term/web` | Canvas 2D, WebGL2, workers, addons | 6.8K | 2.9K | 9.7K |
+| `@react-term/react` | React component, multi-pane layout | 451 | 106 | 557 |
+| `@react-term/native` | React Native, gesture/keyboard, Skia | 1.0K | 944 | 2.0K |
+| **Total** | | **11.0K** | **10.7K** | **21.7K** |
 
 ## Architecture
 
