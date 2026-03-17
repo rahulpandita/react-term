@@ -13,6 +13,8 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **Accessibility** — parallel DOM with ARIA attributes, screen reader support
 - **Addons** — search (regex), web links, fit
 - **Full VT100/ANSI** — SGR (16/256/RGB colors, bold, italic, underline, inverse), cursor control, scroll regions, alternate buffer
+- **OSC 52** — clipboard read/write via `setOsc52Callback`
+- **OSC 4** — terminal color palette set/query via `setOsc4Callback`
 
 ## Quick Start
 
@@ -128,6 +130,45 @@ const ids = collectPaneIds(layout);
 // => ['left', 'top-right', 'bottom-right']
 ```
 
+## VTParser Callbacks
+
+`VTParser` (from `@react-term/core`) exposes hooks for terminal protocol extensions:
+
+### OSC 52 — Clipboard
+
+```ts
+import { VTParser } from '@react-term/core';
+
+const parser = new VTParser();
+
+parser.setOsc52Callback((selection: string, data: string | null) => {
+  if (data === null) {
+    // Query: respond with current clipboard contents (base64-encoded)
+  } else {
+    // Write: decode base64 `data` and write to clipboard for `selection`
+    const text = atob(data);
+    navigator.clipboard.writeText(text);
+  }
+});
+```
+
+`selection` is the clipboard target (e.g. `'c'` for system clipboard, `'p'` for primary). `data` is the raw base64 payload, or `null` for a query.
+
+### OSC 4 — Color Palette
+
+```ts
+parser.setOsc4Callback((index: number, spec: string | null) => {
+  if (spec === null) {
+    // Query: respond with the current color for palette index `index`
+  } else {
+    // Set: apply color `spec` (e.g. 'rgb:ff/00/00', '#ff0000') at palette index
+    updatePaletteColor(index, spec);
+  }
+});
+```
+
+Supports multiple `index;spec` pairs in a single OSC 4 sequence (per the OSC 4 specification). Palette indices range from 0–255.
+
 ## Development
 
 ```bash
@@ -157,6 +198,8 @@ Two benchmark packages measure parser and end-to-end rendering throughput:
 - **`@react-term/e2e-bench`** — end-to-end Playwright benchmarks that drive a Vite dev server and compare react-term against xterm.js across multiple scenarios. Results are written as JSON to `packages/e2e-bench/results/`. Run with `pnpm --filter @react-term/e2e-bench bench`.
 
 A **benchmark CI workflow** (`.github/workflows/benchmark.yml`) runs both suites in parallel and posts a throughput summary table to the GitHub Actions run page.
+
+Recent profiling-driven optimizations (PR [#29](https://github.com/rahulpandita/react-term/pull/29)) produced measurable gains: **vte-medium-cells +43 %**, **csi-params +20 %**, **unicode +31 %**. Key changes: `clearRowRaw()` for batched dirty marking, O(H) zero-alloc `copyWithin` for `insertLines`/`deleteLines`, inlined erase cell writes, and CSI REP clamping.
 
 ### Agentic Workflows
 
