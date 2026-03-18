@@ -92,6 +92,16 @@ export class VTParser {
   // OSC 7 current working directory callback: (uri: string) => void
   private onOsc7: ((uri: string) => void) | null = null;
 
+  // OSC 10 foreground color callback: (spec: string | null) => void
+  // spec is null for queries (?), color string for sets.
+  private onOsc10: ((spec: string | null) => void) | null = null;
+
+  // OSC 11 background color callback: (spec: string | null) => void
+  private onOsc11: ((spec: string | null) => void) | null = null;
+
+  // OSC 12 cursor color callback: (spec: string | null) => void
+  private onOsc12: ((spec: string | null) => void) | null = null;
+
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
   }
@@ -123,6 +133,27 @@ export class VTParser {
    */
   setOsc7Callback(cb: (uri: string) => void): void {
     this.onOsc7 = cb;
+  }
+
+  /** Register a callback for OSC 10 foreground color sequences.
+   *  `spec` is the color specification string (e.g. "rgb:ffff/ffff/ffff"), or null for a query ("?").
+   */
+  setOsc10Callback(cb: (spec: string | null) => void): void {
+    this.onOsc10 = cb;
+  }
+
+  /** Register a callback for OSC 11 background color sequences.
+   *  `spec` is the color specification string (e.g. "rgb:0000/0000/0000"), or null for a query ("?").
+   */
+  setOsc11Callback(cb: (spec: string | null) => void): void {
+    this.onOsc11 = cb;
+  }
+
+  /** Register a callback for OSC 12 cursor color sequences.
+   *  `spec` is the color specification string, or null for a query ("?").
+   */
+  setOsc12Callback(cb: (spec: string | null) => void): void {
+    this.onOsc12 = cb;
   }
 
   get cursor(): CursorState {
@@ -1120,7 +1151,30 @@ export class VTParser {
           this.onOsc52(selection, osc52data);
         }
         break;
-      // Other OSC codes (8, 10, 11, 12, 104, 133) can be added later
+      case 10: // OSC 10 — foreground color query/set
+      case 11: // OSC 11 — background color query/set
+      case 12: {
+        // OSC 12 — cursor color query/set
+        // Format: 10;<spec> or 10;? (query)
+        const cb = code === 10 ? this.onOsc10 : code === 11 ? this.onOsc11 : this.onOsc12;
+        if (cb) {
+          const payloadStart = semiIdx + 1;
+          const payloadLen = this.oscLength - payloadStart;
+          let dynSpec: string | null;
+          if (payloadLen === 1 && this.oscParts[payloadStart] === 0x3f) {
+            dynSpec = null; // query
+          } else {
+            let s = "";
+            for (let i = payloadStart; i < this.oscLength; i++) {
+              s += String.fromCharCode(this.oscParts[i]);
+            }
+            dynSpec = s;
+          }
+          cb(dynSpec);
+        }
+        break;
+      }
+      // Other OSC codes (8, 104, 133) can be added later
     }
   }
 
