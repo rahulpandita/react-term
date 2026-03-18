@@ -501,4 +501,55 @@ describe("VTParser", () => {
       expect(calls[1].index).toBe(255);
     });
   });
+
+  describe("OSC 7 current working directory", () => {
+    it("calls osc7 callback with URI (BEL terminator)", () => {
+      let cwd = "";
+      parser.setOsc7Callback((uri) => {
+        cwd = uri;
+      });
+      write(parser, "\x1b]7;file:///hostname/home/user/project\x07");
+      expect(cwd).toBe("file:///hostname/home/user/project");
+    });
+
+    it("calls osc7 callback with ST terminator", () => {
+      let cwd = "";
+      parser.setOsc7Callback((uri) => {
+        cwd = uri;
+      });
+      write(parser, "\x1b]7;file:///localhost/tmp\x1b\\");
+      expect(cwd).toBe("file:///localhost/tmp");
+    });
+
+    it("calls osc7 callback with empty URI", () => {
+      let called = false;
+      parser.setOsc7Callback((uri) => {
+        called = true;
+        expect(uri).toBe("");
+      });
+      write(parser, "\x1b]7;\x07");
+      expect(called).toBe(true);
+    });
+
+    it("does not call osc7 callback when none registered", () => {
+      expect(() => {
+        write(parser, "\x1b]7;file:///some/path\x07");
+      }).not.toThrow();
+    });
+
+    it("does not interfere with title callback (OSC 2)", () => {
+      let title = "";
+      let cwd = "";
+      parser.setTitleChangeCallback((t) => {
+        title = t;
+      });
+      parser.setOsc7Callback((uri) => {
+        cwd = uri;
+      });
+      write(parser, "\x1b]2;MyTitle\x07");
+      write(parser, "\x1b]7;file:///home/user\x07");
+      expect(title).toBe("MyTitle");
+      expect(cwd).toBe("file:///home/user");
+    });
+  });
 });
