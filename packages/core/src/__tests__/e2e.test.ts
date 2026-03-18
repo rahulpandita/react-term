@@ -1,23 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-
-const enc = new TextEncoder();
-
-function write(parser: VTParser, str: string): void {
-  parser.write(enc.encode(str));
-}
-
-function readLineTrimmed(bs: BufferSet, row: number): string {
-  const grid = bs.active.grid;
-  let end = grid.cols - 1;
-  while (end >= 0 && grid.getCodepoint(row, end) === 0x20) end--;
-  let result = "";
-  for (let c = 0; c <= end; c++) {
-    result += String.fromCodePoint(grid.getCodepoint(row, c));
-  }
-  return result;
-}
+import { enc, readLineTrimmed, write } from "./helpers.js";
 
 describe("E2E Full Pipeline Tests", () => {
   let bs: BufferSet;
@@ -246,10 +230,27 @@ describe("E2E Full Pipeline Tests", () => {
       }
       write(parser, data);
 
-      // Parser should be in consistent state
-      expect(parser.cursor.row).toBeLessThanOrEqual(23);
-      expect(parser.cursor.col).toBeLessThan(80);
-      // No crash occurred - test passes
+      // 16598 iterations produce 16598 visible chars across 80-col rows.
+      // Row 207 (screen row 23) receives 38 chars (cols 0-37); cursor lands at col 38.
+      expect(parser.cursor.row).toBe(23);
+      expect(parser.cursor.col).toBe(38);
+
+      // Verify exact codepoints and colors on the last visible row.
+      // i=16560 → col 0: char 'Y' (16560%26=24→0x59), color SGR 36 (fg 6)
+      // i=16561 → col 1: char 'Z' (25→0x5a), color SGR 37 (fg 7)
+      // i=16562 → col 2: char 'A' (0→0x41), color SGR 31 (fg 1)
+      // i=16597 → col 37 (last written): char 'J' (9→0x4a), color SGR 31 (fg 1)
+      const grid = bs.active.grid;
+      expect(grid.getCodepoint(23, 0)).toBe(0x59); // 'Y'
+      expect(grid.getFgIndex(23, 0)).toBe(6);
+      expect(grid.getCodepoint(23, 1)).toBe(0x5a); // 'Z'
+      expect(grid.getFgIndex(23, 1)).toBe(7);
+      expect(grid.getCodepoint(23, 2)).toBe(0x41); // 'A'
+      expect(grid.getFgIndex(23, 2)).toBe(1);
+      expect(grid.getCodepoint(23, 37)).toBe(0x4a); // 'J'
+      expect(grid.getFgIndex(23, 37)).toBe(1);
+      // Columns past the last written char should be blank spaces.
+      expect(grid.getCodepoint(23, 38)).toBe(0x20);
     });
 
     it("handles rapid alternation between text and escape sequences", () => {
@@ -260,8 +261,23 @@ describe("E2E Full Pipeline Tests", () => {
         data += "\x1b[0m"; // reset
       }
       write(parser, data);
-      // Should complete without crash
-      expect(parser.cursor.row).toBeLessThanOrEqual(23);
+
+      // 1000 X chars in 80-col terminal → 12 full rows + 40 chars on row 12.
+      expect(parser.cursor.row).toBe(12);
+      expect(parser.cursor.col).toBe(40);
+
+      // Every written cell contains 'X' (0x58).
+      const grid = bs.active.grid;
+      expect(grid.getCodepoint(0, 0)).toBe(0x58); // first 'X'
+      expect(grid.getCodepoint(12, 39)).toBe(0x58); // last 'X'
+
+      // SGR attributes were applied before each X then reset after:
+      // i=0 → SGR 1 (bold, 0x01), i=2 → SGR 3 (italic, 0x02),
+      // i=3 → SGR 4 (underline, 0x04), i=6 → SGR 7 (inverse, 0x40)
+      expect(grid.getAttrs(0, 0) & 0x01).toBe(0x01); // bold
+      expect(grid.getAttrs(0, 2) & 0x02).toBe(0x02); // italic
+      expect(grid.getAttrs(0, 3) & 0x04).toBe(0x04); // underline
+      expect(grid.getAttrs(0, 6) & 0x40).toBe(0x40); // inverse
     });
   });
 

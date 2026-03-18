@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-
-/** Helper: encode a string as Uint8Array and feed it to the parser. */
-function write(parser: VTParser, text: string): void {
-  parser.write(new TextEncoder().encode(text));
-}
+import { write } from "./helpers.js";
 
 /** Create a fresh 80x24 BufferSet + VTParser pair. */
 function setup(cols = 80, rows = 24) {
