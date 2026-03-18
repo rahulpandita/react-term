@@ -1,28 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-
-const enc = new TextEncoder();
-
-function write(parser: VTParser, str: string): void {
-  parser.write(enc.encode(str));
-}
-
-function readLineTrimmed(bs: BufferSet, row: number): string {
-  const grid = bs.active.grid;
-  let end = grid.cols - 1;
-  while (end >= 0 && grid.getCodepoint(row, end) === 0x20) end--;
-  let result = "";
-  for (let c = 0; c <= end; c++) {
-    result += String.fromCodePoint(grid.getCodepoint(row, c));
-  }
-  return result;
-}
-
-function cursor(bs: BufferSet): { row: number; col: number } {
-  const c = bs.active.cursor;
-  return { row: c.row, col: c.col };
-}
+import { cursor, readLineTrimmed, write } from "./helpers.js";
 
 describe("VTParser — cursor & editing commands", () => {
   let bs: BufferSet;

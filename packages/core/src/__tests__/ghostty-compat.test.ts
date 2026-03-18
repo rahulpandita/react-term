@@ -14,32 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-
-const enc = new TextEncoder();
-
-function write(parser: VTParser, str: string): void {
-  parser.write(enc.encode(str));
-}
-
-function readLineTrimmed(bs: BufferSet, row: number): string {
-  const grid = bs.active.grid;
-  let end = grid.cols - 1;
-  while (end >= 0 && grid.getCodepoint(row, end) === 0x20) end--;
-  let result = "";
-  for (let c = 0; c <= end; c++) {
-    result += String.fromCodePoint(grid.getCodepoint(row, c));
-  }
-  return result;
-}
-
-function readScreen(bs: BufferSet): string {
-  const lines: string[] = [];
-  for (let r = 0; r < bs.active.grid.rows; r++) {
-    lines.push(readLineTrimmed(bs, r));
-  }
-  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-  return lines.join("\n");
-}
+import { readLineTrimmed, readScreen, write } from "./helpers.js";
 
 /** CUP: \x1b[row;colH (1-indexed) */
 function cup(row: number, col: number): string {

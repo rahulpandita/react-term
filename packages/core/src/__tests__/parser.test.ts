@@ -1,12 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-
-const enc = new TextEncoder();
-
-function write(parser: VTParser, str: string): void {
-  parser.write(enc.encode(str));
-}
+import { readLineTrimmed, write } from "./helpers.js";
 
 function _readLine(bs: BufferSet, row: number, startCol = 0, endCol?: number): string {
   const grid = bs.active.grid;
@@ -16,17 +11,6 @@ function _readLine(bs: BufferSet, row: number, startCol = 0, endCol?: number): s
     const cp = grid.getCodepoint(row, c);
     if (cp === 0x20 && c >= end) break;
     result += String.fromCodePoint(cp);
-  }
-  return result;
-}
-
-function readLineTrimmed(bs: BufferSet, row: number): string {
-  const grid = bs.active.grid;
-  let end = grid.cols - 1;
-  while (end >= 0 && grid.getCodepoint(row, end) === 0x20) end--;
-  let result = "";
-  for (let c = 0; c <= end; c++) {
-    result += String.fromCodePoint(grid.getCodepoint(row, c));
   }
   return result;
 }

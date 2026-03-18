@@ -1,23 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-
-const enc = new TextEncoder();
-
-function write(parser: VTParser, str: string): void {
-  parser.write(enc.encode(str));
-}
-
-function readLineTrimmed(bs: BufferSet, row: number): string {
-  const grid = bs.active.grid;
-  let end = grid.cols - 1;
-  while (end >= 0 && grid.getCodepoint(row, end) === 0x20) end--;
-  let result = "";
-  for (let c = 0; c <= end; c++) {
-    result += String.fromCodePoint(grid.getCodepoint(row, c));
-  }
-  return result;
-}
+import { readLineTrimmed, write } from "./helpers.js";
 
 describe("VTParser Edge Cases", () => {
   let bs: BufferSet;
@@ -247,7 +231,7 @@ describe("VTParser Edge Cases", () => {
       // CSI 1;31m (bold red) split byte by byte
       const sequence = "\x1b[1;31mHello";
       for (let i = 0; i < sequence.length; i++) {
-        parser.write(enc.encode(sequence[i]));
+        write(parser, sequence[i]);
       }
       const grid = bs.active.grid;
       expect(readLineTrimmed(bs, 0)).toBe("Hello");

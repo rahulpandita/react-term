@@ -1,12 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-
-const enc = new TextEncoder();
-
-function write(parser: VTParser, str: string): void {
-  parser.write(enc.encode(str));
-}
+import { write } from "./helpers.js";
 
 describe("SGR Compatibility Tests (ported from xterm.js / ghostty)", () => {
   let bs: BufferSet;

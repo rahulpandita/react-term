@@ -11,45 +11,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-
-const enc = new TextEncoder();
-
-function write(parser: VTParser, str: string): void {
-  parser.write(enc.encode(str));
-}
-
-function readLineTrimmed(bs: BufferSet, row: number): string {
-  const grid = bs.active.grid;
-  let end = grid.cols - 1;
-  while (end >= 0 && grid.getCodepoint(row, end) === 0x20) end--;
-  let result = "";
-  for (let c = 0; c <= end; c++) {
-    result += String.fromCodePoint(grid.getCodepoint(row, c));
-  }
-  return result;
-}
-
-/** Read a line keeping trailing spaces up to the given column (exclusive). */
-function readLineRaw(bs: BufferSet, row: number, endCol?: number): string {
-  const grid = bs.active.grid;
-  const limit = endCol ?? grid.cols;
-  let result = "";
-  for (let c = 0; c < limit; c++) {
-    result += String.fromCodePoint(grid.getCodepoint(row, c));
-  }
-  return result;
-}
-
-/** Read full screen as plain text (rows joined by \n, trailing spaces trimmed). */
-function _readScreen(bs: BufferSet): string {
-  const lines: string[] = [];
-  for (let r = 0; r < bs.active.grid.rows; r++) {
-    lines.push(readLineTrimmed(bs, r));
-  }
-  // Trim trailing empty lines
-  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-  return lines.join("\n");
-}
+import { readLineRaw, readLineTrimmed, write } from "./helpers.js";
 
 describe("xterm.js Compatibility Tests", () => {
   let bs: BufferSet;
