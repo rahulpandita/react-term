@@ -1,1 +1,1 @@
-{"issue":26,"wip":{"f":"osc7","pr":"pending","branch":"feature-assist/osc7"},"next":"osc10","done":["vt220-core","true-color","sgr-mouse","osc52","osc4"],"partial":["bracket-paste-enforce","sync-output"],"pr_open":["osc7"]}
+{"issue":26,"wip":{"f":"osc10+11+12","branch":"feature-assist/osc10-osc11-osc12"},"next":"osc104","done":["vt220-core","true-color","sgr-mouse","osc52","osc4","osc7"],"partial":["bracket-paste-enforce","sync-output"]}
