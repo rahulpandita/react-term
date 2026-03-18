@@ -552,4 +552,120 @@ describe("VTParser", () => {
       expect(cwd).toBe("file:///home/user");
     });
   });
+
+  describe("OSC 10 foreground color", () => {
+    it("calls osc10 callback with color spec (BEL terminator)", () => {
+      let spec: string | null = "unset";
+      parser.setOsc10Callback((s) => {
+        spec = s;
+      });
+      write(parser, "\x1b]10;rgb:ff/ff/ff\x07");
+      expect(spec).toBe("rgb:ff/ff/ff");
+    });
+
+    it("calls osc10 callback with color spec (ST terminator)", () => {
+      let spec: string | null = "unset";
+      parser.setOsc10Callback((s) => {
+        spec = s;
+      });
+      write(parser, "\x1b]10;#aabbcc\x1b\\");
+      expect(spec).toBe("#aabbcc");
+    });
+
+    it("calls osc10 callback with null for query (?)", () => {
+      let spec: string | null = "unset";
+      parser.setOsc10Callback((s) => {
+        spec = s;
+      });
+      write(parser, "\x1b]10;?\x07");
+      expect(spec).toBeNull();
+    });
+
+    it("does not call osc10 callback when none registered", () => {
+      expect(() => {
+        write(parser, "\x1b]10;rgb:ff/00/00\x07");
+      }).not.toThrow();
+    });
+  });
+
+  describe("OSC 11 background color", () => {
+    it("calls osc11 callback with color spec (BEL terminator)", () => {
+      let spec: string | null = "unset";
+      parser.setOsc11Callback((s) => {
+        spec = s;
+      });
+      write(parser, "\x1b]11;rgb:00/00/00\x07");
+      expect(spec).toBe("rgb:00/00/00");
+    });
+
+    it("calls osc11 callback with color spec (ST terminator)", () => {
+      let spec: string | null = "unset";
+      parser.setOsc11Callback((s) => {
+        spec = s;
+      });
+      write(parser, "\x1b]11;#112233\x1b\\");
+      expect(spec).toBe("#112233");
+    });
+
+    it("calls osc11 callback with null for query (?)", () => {
+      let spec: string | null = "unset";
+      parser.setOsc11Callback((s) => {
+        spec = s;
+      });
+      write(parser, "\x1b]11;?\x07");
+      expect(spec).toBeNull();
+    });
+
+    it("does not call osc11 callback when none registered", () => {
+      expect(() => {
+        write(parser, "\x1b]11;rgb:00/00/00\x07");
+      }).not.toThrow();
+    });
+  });
+
+  describe("OSC 12 cursor color", () => {
+    it("calls osc12 callback with color spec (BEL terminator)", () => {
+      let spec: string | null = "unset";
+      parser.setOsc12Callback((s) => {
+        spec = s;
+      });
+      write(parser, "\x1b]12;rgb:88/88/88\x07");
+      expect(spec).toBe("rgb:88/88/88");
+    });
+
+    it("calls osc12 callback with color spec (ST terminator)", () => {
+      let spec: string | null = "unset";
+      parser.setOsc12Callback((s) => {
+        spec = s;
+      });
+      write(parser, "\x1b]12;#ccddee\x1b\\");
+      expect(spec).toBe("#ccddee");
+    });
+
+    it("calls osc12 callback with null for query (?)", () => {
+      let spec: string | null = "unset";
+      parser.setOsc12Callback((s) => {
+        spec = s;
+      });
+      write(parser, "\x1b]12;?\x07");
+      expect(spec).toBeNull();
+    });
+
+    it("does not call osc12 callback when none registered", () => {
+      expect(() => {
+        write(parser, "\x1b]12;rgb:88/88/88\x07");
+      }).not.toThrow();
+    });
+
+    it("osc10/11/12 callbacks fire independently", () => {
+      const calls: string[] = [];
+      parser.setOsc10Callback(() => calls.push("fg"));
+      parser.setOsc11Callback(() => calls.push("bg"));
+      parser.setOsc12Callback(() => calls.push("cursor"));
+      write(parser, "\x1b]10;rgb:ff/ff/ff\x07");
+      write(parser, "\x1b]11;rgb:00/00/00\x07");
+      write(parser, "\x1b]12;rgb:88/88/88\x07");
+      expect(calls).toEqual(["fg", "bg", "cursor"]);
+    });
+  });
 });
