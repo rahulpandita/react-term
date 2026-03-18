@@ -15,6 +15,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **Full VT100/ANSI** — SGR (16/256/RGB colors, bold, italic, underline, inverse), cursor control (CUU/CUD/CUF/CUB/CNL/CPL/CHA/CHT/CBT/VPA/VPR/HPA/HPR), line/char editing (IL/DL/ICH/DCH/ECH), buffer scroll (SU/SD), character repeat (REP), ESC sequences (IND/NEL/RI/HTS/RIS), scroll regions, alternate buffer
 - **OSC 52** — clipboard read/write via `setOsc52Callback`
 - **OSC 4** — terminal color palette set/query via `setOsc4Callback`
+- **OSC 7** — shell current working directory notification via `setOsc7Callback`
 
 ## Quick Start
 
@@ -168,6 +169,24 @@ parser.setOsc4Callback((index: number, spec: string | null) => {
 ```
 
 Supports multiple `index;spec` pairs in a single OSC 4 sequence (per the OSC 4 specification). Palette indices range from 0–255.
+
+### OSC 7 — Current Working Directory
+
+```ts
+parser.setOsc7Callback((uri: string) => {
+  // uri is a file:// URI, e.g. "file://hostname/home/user/projects"
+  const path = new URL(uri).pathname;
+  console.log('Shell CWD changed to:', path);
+});
+```
+
+Emitted by modern shells (bash, zsh, fish) whenever the working directory changes. The payload is a `file://` URI containing the host and absolute path. Consumers can use `setOsc7Callback` to track the shell's CWD — useful for opening new panes in the same directory or displaying the path in a tab title.
+
+Protocol sequences:
+```
+OSC 7 ; <file-URI> BEL   (e.g. \x1b]7;file://host/path\x07)
+OSC 7 ; <file-URI> ST    (e.g. \x1b]7;file://host/path\x1b\\)
+```
 
 ## Development
 
