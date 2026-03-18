@@ -220,11 +220,15 @@ describe("VTParser Edge Cases", () => {
     it("writes 10000 characters in a single write() call", () => {
       const data = "A".repeat(10000);
       write(parser, data);
-      // Should not crash. After 10000 chars on 80-col terminal:
-      // 10000/80 = 125 rows, which exceeds 24 rows, so scrolling happened
-      // Just verify the parser is in a consistent state
-      expect(parser.cursor.row).toBeLessThanOrEqual(23);
-      expect(parser.cursor.col).toBeLessThan(80);
+      // 10000 / 80 = 125 full rows exactly. Scrolling leaves the last 24 rows
+      // visible (all filled with 'A'). The final char fills col 79 of row 124,
+      // leaving the cursor at (23, 79) with wrapPending set.
+      expect(parser.cursor.row).toBe(23);
+      expect(parser.cursor.col).toBe(79);
+      expect(parser.cursor.wrapPending).toBe(true);
+      for (let r = 0; r < 24; r++) {
+        expect(readLineTrimmed(bs, r)).toBe("A".repeat(80));
+      }
     });
 
     it("writes 1 byte at a time for a complex escape sequence", () => {
@@ -245,9 +249,19 @@ describe("VTParser Edge Cases", () => {
         data += `\x1b[${(i % 7) + 31}mX`;
       }
       write(parser, data);
-      // Should not crash, cursor should be in valid range
-      expect(parser.cursor.row).toBeLessThanOrEqual(23);
-      expect(parser.cursor.col).toBeLessThan(80);
+      // 500 X chars in 80-col terminal → 6 full rows + 20 chars on row 6.
+      expect(parser.cursor.row).toBe(6);
+      expect(parser.cursor.col).toBe(20);
+      // Every written cell contains 'X' (0x58).
+      const grid = bs.active.grid;
+      expect(grid.getCodepoint(0, 0)).toBe(0x58); // first 'X'
+      expect(grid.getCodepoint(6, 19)).toBe(0x58); // last 'X'
+      // Colors cycle through SGR 31-37 (fg 1-7) and repeat every 7 chars.
+      // i=0 → SGR 31 (fg 1), i=1 → SGR 32 (fg 2), …, i=6 → SGR 37 (fg 7), i=7 → SGR 31 (fg 1) again.
+      expect(grid.getFgIndex(0, 0)).toBe(1);
+      expect(grid.getFgIndex(0, 1)).toBe(2);
+      expect(grid.getFgIndex(0, 6)).toBe(7);
+      expect(grid.getFgIndex(0, 7)).toBe(1); // cycle restarts
     });
   });
 
