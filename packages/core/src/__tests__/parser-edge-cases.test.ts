@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-import { readLineTrimmed, write } from "./helpers.js";
+import { cursor, readLineTrimmed, write } from "./helpers.js";
 
 describe("VTParser Edge Cases", () => {
   let bs: BufferSet;
@@ -640,6 +640,158 @@ describe("VTParser Edge Cases", () => {
       });
       write(parser, "\x1b]0;ST-Title\x1b\\");
       expect(title).toBe("ST-Title");
+    });
+  });
+
+  // ============================================================
+  // DECSET 47 / 1047 — Alternate screen (no cursor save/restore)
+  // ============================================================
+
+  describe("DECSET 47/1047 — Alternate screen without cursor save/restore", () => {
+    it("DECSET 47 switches to alternate buffer and resets alt cursor to home", () => {
+      // Move cursor to an arbitrary position in normal buffer
+      write(parser, "\x1b[6;10H"); // CUP to row 6, col 10 (1-indexed → 5,9 zero-based)
+      write(parser, "normal");
+
+      write(parser, "\x1b[?47h"); // enter alternate screen
+      // Alternate buffer cursor starts at (0, 0)
+      expect(cursor(bs)).toEqual({ row: 0, col: 0 });
+    });
+
+    it("DECSET 47 clears the alternate buffer on each entry", () => {
+      // Write content in the alt buffer, return to normal, then re-enter alt.
+      // The alt buffer must be cleared on every entry — old content must not persist.
+      write(parser, "\x1b[?47h"); // enter alt
+      write(parser, "old-alt-content"); // write to alt
+      write(parser, "\x1b[?47l"); // exit to normal
+      write(parser, "\x1b[?47h"); // re-enter alt — must clear
+      expect(readLineTrimmed(bs, 0)).toBe("");
+    });
+
+    it("DECRST 47 returns to normal buffer preserving normal cursor position", () => {
+      // Park the normal buffer cursor at row 3, col 5
+      write(parser, "\x1b[4;6H"); // CUP (1-indexed) → row=3, col=5
+      write(parser, "\x1b[?47h"); // switch to alternate
+      write(parser, "alt-text"); // write something in alt
+      write(parser, "\x1b[?47l"); // switch back to normal
+
+      // Cursor must be back to where it was in the normal buffer (row 3, col 5)
+      expect(cursor(bs)).toEqual({ row: 3, col: 5 });
+    });
+
+    it("DECRST 47 hides alternate buffer content, shows normal buffer content", () => {
+      write(parser, "normal-line");
+      write(parser, "\x1b[?47h"); // to alt buffer
+      write(parser, "alt-line");
+      write(parser, "\x1b[?47l"); // back to normal
+
+      expect(readLineTrimmed(bs, 0)).toBe("normal-line");
+    });
+
+    it("DECSET 1047 is equivalent to 47 — resets alt cursor to home", () => {
+      write(parser, "\x1b[5;3H"); // position normal cursor at row 4, col 2
+      write(parser, "\x1b[?1047h"); // alternate via 1047
+      expect(cursor(bs)).toEqual({ row: 0, col: 0 });
+    });
+
+    it("DECRST 1047 returns to normal buffer preserving normal cursor", () => {
+      write(parser, "\x1b[4;6H"); // CUP row=3, col=5
+      write(parser, "\x1b[?1047h");
+      write(parser, "\x1b[?1047l");
+      expect(cursor(bs)).toEqual({ row: 3, col: 5 });
+    });
+
+    it("DECSET 47 does not save normal cursor — re-entering alt after returning resets cursor again", () => {
+      // Enter alt, write something, return, then enter alt again.
+      // Unlike 1049, there is no saved cursor to restore on re-entry; alt always starts at home.
+      write(parser, "\x1b[?47h"); // first enter
+      write(parser, "\x1b[5;5H"); // move to row 4, col 4 inside alt
+      write(parser, "\x1b[?47l"); // exit alt
+      write(parser, "\x1b[?47h"); // enter alt again — cursor must reset to home
+      expect(cursor(bs)).toEqual({ row: 0, col: 0 });
+    });
+  });
+
+  // ============================================================
+  // DECSET 1048 — Save/restore cursor without buffer switch
+  // ============================================================
+
+  describe("DECSET 1048 — Save/restore cursor (no buffer switch)", () => {
+    it("DECSET 1048 saves the current cursor position", () => {
+      write(parser, "\x1b[8;12H"); // CUP row=7, col=11
+      write(parser, "\x1b[?1048h"); // save cursor
+      write(parser, "\x1b[H"); // move to home
+      expect(cursor(bs)).toEqual({ row: 0, col: 0 });
+
+      write(parser, "\x1b[?1048l"); // restore cursor
+      expect(cursor(bs)).toEqual({ row: 7, col: 11 });
+    });
+
+    it("DECRST 1048 does not switch buffer — still on normal buffer", () => {
+      write(parser, "on-normal");
+      write(parser, "\x1b[?1048h"); // save cursor
+      write(parser, "\x1b[?1048l"); // restore cursor
+      // Normal buffer text must still be visible (no buffer switch)
+      expect(readLineTrimmed(bs, 0)).toBe("on-normal");
+    });
+
+    it("DECRST 1048 with no prior save is a no-op (does not crash)", () => {
+      write(parser, "\x1b[5;5H"); // park cursor at row=4, col=4
+      // No 1048h first — restoring an unsaved cursor should be safe
+      expect(() => write(parser, "\x1b[?1048l")).not.toThrow();
+      // Cursor must remain at (4, 4) since there was nothing to restore
+      expect(cursor(bs)).toEqual({ row: 4, col: 4 });
+    });
+
+    it("DECSET 1048 and DECSC (ESC 7) share the same cursor save slot", () => {
+      // Both DECSET 1048 and DECSC write to buf.savedCursor.
+      // Save via 1048h, then restore via DECRC (ESC 8) — must return the position
+      // that was saved by 1048h, proving the two mechanisms share one slot.
+      write(parser, "\x1b[3;3H"); // row=2, col=2
+      write(parser, "\x1b[?1048h"); // save via 1048
+      write(parser, "\x1b[H"); // move to home
+      write(parser, "\x1b8"); // DECRC — restore cursor (should use the 1048-saved position)
+      expect(cursor(bs)).toEqual({ row: 2, col: 2 });
+    });
+  });
+
+  // ============================================================
+  // DECKPAM / DECKPNM — Application keypad mode
+  // ============================================================
+
+  describe("DECKPAM / DECKPNM — Application keypad mode", () => {
+    it("applicationKeypad is false by default", () => {
+      expect(parser.applicationKeypad).toBe(false);
+    });
+
+    it("ESC= (DECKPAM) enables application keypad mode", () => {
+      write(parser, "\x1b=");
+      expect(parser.applicationKeypad).toBe(true);
+    });
+
+    it("ESC> (DECKPNM) disables application keypad mode", () => {
+      write(parser, "\x1b="); // enable first
+      write(parser, "\x1b>"); // then disable
+      expect(parser.applicationKeypad).toBe(false);
+    });
+
+    it("DECKPAM does not affect cursor position or screen content", () => {
+      write(parser, "Hello");
+      write(parser, "\x1b=");
+      expect(readLineTrimmed(bs, 0)).toBe("Hello");
+      expect(cursor(bs)).toEqual({ row: 0, col: 5 });
+    });
+
+    it("DECKPNM is safe to call without prior DECKPAM", () => {
+      // Already false; sending DECKPNM should be a no-op
+      write(parser, "\x1b>");
+      expect(parser.applicationKeypad).toBe(false);
+    });
+
+    it("RIS (ESC c) resets applicationKeypad to false", () => {
+      write(parser, "\x1b="); // enable
+      write(parser, "\x1bc"); // full reset
+      expect(parser.applicationKeypad).toBe(false);
     });
   });
 });
