@@ -8,7 +8,7 @@
 
 ## Core Package
 
-*{ Document the @react-term/core package (packages/core/). Describe CellGrid (the SharedArrayBuffer-backed cell grid, cell packing format with 2×Uint32 per cell, dirty rows tracking, RGB color storage, cursor data), Buffer and BufferSet (scroll regions, tab stops, cursor save/restore, scrollback, alternate screen), VTParser (the VT100/ANSI state machine), and the exported types (CursorState, TerminalOptions, Theme, DirtyState). Include a Mermaid diagram showing the relationships between CellGrid, Buffer, BufferSet, and VTParser. Link to the source files at packages/core/src/. }*
+*{ Document the @react-term/core package (packages/core/). Describe CellGrid (the SharedArrayBuffer-backed cell grid, cell packing format with 2×Uint32 per cell, dirty rows tracking, RGB color storage, cursor data), Buffer and BufferSet (scroll regions, tab stops, cursor save/restore, scrollback, alternate screen), VTParser (the VT100/ANSI state machine, including OSC sequence callbacks: clipboard access via OSC 52, indexed-colour palette set/query via OSC 4/104, working-directory reporting via OSC 7, and dynamic color query/set for foreground/background/cursor colors via OSC 10/11/12), and the exported types (CursorState, TerminalOptions, Theme, DirtyState). Include a Mermaid diagram showing the relationships between CellGrid, Buffer, BufferSet, and VTParser. Link to the source files at packages/core/src/. }*
 
 ## Web Package
 
