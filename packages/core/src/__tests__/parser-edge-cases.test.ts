@@ -658,9 +658,13 @@ describe("VTParser Edge Cases", () => {
       expect(cursor(bs)).toEqual({ row: 0, col: 0 });
     });
 
-    it("DECSET 47 clears the alternate buffer on entry", () => {
-      // Any text written before is on the normal buffer; alt buffer starts clean
-      write(parser, "\x1b[?47h");
+    it("DECSET 47 clears the alternate buffer on each entry", () => {
+      // Write content in the alt buffer, return to normal, then re-enter alt.
+      // The alt buffer must be cleared on every entry — old content must not persist.
+      write(parser, "\x1b[?47h"); // enter alt
+      write(parser, "old-alt-content"); // write to alt
+      write(parser, "\x1b[?47l"); // exit to normal
+      write(parser, "\x1b[?47h"); // re-enter alt — must clear
       expect(readLineTrimmed(bs, 0)).toBe("");
     });
 
@@ -739,10 +743,10 @@ describe("VTParser Edge Cases", () => {
       expect(cursor(bs)).toEqual({ row: 4, col: 4 });
     });
 
-    it("DECSET 1048 saves cursor separately from DECSC (ESC 7)", () => {
-      // DECSC saves to buf.savedCursor; DECSET 1048 also saves to the same slot.
-      // Moving cursor, saving via 1048h, moving again, then restoring via DECRC (ESC 8)
-      // should restore the position saved by 1048h.
+    it("DECSET 1048 and DECSC (ESC 7) share the same cursor save slot", () => {
+      // Both DECSET 1048 and DECSC write to buf.savedCursor.
+      // Save via 1048h, then restore via DECRC (ESC 8) — must return the position
+      // that was saved by 1048h, proving the two mechanisms share one slot.
       write(parser, "\x1b[3;3H"); // row=2, col=2
       write(parser, "\x1b[?1048h"); // save via 1048
       write(parser, "\x1b[H"); // move to home
