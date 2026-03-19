@@ -102,6 +102,10 @@ export class VTParser {
   // OSC 12 cursor color callback: (spec: string | null) => void
   private onOsc12: ((spec: string | null) => void) | null = null;
 
+  // OSC 104 reset color palette callback: (index: number) => void
+  // index is -1 for "reset all", or 0-255 for a specific palette entry.
+  private onOsc104: ((index: number) => void) | null = null;
+
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
   }
@@ -154,6 +158,14 @@ export class VTParser {
    */
   setOsc12Callback(cb: (spec: string | null) => void): void {
     this.onOsc12 = cb;
+  }
+
+  /** Register a callback for OSC 104 reset color palette sequences.
+   *  Called once per index to reset; `index` is 0-255 for a specific palette
+   *  entry, or -1 when no index is given (reset the entire palette).
+   */
+  setOsc104Callback(cb: (index: number) => void): void {
+    this.onOsc104 = cb;
   }
 
   get cursor(): CursorState {
@@ -1038,7 +1050,18 @@ export class VTParser {
         break;
       }
     }
-    if (semiIdx === -1) return;
+
+    // OSC 104 with no arguments (no semicolon) = reset the entire palette.
+    if (semiIdx === -1) {
+      if (this.onOsc104) {
+        let c = 0;
+        for (let i = 0; i < this.oscLength; i++) {
+          c = c * 10 + (this.oscParts[i] - 0x30);
+        }
+        if (c === 104) this.onOsc104(-1);
+      }
+      return;
+    }
 
     // Parse the code (digits before semicolon)
     let code = 0;
@@ -1174,7 +1197,25 @@ export class VTParser {
         }
         break;
       }
-      // Other OSC codes (8, 104, 133) can be added later
+      // Other OSC codes (8, 133) can be added later
+      case 104: // OSC 104 — reset color palette entry/entries
+        // Format: 104;<c1>;<c2>;... where c1..cN are 0-255 palette indices.
+        // (The no-argument form is handled above in the semiIdx === -1 path.)
+        if (this.onOsc104) {
+          let pos = semiIdx + 1;
+          while (pos < this.oscLength) {
+            // Parse next decimal integer up to ';' or end
+            let val = 0;
+            let end = pos;
+            while (end < this.oscLength && this.oscParts[end] !== 0x3b) {
+              val = val * 10 + (this.oscParts[end] - 0x30);
+              end++;
+            }
+            if (end > pos) this.onOsc104(val);
+            pos = end + 1; // skip past the ';'
+          }
+        }
+        break;
     }
   }
 

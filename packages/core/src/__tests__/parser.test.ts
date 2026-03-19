@@ -652,4 +652,53 @@ describe("VTParser", () => {
       expect(calls).toEqual(["fg", "bg", "cursor"]);
     });
   });
+
+  describe("OSC 104 reset color palette", () => {
+    it("calls osc104 callback with -1 when no index given (reset all, BEL terminator)", () => {
+      const indices: number[] = [];
+      parser.setOsc104Callback((index) => indices.push(index));
+      write(parser, "\x1b]104\x07");
+      expect(indices).toEqual([-1]);
+    });
+
+    it("calls osc104 callback with -1 when no index given (reset all, ST terminator)", () => {
+      const indices: number[] = [];
+      parser.setOsc104Callback((index) => indices.push(index));
+      write(parser, "\x1b]104\x1b\\");
+      expect(indices).toEqual([-1]);
+    });
+
+    it("calls osc104 callback with specific index (BEL terminator)", () => {
+      const indices: number[] = [];
+      parser.setOsc104Callback((index) => indices.push(index));
+      write(parser, "\x1b]104;5\x07");
+      expect(indices).toEqual([5]);
+    });
+
+    it("calls osc104 callback for multiple indices in one sequence", () => {
+      const indices: number[] = [];
+      parser.setOsc104Callback((index) => indices.push(index));
+      write(parser, "\x1b]104;1;3;7\x07");
+      expect(indices).toEqual([1, 3, 7]);
+    });
+
+    it("handles boundary index values 0 and 255", () => {
+      const indices: number[] = [];
+      parser.setOsc104Callback((index) => indices.push(index));
+      write(parser, "\x1b]104;0;255\x07");
+      expect(indices).toEqual([0, 255]);
+    });
+
+    it("does not call osc104 callback when none registered", () => {
+      expect(() => {
+        write(parser, "\x1b]104\x07");
+      }).not.toThrow();
+    });
+
+    it("does not call osc104 callback when none registered (with index)", () => {
+      expect(() => {
+        write(parser, "\x1b]104;5\x07");
+      }).not.toThrow();
+    });
+  });
 });
