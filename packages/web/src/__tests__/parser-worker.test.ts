@@ -50,6 +50,29 @@ function lastFlush(): FlushMessage {
   return msg as FlushMessage;
 }
 
+/**
+ * Read the codepoint stored at a logical cell position from a transferred
+ * cellData ArrayBuffer.
+ *
+ * Cell layout (matches cell-grid.ts): 2 × uint32 per cell; the codepoint
+ * occupies the low 21 bits of word 0.  The grid uses a circular row buffer
+ * rotated by `rowOffset` (from the flush message; 0 on a freshly initialised
+ * terminal).
+ */
+function getCellCodepoint(
+  cellData: ArrayBuffer,
+  cols: number,
+  row: number,
+  col: number,
+  rowOffset: number,
+  rows: number,
+): number {
+  const CELL_SIZE = 2;
+  const physRow = (row + rowOffset) % rows;
+  const uint32 = new Uint32Array(cellData);
+  return uint32[(physRow * cols + col) * CELL_SIZE] & 0x1fffff;
+}
+
 // ── Per-test setup ───────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -69,9 +92,14 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("init message", () => {
-  it("initialises the parser — write succeeds and returns a flush", () => {
+  it("initialises the parser — cursor is at origin before any write", () => {
+    // 'A' placed at col 0 → cursor advances to col 1; row stays at 0
     dispatch({ type: "write", data: enc("A") });
-    expect(lastFlush().type).toBe("flush");
+    const flush = lastFlush();
+    expect(flush.cursor.row).toBe(0);
+    expect(flush.cursor.col).toBe(1);
+    expect(flush.isAlternate).toBe(false);
+    expect(flush.bytesProcessed).toBe(1);
   });
 
   it("SAB mode: flush omits cell-data transferables", () => {
@@ -93,13 +121,13 @@ describe("write message", () => {
     expect(lastFlush().bytesProcessed).toBe(5);
   });
 
-  it("flush contains cursor with required fields", () => {
+  it("flush cursor reflects actual position after two printable chars", () => {
     dispatch({ type: "write", data: enc("Hi") });
     const { cursor } = lastFlush();
-    expect(typeof cursor.row).toBe("number");
-    expect(typeof cursor.col).toBe("number");
-    expect(typeof cursor.visible).toBe("boolean");
-    expect(typeof cursor.style).toBe("string");
+    expect(cursor.row).toBe(0);
+    expect(cursor.col).toBe(2);
+    expect(cursor.visible).toBe(true);
+    expect(cursor.style).toBe("block");
   });
 
   it("non-SAB flush includes cellData, dirtyRows, and rowOffset", () => {
@@ -115,6 +143,27 @@ describe("write message", () => {
     const { transfer } = sent[sent.length - 1];
     expect(Array.isArray(transfer)).toBe(true);
     expect((transfer as ArrayBuffer[]).length).toBeGreaterThan(0);
+  });
+
+  it("cellData encodes the characters written to the terminal grid", () => {
+    dispatch({ type: "write", data: enc("Hi") });
+    const { cellData, rowOffset } = lastFlush();
+    expect(cellData).toBeInstanceOf(ArrayBuffer);
+    expect(typeof rowOffset).toBe("number");
+    expect(getCellCodepoint(cellData as ArrayBuffer, 80, 0, 0, rowOffset as number, 24)).toBe(
+      "H".charCodeAt(0),
+    );
+    expect(getCellCodepoint(cellData as ArrayBuffer, 80, 0, 1, rowOffset as number, 24)).toBe(
+      "i".charCodeAt(0),
+    );
+  });
+
+  it("dirtyRows buffer length matches the terminal row count", () => {
+    // Int32Array: 4 bytes per element; 24 rows → 96 bytes
+    dispatch({ type: "write", data: enc("X") });
+    const { dirtyRows } = lastFlush();
+    expect(dirtyRows).toBeInstanceOf(ArrayBuffer);
+    expect((dirtyRows as ArrayBuffer).byteLength).toBe(24 * 4);
   });
 
   it("cursor.col advances after printable ASCII characters", () => {
@@ -146,9 +195,14 @@ describe("write message", () => {
 });
 
 describe("resize message", () => {
-  it("posts a flush immediately after resize", () => {
+  it("resize flush resets cursor to (0, 0) with new dimensions", () => {
+    // Advance the cursor first so we can confirm resize resets it
+    dispatch({ type: "write", data: enc("ABCDE") });
+    sent.length = 0;
     dispatch({ type: "resize", cols: 40, rows: 12, scrollback: 200 });
-    expect(lastFlush().type).toBe("flush");
+    const flush = lastFlush();
+    expect(flush.cursor.row).toBe(0);
+    expect(flush.cursor.col).toBe(0);
   });
 
   it("resize flush has bytesProcessed = 0", () => {
@@ -163,11 +217,15 @@ describe("resize message", () => {
     expect(flush.dirtyRows).toBeInstanceOf(ArrayBuffer);
   });
 
-  it("cursor col stays within new column bounds after resize + write", () => {
-    dispatch({ type: "resize", cols: 20, rows: 10, scrollback: 50 });
+  it("cursor col is clamped within new column bounds after overflow write", () => {
+    // Resize to 10 cols then write 25 printable chars — wraps multiple times
+    const newCols = 10;
+    dispatch({ type: "resize", cols: newCols, rows: 10, scrollback: 50 });
     sent.length = 0;
-    dispatch({ type: "write", data: enc("Hello") });
-    expect(lastFlush().cursor.col).toBeLessThanOrEqual(20);
+    dispatch({ type: "write", data: enc("ABCDEFGHIJKLMNOPQRSTUVWXY") });
+    const col = lastFlush().cursor.col;
+    expect(col).toBeGreaterThanOrEqual(0);
+    expect(col).toBeLessThanOrEqual(newCols - 1);
   });
 });
 
