@@ -784,4 +784,110 @@ describe("VTParser", () => {
       }).not.toThrow();
     });
   });
+
+  describe("OSC 133 shell integration (semantic prompts)", () => {
+    it("calls osc133 callback with type A for prompt start (BEL terminator)", () => {
+      let calledType = "";
+      let calledPayload = "unset";
+      parser.setOsc133Callback((type, payload) => {
+        calledType = type;
+        calledPayload = payload;
+      });
+      write(parser, "\x1b]133;A\x07");
+      expect(calledType).toBe("A");
+      expect(calledPayload).toBe("");
+    });
+
+    it("calls osc133 callback with type B for command start (ST terminator)", () => {
+      let calledType = "";
+      parser.setOsc133Callback((type, _payload) => {
+        calledType = type;
+      });
+      write(parser, "\x1b]133;B\x1b\\");
+      expect(calledType).toBe("B");
+    });
+
+    it("calls osc133 callback with type C for command output start", () => {
+      let calledType = "";
+      parser.setOsc133Callback((type, _payload) => {
+        calledType = type;
+      });
+      write(parser, "\x1b]133;C\x07");
+      expect(calledType).toBe("C");
+    });
+
+    it("calls osc133 callback with type D and empty payload for exit code 0", () => {
+      let calledType = "";
+      let calledPayload = "unset";
+      parser.setOsc133Callback((type, payload) => {
+        calledType = type;
+        calledPayload = payload;
+      });
+      write(parser, "\x1b]133;D;0\x07");
+      expect(calledType).toBe("D");
+      expect(calledPayload).toBe("0");
+    });
+
+    it("calls osc133 callback with type D and non-zero exit code", () => {
+      let calledPayload = "unset";
+      parser.setOsc133Callback((_type, payload) => {
+        calledPayload = payload;
+      });
+      write(parser, "\x1b]133;D;127\x07");
+      expect(calledPayload).toBe("127");
+    });
+
+    it("calls osc133 callback with type D and empty payload when no exit code", () => {
+      let calledType = "";
+      let calledPayload = "unset";
+      parser.setOsc133Callback((type, payload) => {
+        calledType = type;
+        calledPayload = payload;
+      });
+      write(parser, "\x1b]133;D\x07");
+      expect(calledType).toBe("D");
+      expect(calledPayload).toBe("");
+    });
+
+    it("calls osc133 callback with type E and command text", () => {
+      let calledType = "";
+      let calledPayload = "unset";
+      parser.setOsc133Callback((type, payload) => {
+        calledType = type;
+        calledPayload = payload;
+      });
+      write(parser, "\x1b]133;E;ls -la\x07");
+      expect(calledType).toBe("E");
+      expect(calledPayload).toBe("ls -la");
+    });
+
+    it("calls osc133 callback with type P and property payload", () => {
+      let calledType = "";
+      let calledPayload = "unset";
+      parser.setOsc133Callback((type, payload) => {
+        calledType = type;
+        calledPayload = payload;
+      });
+      write(parser, "\x1b]133;P;k=cwd;v=/home/user\x07");
+      expect(calledType).toBe("P");
+      expect(calledPayload).toBe("k=cwd;v=/home/user");
+    });
+
+    it("does not call osc133 callback when none registered", () => {
+      expect(() => {
+        write(parser, "\x1b]133;A\x07");
+      }).not.toThrow();
+    });
+
+    it("does not interfere with other OSC callbacks", () => {
+      let title = "";
+      let shellEvent = "";
+      parser.setTitleChangeCallback((t) => { title = t; });
+      parser.setOsc133Callback((type, _payload) => { shellEvent = type; });
+      write(parser, "\x1b]2;MyApp\x07");
+      write(parser, "\x1b]133;A\x07");
+      expect(title).toBe("MyApp");
+      expect(shellEvent).toBe("A");
+    });
+  });
 });
