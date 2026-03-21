@@ -537,6 +537,89 @@ describe("VTParser", () => {
     });
   });
 
+  describe("OSC 8 hyperlinks", () => {
+    it("calls osc8 callback with params and URI (BEL terminator)", () => {
+      let calledParams = "unset";
+      let calledUri = "unset";
+      parser.setOsc8Callback((params, uri) => {
+        calledParams = params;
+        calledUri = uri;
+      });
+      write(parser, "\x1b]8;id=link1;https://example.com\x07");
+      expect(calledParams).toBe("id=link1");
+      expect(calledUri).toBe("https://example.com");
+    });
+
+    it("calls osc8 callback with params and URI (ST terminator)", () => {
+      let calledUri = "unset";
+      parser.setOsc8Callback((_params, uri) => {
+        calledUri = uri;
+      });
+      write(parser, "\x1b]8;;https://github.com\x1b\\");
+      expect(calledUri).toBe("https://github.com");
+    });
+
+    it("calls osc8 callback with empty params when no params provided", () => {
+      let calledParams = "unset";
+      parser.setOsc8Callback((params, _uri) => {
+        calledParams = params;
+      });
+      write(parser, "\x1b]8;;https://example.com\x07");
+      expect(calledParams).toBe("");
+    });
+
+    it("calls osc8 callback with empty URI and empty params to close link", () => {
+      let calledParams = "unset";
+      let calledUri = "unset";
+      parser.setOsc8Callback((params, uri) => {
+        calledParams = params;
+        calledUri = uri;
+      });
+      write(parser, "\x1b]8;;\x07");
+      expect(calledParams).toBe("");
+      expect(calledUri).toBe("");
+    });
+
+    it("preserves URI with query string and fragment", () => {
+      let calledUri = "unset";
+      parser.setOsc8Callback((_params, uri) => {
+        calledUri = uri;
+      });
+      write(parser, "\x1b]8;;https://example.com/path?q=1#sec\x07");
+      expect(calledUri).toBe("https://example.com/path?q=1#sec");
+    });
+
+    it("handles multiple key=value params (colon-separated)", () => {
+      let calledParams = "unset";
+      parser.setOsc8Callback((params, _uri) => {
+        calledParams = params;
+      });
+      write(parser, "\x1b]8;id=link1:type=nav;https://example.com\x07");
+      expect(calledParams).toBe("id=link1:type=nav");
+    });
+
+    it("does not call osc8 callback when none registered", () => {
+      expect(() => {
+        write(parser, "\x1b]8;;https://example.com\x07");
+      }).not.toThrow();
+    });
+
+    it("does not interfere with OSC 7 callback", () => {
+      let cwd = "";
+      let link = "";
+      parser.setOsc7Callback((uri) => {
+        cwd = uri;
+      });
+      parser.setOsc8Callback((_params, uri) => {
+        link = uri;
+      });
+      write(parser, "\x1b]7;file:///home/user\x07");
+      write(parser, "\x1b]8;;https://example.com\x07");
+      expect(cwd).toBe("file:///home/user");
+      expect(link).toBe("https://example.com");
+    });
+  });
+
   describe("OSC 10 foreground color", () => {
     it("calls osc10 callback with color spec (BEL terminator)", () => {
       let spec: string | null = "unset";

@@ -190,17 +190,18 @@ OSC 7 ; <file-URI> BEL   (e.g. \x1b]7;file://host/path\x07)
 OSC 7 ; <file-URI> ST    (e.g. \x1b]7;file://host/path\x1b\\)
 ```
 
-### OSC 10 / 11 / 12 — Dynamic Colors
+
+### OSC 10 / 11 / 12 — Dynamic Color Query/Set
+
 
 ```ts
 // OSC 10 — foreground (text) color
 parser.setOsc10Callback((spec: string | null) => {
   if (spec === null) {
-    // Query: respond with current foreground color in XParseColor format
-    // e.g. send "\x1b]10;rgb:ffff/ffff/ffff\x07"
+    // Query: respond with current foreground color in "rgb:RRRR/GGGG/BBBB" format
   } else {
-    // Set: apply color spec (e.g. 'rgb:ff00/0000/0000', '#ff0000', 'red')
-    setForegroundColor(spec);
+    // Set: apply color spec (e.g. 'rgb:ff/00/00', '#ff0000', 'red') as foreground
+    updateForegroundColor(spec);
   }
 });
 
@@ -209,7 +210,7 @@ parser.setOsc11Callback((spec: string | null) => {
   if (spec === null) {
     // Query: respond with current background color
   } else {
-    setBackgroundColor(spec);
+    updateBackgroundColor(spec);
   }
 });
 
@@ -218,18 +219,19 @@ parser.setOsc12Callback((spec: string | null) => {
   if (spec === null) {
     // Query: respond with current cursor color
   } else {
-    setCursorColor(spec);
+    updateCursorColor(spec);
   }
 });
 ```
 
-`spec` is the X11 color specification string (e.g. `'rgb:ff00/0000/0000'`, `'#ff0000'`) for a set operation, or `null` when the terminal application sends `?` to query the current value. When responding to a query, emit `OSC <code> ; <spec> BEL` back to the PTY.
+`spec` is the color specification string (e.g. `'rgb:ff/00/00'`, `'#ff0000'`) when setting, or `null` when the terminal sends a query (`?`). On a query, respond by writing the current color value back to the PTY in the matching OSC response format.
 
 Protocol sequences:
 ```
-OSC 10 ; <spec-or-?> BEL   (e.g. \x1b]10;rgb:ffff/ffff/ffff\x07)
-OSC 11 ; <spec-or-?> BEL   (e.g. \x1b]11;?\x07)
-OSC 12 ; <spec-or-?> BEL   (e.g. \x1b]12;#ff0000\x07)
+OSC 10 ; ? BEL       (query foreground color)
+OSC 10 ; rgb:ff/00/00 BEL   (set foreground to red)
+OSC 11 ; ? BEL       (query background color)
+OSC 12 ; ? BEL       (query cursor color)
 ```
 
 ### OSC 104 — Reset Color Palette
@@ -240,18 +242,19 @@ parser.setOsc104Callback((index: number) => {
     // Reset all 256 palette entries to their defaults
     resetEntirePalette();
   } else {
-    // Reset a specific palette entry (0–255) to its default
+    // Reset a single palette entry (0–255) to its default
     resetPaletteEntry(index);
   }
 });
 ```
 
-`index` is `-1` when no argument is given (reset the entire palette), or `0`–`255` for a specific entry. The callback is invoked once per index when multiple indices are specified in a single sequence. This is the counterpart to `setOsc4Callback`: terminal applications typically set palette entries via OSC 4 and restore them via OSC 104 on exit.
+OSC 104 is the counterpart to OSC 4 — it restores indexed palette colors to their defaults. Terminal applications that temporarily modify palette entries via OSC 4 should issue OSC 104 on exit to clean up. The callback is invoked once per index to reset; `index` is `0`–`255` for a specific entry, or `-1` when no index is given (reset all).
 
 Protocol sequences:
 ```
-OSC 104 BEL                    — reset entire palette (\x1b]104\x07)
-OSC 104 ; <c1> ; <c2> BEL     — reset entries c1, c2, … (\x1b]104;1;3;7\x07)
+OSC 104 BEL             (reset entire palette)
+OSC 104 ; 5 BEL         (reset palette entry 5)
+OSC 104 ; 1 ; 3 ; 7 BEL (reset entries 1, 3, and 7)
 ```
 
 ## Development

@@ -106,6 +106,11 @@ export class VTParser {
   // index is -1 for "reset all", or 0-255 for a specific palette entry.
   private onOsc104: ((index: number) => void) | null = null;
 
+  // OSC 8 hyperlink callback: (params: string, uri: string) => void
+  // params is the optional colon-separated key=value metadata (may be "").
+  // uri is the hyperlink target (empty string closes the link).
+  private onOsc8: ((params: string, uri: string) => void) | null = null;
+
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
   }
@@ -166,6 +171,14 @@ export class VTParser {
    */
   setOsc104Callback(cb: (index: number) => void): void {
     this.onOsc104 = cb;
+  }
+
+  /** Register a callback for OSC 8 hyperlink sequences.
+   *  `params` is the optional colon-separated key=value metadata string (may be "").
+   *  `uri` is the hyperlink target URI (empty string closes the active link).
+   */
+  setOsc8Callback(cb: (params: string, uri: string) => void): void {
+    this.onOsc8 = cb;
   }
 
   get cursor(): CursorState {
@@ -1197,7 +1210,34 @@ export class VTParser {
         }
         break;
       }
-      // Other OSC codes (8, 133) can be added later
+      // Other OSC codes (133) can be added later
+      case 8: // OSC 8 — hyperlinks
+        // Format: 8;<params>;<uri>
+        // <params> is optional colon-separated key=value metadata (may be "").
+        // <uri> is the hyperlink target (empty string closes the link).
+        if (this.onOsc8) {
+          // Find the second semicolon (separating params from uri)
+          let semi2 = -1;
+          for (let i = semiIdx + 1; i < this.oscLength; i++) {
+            if (this.oscParts[i] === 0x3b) {
+              semi2 = i;
+              break;
+            }
+          }
+          if (semi2 === -1) break; // malformed: no URI separator
+          // Build params string
+          let osc8params = "";
+          for (let i = semiIdx + 1; i < semi2; i++) {
+            osc8params += String.fromCharCode(this.oscParts[i]);
+          }
+          // Build URI string
+          let osc8uri = "";
+          for (let i = semi2 + 1; i < this.oscLength; i++) {
+            osc8uri += String.fromCharCode(this.oscParts[i]);
+          }
+          this.onOsc8(osc8params, osc8uri);
+        }
+        break;
       case 104: // OSC 104 — reset color palette entry/entries
         // Format: 104;<c1>;<c2>;... where c1..cN are 0-255 palette indices.
         // (The no-argument form is handled above in the semiIdx === -1 path.)
