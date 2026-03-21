@@ -9,8 +9,9 @@
  * minimal mock so renderer.attach() does not throw.
  */
 
-import { DEFAULT_THEME } from "@react-term/core";
+import { DEFAULT_THEME, extractText } from "@react-term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Canvas2DRenderer } from "../renderer.js";
 import { WebTerminal } from "../web-terminal.js";
 
 // ---------------------------------------------------------------------------
@@ -147,16 +148,19 @@ describe("WebTerminal", () => {
   // ---- write() -----------------------------------------------------------
 
   describe("write()", () => {
-    it("does not throw when writing a string", () => {
+    it("stores written ASCII characters in the active grid", () => {
       const t = make(container);
-      expect(() => t.write("Hello")).not.toThrow();
+      t.write("Hello");
+      expect(extractText(t.activeGrid, 0, 0, 0, 4)).toBe("Hello");
+      expect(t.activeCursor.col).toBe(5);
       t.dispose();
     });
 
-    it("does not throw when writing a Uint8Array", () => {
+    it("advances the cursor after writing a Uint8Array", () => {
       const t = make(container);
-      const bytes = new TextEncoder().encode("World");
-      expect(() => t.write(bytes)).not.toThrow();
+      const bytes = new TextEncoder().encode("World"); // 5 chars
+      t.write(bytes);
+      expect(t.activeCursor.col).toBe(5);
       t.dispose();
     });
 
@@ -167,11 +171,13 @@ describe("WebTerminal", () => {
       t.dispose();
     });
 
-    it("is a no-op after dispose", () => {
+    it("is a no-op after dispose — cursor does not advance", () => {
       const t = make(container);
+      t.write("XYZ");
+      const colBefore = t.activeCursor.col; // 3
       t.dispose();
-      // Should not throw even after disposal
-      expect(() => t.write("test")).not.toThrow();
+      t.write("more");
+      expect(t.activeCursor.col).toBe(colBefore); // still 3
     });
   });
 
@@ -215,10 +221,12 @@ describe("WebTerminal", () => {
       t.dispose();
     });
 
-    it("is a no-op after dispose", () => {
+    it("is a no-op after dispose — dimensions remain unchanged", () => {
       const t = make(container);
       t.dispose();
-      expect(() => t.resize(100, 30)).not.toThrow();
+      t.resize(100, 30);
+      expect(t.cols).toBe(80); // unchanged
+      expect(t.rows).toBe(24); // unchanged
     });
   });
 
@@ -245,22 +253,28 @@ describe("WebTerminal", () => {
   // ---- setTheme() --------------------------------------------------------
 
   describe("setTheme()", () => {
-    it("does not throw when applying a partial theme", () => {
+    it("passes the merged theme to the renderer (partial override)", () => {
+      const spy = vi.spyOn(Canvas2DRenderer.prototype, "setTheme");
       const t = make(container);
-      expect(() => t.setTheme({ foreground: "#aabbcc" })).not.toThrow();
+      t.setTheme({ foreground: "#aabbcc" });
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ foreground: "#aabbcc" }));
       t.dispose();
     });
 
-    it("does not throw when applying an empty theme (all defaults)", () => {
+    it("passes full DEFAULT_THEME to the renderer when given an empty object", () => {
+      const spy = vi.spyOn(Canvas2DRenderer.prototype, "setTheme");
       const t = make(container);
-      expect(() => t.setTheme({})).not.toThrow();
+      t.setTheme({});
+      expect(spy).toHaveBeenCalledWith(DEFAULT_THEME);
       t.dispose();
     });
 
-    it("merges partial theme with defaults (full theme has all keys)", () => {
+    it("passes the overridden key to the renderer while keeping other defaults", () => {
+      const spy = vi.spyOn(Canvas2DRenderer.prototype, "setTheme");
       const t = make(container, { theme: DEFAULT_THEME });
-      // setTheme should not throw even with a complete theme object
-      expect(() => t.setTheme({ ...DEFAULT_THEME, foreground: "#ffffff" })).not.toThrow();
+      const custom = { ...DEFAULT_THEME, foreground: "#ffffff" };
+      t.setTheme(custom);
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ foreground: "#ffffff" }));
       t.dispose();
     });
   });
@@ -268,9 +282,11 @@ describe("WebTerminal", () => {
   // ---- setFont() ---------------------------------------------------------
 
   describe("setFont()", () => {
-    it("does not throw", () => {
+    it("applies the new font to the renderer", () => {
+      const spy = vi.spyOn(Canvas2DRenderer.prototype, "setFont");
       const t = make(container);
-      expect(() => t.setFont(16, "monospace")).not.toThrow();
+      t.setFont(18, "Courier New");
+      expect(spy).toHaveBeenCalledWith(18, "Courier New");
       t.dispose();
     });
   });
@@ -290,11 +306,17 @@ describe("WebTerminal", () => {
   // ---- onData / onResize registration ------------------------------------
 
   describe("callback registration", () => {
-    it("onData registers a data callback", () => {
-      const t = make(container);
+    it("onData callback fires when the user types into the terminal", () => {
       const cb = vi.fn();
-      // Should not throw
-      expect(() => t.onData(cb)).not.toThrow();
+      const t = make(container);
+      t.onData(cb);
+      // The InputHandler creates a hidden textarea inside the container.
+      // Simulating an input event on it exercises the full wiring path.
+      const ta = container.querySelector("textarea") as HTMLTextAreaElement;
+      expect(ta).not.toBeNull();
+      ta.value = "hi";
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(cb).toHaveBeenCalledWith(new TextEncoder().encode("hi"));
       t.dispose();
     });
 
@@ -338,12 +360,12 @@ describe("WebTerminal", () => {
       expect(container.querySelector("canvas")).toBeNull();
     });
 
-    it("is idempotent — can be called twice without throwing", () => {
+    it("is idempotent — canvas remains absent after a second dispose call", () => {
       const t = make(container);
-      expect(() => {
-        t.dispose();
-        t.dispose();
-      }).not.toThrow();
+      t.dispose();
+      expect(container.querySelector("canvas")).toBeNull();
+      t.dispose(); // second call must not re-add or throw
+      expect(container.querySelector("canvas")).toBeNull();
     });
   });
 });
