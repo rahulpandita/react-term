@@ -190,7 +190,9 @@ OSC 7 ; <file-URI> BEL   (e.g. \x1b]7;file://host/path\x07)
 OSC 7 ; <file-URI> ST    (e.g. \x1b]7;file://host/path\x1b\\)
 ```
 
+
 ### OSC 10 / 11 / 12 — Dynamic Color Query/Set
+
 
 ```ts
 // OSC 10 — foreground (text) color
