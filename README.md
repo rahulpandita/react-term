@@ -16,6 +16,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **OSC 52** — clipboard read/write via `setOsc52Callback`
 - **OSC 4** — terminal color palette set/query via `setOsc4Callback`
 - **OSC 7** — shell current working directory notification via `setOsc7Callback`
+- **OSC 8** — clickable hyperlinks via `setOsc8Callback`
 - **OSC 10/11/12** — dynamic foreground/background/cursor color query/set via `setOsc10Callback`, `setOsc11Callback`, `setOsc12Callback`
 - **OSC 104** — reset indexed color palette entries via `setOsc104Callback`
 
@@ -190,6 +191,30 @@ OSC 7 ; <file-URI> BEL   (e.g. \x1b]7;file://host/path\x07)
 OSC 7 ; <file-URI> ST    (e.g. \x1b]7;file://host/path\x1b\\)
 ```
 
+
+### OSC 8 — Hyperlinks
+
+```ts
+parser.setOsc8Callback((params: string, uri: string) => {
+  if (uri === '') {
+    // Close the active hyperlink
+    closeHyperlink();
+  } else {
+    // Open a hyperlink to `uri`
+    // `params` is an optional colon-separated key=value metadata string
+    // e.g. "id=link1:type=nav" — may be empty string
+    openHyperlink(uri, params);
+  }
+});
+```
+
+`params` is the optional colon-separated key=value metadata string (e.g. `'id=link1:type=nav'`); it is an empty string when no metadata is provided. `uri` is the hyperlink target URL. An empty `uri` closes the currently active hyperlink.
+
+Protocol sequences:
+```
+OSC 8 ; params ; uri BEL   (open hyperlink: e.g. \x1b]8;id=link1;https://example.com\x07)
+OSC 8 ; ; BEL              (close hyperlink: \x1b]8;;\x07)
+```
 
 ### OSC 10 / 11 / 12 — Dynamic Color Query/Set
 
