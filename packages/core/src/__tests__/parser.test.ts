@@ -882,8 +882,12 @@ describe("VTParser", () => {
     it("does not interfere with other OSC callbacks", () => {
       let title = "";
       let shellEvent = "";
-      parser.setTitleChangeCallback((t) => { title = t; });
-      parser.setOsc133Callback((type, _payload) => { shellEvent = type; });
+      parser.setTitleChangeCallback((t) => {
+        title = t;
+      });
+      parser.setOsc133Callback((type, _payload) => {
+        shellEvent = type;
+      });
       write(parser, "\x1b]2;MyApp\x07");
       write(parser, "\x1b]133;A\x07");
       expect(title).toBe("MyApp");
