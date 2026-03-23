@@ -816,7 +816,7 @@ describe("VTParser", () => {
       expect(calledType).toBe("C");
     });
 
-    it("calls osc133 callback with type D and empty payload for exit code 0", () => {
+    it("calls osc133 callback with type D and payload '0' for exit code 0", () => {
       let calledType = "";
       let calledPayload = "unset";
       parser.setOsc133Callback((type, payload) => {
