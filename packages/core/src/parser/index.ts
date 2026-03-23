@@ -111,6 +111,13 @@ export class VTParser {
   // uri is the hyperlink target (empty string closes the link).
   private onOsc8: ((params: string, uri: string) => void) | null = null;
 
+  // OSC 133 shell integration callback: (type: string, payload: string) => void
+  // type is the event letter: "A" (prompt start), "B" (command start),
+  //   "C" (command output start), "D" (command end), "E" (command text), "P" (property), etc.
+  // payload is the string after the type letter and its optional semicolon separator
+  //   (e.g. exit code string for "D", "k=cwd;v=/path" for "P", empty string for A/B/C).
+  private onOsc133: ((type: string, payload: string) => void) | null = null;
+
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
   }
@@ -179,6 +186,17 @@ export class VTParser {
    */
   setOsc8Callback(cb: (params: string, uri: string) => void): void {
     this.onOsc8 = cb;
+  }
+
+  /** Register a callback for OSC 133 shell integration (semantic prompt) sequences.
+   *  `type` is the event letter: "A" (prompt start), "B" (command start),
+   *  "C" (command output start), "D" (command end), "E" (command text), "P" (property), etc.
+   *  `payload` is the string after the type letter and its optional semicolon separator
+   *  (both `133;<type>;<payload>` and `133;<type><payload>` forms are accepted; empty string
+   *  for A/B/C; exit-code digits for D; command text for E; key=value for P).
+   */
+  setOsc133Callback(cb: (type: string, payload: string) => void): void {
+    this.onOsc133 = cb;
   }
 
   get cursor(): CursorState {
@@ -1210,7 +1228,7 @@ export class VTParser {
         }
         break;
       }
-      // Other OSC codes (133) can be added later
+      // Other OSC codes can be added later
       case 8: // OSC 8 — hyperlinks
         // Format: 8;<params>;<uri>
         // <params> is optional colon-separated key=value metadata (may be "").
@@ -1254,6 +1272,29 @@ export class VTParser {
             if (end > pos) this.onOsc104(val);
             pos = end + 1; // skip past the ';'
           }
+        }
+        break;
+      case 133: // OSC 133 — shell integration / semantic prompts (FinalTerm protocol)
+        // Format: 133;<type>[;<payload>]
+        // <type> is a single ASCII letter: A (prompt start), B (command start),
+        //   C (command output start), D (command end), E (command text), P (property), …
+        // <payload> is everything after the type letter and its optional trailing semicolon.
+        if (this.onOsc133) {
+          // First byte after the code semicolon is the type letter.
+          const typeStart = semiIdx + 1;
+          if (typeStart >= this.oscLength) break; // malformed: no type letter
+          const typeLetter = String.fromCharCode(this.oscParts[typeStart]);
+          // Payload is everything after an optional semicolon following the type letter.
+          let osc133payload = "";
+          if (typeStart + 1 < this.oscLength) {
+            // Skip the separating semicolon if present.
+            const payloadStart =
+              this.oscParts[typeStart + 1] === 0x3b ? typeStart + 2 : typeStart + 1;
+            for (let i = payloadStart; i < this.oscLength; i++) {
+              osc133payload += String.fromCharCode(this.oscParts[i]);
+            }
+          }
+          this.onOsc133(typeLetter, osc133payload);
         }
         break;
     }
