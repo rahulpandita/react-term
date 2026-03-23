@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { BufferSet } from "../buffer.js";
 import { VTParser } from "../parser/index.js";
-import { readLineTrimmed, readScreen, write } from "./helpers.js";
+import { enc, readLineTrimmed, readScreen, write } from "./helpers.js";
 
 function setup(cols = 80, rows = 24) {
   const bs = new BufferSet(cols, rows);
@@ -215,7 +215,6 @@ describe("OSC 8 — split writes across sequence boundary", () => {
     });
 
     const seq = osc8Open("https://byte.example.com");
-    const enc = new TextEncoder();
     const bytes = enc.encode(seq);
     for (const b of bytes) {
       parser.write(new Uint8Array([b]));
