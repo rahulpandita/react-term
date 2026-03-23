@@ -191,8 +191,9 @@ export class VTParser {
   /** Register a callback for OSC 133 shell integration (semantic prompt) sequences.
    *  `type` is the event letter: "A" (prompt start), "B" (command start),
    *  "C" (command output start), "D" (command end), "E" (command text), "P" (property), etc.
-   *  `payload` is the string after the type letter and its semicolon separator
-   *  (empty string for A/B/C; exit-code digits for D; command text for E; key=value for P).
+   *  `payload` is the string after the type letter and its optional semicolon separator
+   *  (both `133;<type>;<payload>` and `133;<type><payload>` forms are accepted; empty string
+   *  for A/B/C; exit-code digits for D; command text for E; key=value for P).
    */
   setOsc133Callback(cb: (type: string, payload: string) => void): void {
     this.onOsc133 = cb;
