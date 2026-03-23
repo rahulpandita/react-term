@@ -529,7 +529,12 @@ export class InputHandler {
   /** Send pasted text, wrapping in bracketed paste sequences if enabled. */
   private sendPastedText(text: string): void {
     if (this.bracketedPasteMode) {
-      this.onData(toBytes(`\x1b[200~${text}\x1b[201~`));
+      // Strip nested bracket-paste markers from the pasted content:
+      // ESC[201~ could prematurely terminate the paste region on the receiver;
+      // ESC[200~ would create a malformed nested bracket-paste sequence.
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC is intentional here
+      const safe = text.replace(/\u001b\[20[01]~/g, "");
+      this.onData(toBytes(`\x1b[200~${safe}\x1b[201~`));
     } else {
       this.onData(toBytes(text));
     }

@@ -91,6 +91,40 @@ describe("InputHandler (DOM events)", () => {
       getTextarea().dispatchEvent(makePasteEvent("line1\nline2"));
       expect(decode(onData.mock.calls[0][0])).toBe("\x1b[200~line1\nline2\x1b[201~");
     });
+
+    // -----------------------------------------------------------------------
+    // Enforcement: nested/malformed sequence filtering
+    // -----------------------------------------------------------------------
+
+    it("strips ESC[201~ from pasted content to prevent premature bracket-paste termination", () => {
+      handler.setBracketedPasteMode(true);
+      getTextarea().dispatchEvent(makePasteEvent("evil\x1b[201~injected"));
+      expect(decode(onData.mock.calls[0][0])).toBe("\x1b[200~evilinjected\x1b[201~");
+    });
+
+    it("strips ESC[200~ from pasted content to prevent nested bracket-paste sequences", () => {
+      handler.setBracketedPasteMode(true);
+      getTextarea().dispatchEvent(makePasteEvent("start\x1b[200~end"));
+      expect(decode(onData.mock.calls[0][0])).toBe("\x1b[200~startend\x1b[201~");
+    });
+
+    it("strips both ESC[200~ and ESC[201~ when both appear in pasted content", () => {
+      handler.setBracketedPasteMode(true);
+      getTextarea().dispatchEvent(makePasteEvent("\x1b[200~safe\x1b[201~"));
+      expect(decode(onData.mock.calls[0][0])).toBe("\x1b[200~safe\x1b[201~");
+    });
+
+    it("does not strip bracket-paste markers when bracketed paste is disabled", () => {
+      // When mode is off the text is sent as-is; no stripping occurs
+      getTextarea().dispatchEvent(makePasteEvent("a\x1b[201~b"));
+      expect(decode(onData.mock.calls[0][0])).toBe("a\x1b[201~b");
+    });
+
+    it("handles multiple occurrences of ESC[201~ in pasted content", () => {
+      handler.setBracketedPasteMode(true);
+      getTextarea().dispatchEvent(makePasteEvent("x\x1b[201~y\x1b[201~z"));
+      expect(decode(onData.mock.calls[0][0])).toBe("\x1b[200~xyz\x1b[201~");
+    });
   });
 
   // -------------------------------------------------------------------------
