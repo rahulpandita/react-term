@@ -1,0 +1,254 @@
+// @vitest-environment jsdom
+/**
+ * Unit tests for the parser-worker entry point.
+ *
+ * The worker module registers a `message` event listener on `self` at import
+ * time.  In jsdom `self === window`, so we dispatch MessageEvents on `window`
+ * to exercise the worker's message handler and spy on `postMessage` to
+ * observe outbound flush/error messages.
+ */
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ErrorMessage, FlushMessage } from "../parser-worker.js";
+
+// ── Global stubs (must be installed before the module is imported) ──────────
+
+const sent: { data: unknown; transfer?: Transferable[] }[] = [];
+
+vi.stubGlobal(
+  "postMessage",
+  vi.fn((data: unknown, transfer?: Transferable[]) => {
+    sent.push({ data, transfer });
+  }),
+);
+vi.stubGlobal("close", vi.fn());
+
+// ── Import the worker module (registers the `message` listener on `self`) ───
+
+beforeAll(async () => {
+  await import("../parser-worker.js");
+});
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function dispatch(data: unknown): void {
+  window.dispatchEvent(new MessageEvent("message", { data }));
+}
+
+function enc(s: string): ArrayBuffer {
+  return new TextEncoder().encode(s).buffer;
+}
+
+function lastSent(): unknown {
+  return sent[sent.length - 1]?.data;
+}
+
+function lastFlush(): FlushMessage {
+  const msg = lastSent();
+  if (!msg || (msg as FlushMessage).type !== "flush") {
+    throw new Error(`Expected flush message, got: ${JSON.stringify(msg)}`);
+  }
+  return msg as FlushMessage;
+}
+
+/**
+ * Read the codepoint stored at a logical cell position from a transferred
+ * cellData ArrayBuffer.
+ *
+ * Cell layout (matches cell-grid.ts): 2 × uint32 per cell; the codepoint
+ * occupies the low 21 bits of word 0.  The grid uses a circular row buffer
+ * rotated by `rowOffset` (from the flush message; 0 on a freshly initialised
+ * terminal).
+ */
+function getCellCodepoint(
+  cellData: ArrayBuffer,
+  cols: number,
+  row: number,
+  col: number,
+  rowOffset: number,
+  rows: number,
+): number {
+  const CELL_SIZE = 2;
+  const physRow = (row + rowOffset) % rows;
+  const uint32 = new Uint32Array(cellData);
+  return uint32[(physRow * cols + col) * CELL_SIZE] & 0x1fffff;
+}
+
+// ── Per-test setup ───────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  sent.length = 0;
+  // Dispose any prior state (close() is stubbed so no real effect)
+  dispatch({ type: "dispose" });
+  sent.length = 0;
+  // Fresh non-SAB init
+  dispatch({ type: "init", cols: 80, rows: 24, scrollback: 100 });
+  sent.length = 0;
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+describe("init message", () => {
+  it("initialises the parser — cursor is at origin before any write", () => {
+    // 'A' placed at col 0 → cursor advances to col 1; row stays at 0
+    dispatch({ type: "write", data: enc("A") });
+    const flush = lastFlush();
+    expect(flush.cursor.row).toBe(0);
+    expect(flush.cursor.col).toBe(1);
+    expect(flush.isAlternate).toBe(false);
+    expect(flush.bytesProcessed).toBe(1);
+  });
+
+  it("SAB mode: flush omits cell-data transferables", () => {
+    sent.length = 0;
+    const sab = new SharedArrayBuffer(1024);
+    dispatch({ type: "init", cols: 40, rows: 10, scrollback: 50, sharedBuffer: sab });
+    sent.length = 0;
+    dispatch({ type: "write", data: enc("X") });
+    const flush = lastFlush();
+    expect(flush.cellData).toBeUndefined();
+    expect(flush.dirtyRows).toBeUndefined();
+    expect(flush.rowOffset).toBeUndefined();
+  });
+});
+
+describe("write message", () => {
+  it("reports correct bytesProcessed", () => {
+    dispatch({ type: "write", data: enc("Hello") });
+    expect(lastFlush().bytesProcessed).toBe(5);
+  });
+
+  it("flush cursor reflects actual position after two printable chars", () => {
+    dispatch({ type: "write", data: enc("Hi") });
+    const { cursor } = lastFlush();
+    expect(cursor.row).toBe(0);
+    expect(cursor.col).toBe(2);
+    expect(cursor.visible).toBe(true);
+    expect(cursor.style).toBe("block");
+  });
+
+  it("non-SAB flush includes cellData, dirtyRows, and rowOffset", () => {
+    dispatch({ type: "write", data: enc("Z") });
+    const flush = lastFlush();
+    expect(flush.cellData).toBeInstanceOf(ArrayBuffer);
+    expect(flush.dirtyRows).toBeInstanceOf(ArrayBuffer);
+    expect(typeof flush.rowOffset).toBe("number");
+  });
+
+  it("non-SAB flush transfers cellData as Transferable", () => {
+    dispatch({ type: "write", data: enc("T") });
+    const { transfer } = sent[sent.length - 1];
+    expect(Array.isArray(transfer)).toBe(true);
+    expect((transfer as ArrayBuffer[]).length).toBeGreaterThan(0);
+  });
+
+  it("cellData encodes the characters written to the terminal grid", () => {
+    dispatch({ type: "write", data: enc("Hi") });
+    const { cellData, rowOffset } = lastFlush();
+    expect(cellData).toBeInstanceOf(ArrayBuffer);
+    expect(typeof rowOffset).toBe("number");
+    expect(getCellCodepoint(cellData as ArrayBuffer, 80, 0, 0, rowOffset as number, 24)).toBe(
+      "H".charCodeAt(0),
+    );
+    expect(getCellCodepoint(cellData as ArrayBuffer, 80, 0, 1, rowOffset as number, 24)).toBe(
+      "i".charCodeAt(0),
+    );
+  });
+
+  it("dirtyRows buffer length matches the terminal row count", () => {
+    // Int32Array: 4 bytes per element; 24 rows → 96 bytes
+    dispatch({ type: "write", data: enc("X") });
+    const { dirtyRows } = lastFlush();
+    expect(dirtyRows).toBeInstanceOf(ArrayBuffer);
+    expect((dirtyRows as ArrayBuffer).byteLength).toBe(24 * 4);
+  });
+
+  it("cursor.col advances after printable ASCII characters", () => {
+    dispatch({ type: "write", data: enc("AB") });
+    expect(lastFlush().cursor.col).toBe(2);
+  });
+
+  it("isAlternate is false on the main buffer", () => {
+    dispatch({ type: "write", data: enc("A") });
+    expect(lastFlush().isAlternate).toBe(false);
+  });
+
+  it("isAlternate becomes true after switching to alt screen (DECSET 1049)", () => {
+    // ESC [ ? 1049 h — switch to alternate screen
+    const altOn = new Uint8Array([0x1b, 0x5b, 0x3f, 0x31, 0x30, 0x34, 0x39, 0x68]);
+    dispatch({ type: "write", data: altOn.buffer });
+    expect(lastFlush().isAlternate).toBe(true);
+  });
+
+  it("posts error when write arrives before init", () => {
+    dispatch({ type: "dispose" });
+    sent.length = 0;
+    dispatch({ type: "write", data: enc("X") });
+    const msg = lastSent() as ErrorMessage;
+    expect(msg.type).toBe("error");
+    expect(typeof msg.message).toBe("string");
+    expect(msg.message.length).toBeGreaterThan(0);
+  });
+});
+
+describe("resize message", () => {
+  it("resize flush resets cursor to (0, 0) with new dimensions", () => {
+    // Advance the cursor first so we can confirm resize resets it
+    dispatch({ type: "write", data: enc("ABCDE") });
+    sent.length = 0;
+    dispatch({ type: "resize", cols: 40, rows: 12, scrollback: 200 });
+    const flush = lastFlush();
+    expect(flush.cursor.row).toBe(0);
+    expect(flush.cursor.col).toBe(0);
+  });
+
+  it("resize flush has bytesProcessed = 0", () => {
+    dispatch({ type: "resize", cols: 40, rows: 12, scrollback: 200 });
+    expect(lastFlush().bytesProcessed).toBe(0);
+  });
+
+  it("non-SAB resize flush includes transferable cell data", () => {
+    dispatch({ type: "resize", cols: 40, rows: 12, scrollback: 100 });
+    const flush = lastFlush();
+    expect(flush.cellData).toBeInstanceOf(ArrayBuffer);
+    expect(flush.dirtyRows).toBeInstanceOf(ArrayBuffer);
+  });
+
+  it("cursor col is clamped within new column bounds after overflow write", () => {
+    // Resize to 10 cols then write 25 printable chars — wraps multiple times
+    const newCols = 10;
+    dispatch({ type: "resize", cols: newCols, rows: 10, scrollback: 50 });
+    sent.length = 0;
+    dispatch({ type: "write", data: enc("ABCDEFGHIJKLMNOPQRSTUVWXY") });
+    const col = lastFlush().cursor.col;
+    expect(col).toBeGreaterThanOrEqual(0);
+    expect(col).toBeLessThanOrEqual(newCols - 1);
+  });
+});
+
+describe("dispose message", () => {
+  it("calls self.close()", () => {
+    const closeSpy = vi.fn();
+    vi.stubGlobal("close", closeSpy);
+    dispatch({ type: "dispose" });
+    expect(closeSpy).toHaveBeenCalledOnce();
+    vi.stubGlobal("close", vi.fn());
+  });
+
+  it("write after dispose posts an error message", () => {
+    dispatch({ type: "dispose" });
+    sent.length = 0;
+    dispatch({ type: "write", data: enc("X") });
+    const msg = lastSent() as ErrorMessage;
+    expect(msg.type).toBe("error");
+  });
+
+  it("dispose is idempotent — second dispose does not throw", () => {
+    dispatch({ type: "dispose" });
+    sent.length = 0;
+    expect(() => dispatch({ type: "dispose" })).not.toThrow();
+  });
+});
