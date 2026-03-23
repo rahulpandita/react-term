@@ -19,6 +19,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **OSC 8** — clickable hyperlinks via `setOsc8Callback`
 - **OSC 10/11/12** — dynamic foreground/background/cursor color query/set via `setOsc10Callback`, `setOsc11Callback`, `setOsc12Callback`
 - **OSC 104** — reset indexed color palette entries via `setOsc104Callback`
+- **OSC 133** — shell integration / semantic prompts (FinalTerm protocol) via `setOsc133Callback`
 
 ## Quick Start
 
@@ -280,6 +281,58 @@ Protocol sequences:
 OSC 104 BEL             (reset entire palette)
 OSC 104 ; 5 BEL         (reset palette entry 5)
 OSC 104 ; 1 ; 3 ; 7 BEL (reset entries 1, 3, and 7)
+```
+
+### OSC 133 — Shell Integration (Semantic Prompts)
+
+```ts
+parser.setOsc133Callback((type: string, payload: string) => {
+  switch (type) {
+    case 'A': // Prompt start
+      markPromptStart();
+      break;
+    case 'B': // Command start — shell is ready for input
+      markCommandStart();
+      break;
+    case 'C': // Command output start — user pressed Enter
+      markOutputStart();
+      break;
+    case 'D': // Command end — payload is the exit code (e.g. '0', '127') or empty
+      const exitCode = payload === '' ? null : parseInt(payload, 10);
+      markCommandEnd(exitCode);
+      break;
+    case 'E': // Command text (for history) — payload is the command string
+      recordCommandText(payload);
+      break;
+    case 'P': // Property metadata — payload is 'key=value' pairs
+      applyProperty(payload);
+      break;
+    default:  // Any other letter is forwarded as-is
+      handleCustomMarker(type, payload);
+  }
+});
+```
+
+OSC 133 is the FinalTerm / shell integration protocol. Supported by bash, zsh, fish, and most modern shells when `$TERM_PROGRAM` is set. Shells emit these markers to annotate terminal output with semantic boundaries that host applications (terminals, IDEs, AI assistants) use to track prompt zones, capture command output, and read exit codes.
+
+| Type | Meaning | Payload |
+|------|---------|---------|
+| `A` | Prompt start | — |
+| `B` | Command start (shell waiting for input) | — |
+| `C` | Command output start (Enter pressed) | — |
+| `D` | Command end / exit | exit-code digits, e.g. `"0"`, `"127"` (empty = unknown) |
+| `E` | Command text (for history) | command string |
+| `P` | Property metadata | `key=value` pairs |
+| _(other)_ | Custom / forwarded | everything after separator |
+
+Protocol sequences:
+```
+OSC 133 ; A BEL             (prompt start)
+OSC 133 ; B BEL             (command start)
+OSC 133 ; C BEL             (output start)
+OSC 133 ; D ; 0 BEL         (command ended, exit code 0)
+OSC 133 ; E ; ls -la BEL    (command text "ls -la")
+OSC 133 ; P ; key=value BEL (property metadata)
 ```
 
 ## Development
