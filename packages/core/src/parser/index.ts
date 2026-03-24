@@ -65,6 +65,7 @@ export class VTParser {
   applicationCursorKeys = false; // DECCKM (mode 1)
   applicationKeypad = false; // DECKPAM / DECKPNM
   bracketedPasteMode = false; // mode 2004
+  syncedOutput = false; // mode 2026 — synchronized output (render gating)
   mouseProtocol: MouseProtocol = "none"; // modes 9, 1000, 1002, 1003
   mouseEncoding: MouseEncoding = "default"; // mode 1006
   sendFocusEvents = false; // mode 1004
@@ -117,6 +118,10 @@ export class VTParser {
   // payload is the string after the type letter and its optional semicolon separator
   //   (e.g. exit code string for "D", "k=cwd;v=/path" for "P", empty string for A/B/C).
   private onOsc133: ((type: string, payload: string) => void) | null = null;
+
+  // Synchronized output mode 2026 callback: (active: boolean) => void
+  // Called when mode 2026 is activated (true) or deactivated (false).
+  private onSyncOutput: ((active: boolean) => void) | null = null;
 
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
@@ -197,6 +202,15 @@ export class VTParser {
    */
   setOsc133Callback(cb: (type: string, payload: string) => void): void {
     this.onOsc133 = cb;
+  }
+
+  /** Register a callback for synchronized output mode 2026 changes.
+   *  Called with `true` when DECSET ?2026h activates the mode and `false`
+   *  when DECRST ?2026l deactivates it.  The web layer uses this to pause
+   *  and resume the render loop (frame buffering).
+   */
+  setSyncOutputCallback(cb: (active: boolean) => void): void {
+    this.onSyncOutput = cb;
   }
 
   get cursor(): CursorState {
@@ -986,7 +1000,9 @@ export class VTParser {
       case 2004: // Bracketed paste mode
         this.bracketedPasteMode = on;
         break;
-      case 2026: // Synchronized output (acknowledged but no-op)
+      case 2026: // Synchronized output — render gating
+        this.syncedOutput = on;
+        this.onSyncOutput?.(on);
         break;
     }
   }
@@ -1751,6 +1767,7 @@ export class VTParser {
     this.applicationCursorKeys = false;
     this.applicationKeypad = false;
     this.bracketedPasteMode = false;
+    this.syncedOutput = false;
     this.mouseProtocol = "none";
     this.mouseEncoding = "default";
     this.sendFocusEvents = false;

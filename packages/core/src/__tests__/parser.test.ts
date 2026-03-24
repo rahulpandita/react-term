@@ -894,4 +894,66 @@ describe("VTParser", () => {
       expect(shellEvent).toBe("A");
     });
   });
+
+  // ---- Synchronized Output (mode 2026) ------------------------------------
+
+  describe("sync output mode 2026", () => {
+    it("syncedOutput is false by default", () => {
+      expect(parser.syncedOutput).toBe(false);
+    });
+
+    it("DECSET ?2026h sets syncedOutput to true", () => {
+      write(parser, "\x1b[?2026h");
+      expect(parser.syncedOutput).toBe(true);
+    });
+
+    it("DECRST ?2026l sets syncedOutput to false", () => {
+      write(parser, "\x1b[?2026h");
+      write(parser, "\x1b[?2026l");
+      expect(parser.syncedOutput).toBe(false);
+    });
+
+    it("setSyncOutputCallback fires with true when mode is activated", () => {
+      let received: boolean | undefined;
+      parser.setSyncOutputCallback((active) => {
+        received = active;
+      });
+      write(parser, "\x1b[?2026h");
+      expect(received).toBe(true);
+    });
+
+    it("setSyncOutputCallback fires with false when mode is deactivated", () => {
+      let received: boolean | undefined;
+      parser.setSyncOutputCallback((active) => {
+        received = active;
+      });
+      write(parser, "\x1b[?2026h");
+      write(parser, "\x1b[?2026l");
+      expect(received).toBe(false);
+    });
+
+    it("callback fires correct sequence: true then false", () => {
+      const events: boolean[] = [];
+      parser.setSyncOutputCallback((active) => {
+        events.push(active);
+      });
+      write(parser, "\x1b[?2026h");
+      write(parser, "\x1b[?2026l");
+      expect(events).toEqual([true, false]);
+    });
+
+    it("does not throw when no callback is registered", () => {
+      expect(() => {
+        write(parser, "\x1b[?2026h");
+        write(parser, "\x1b[?2026l");
+      }).not.toThrow();
+    });
+
+    it("soft reset clears syncedOutput flag", () => {
+      write(parser, "\x1b[?2026h");
+      expect(parser.syncedOutput).toBe(true);
+      write(parser, "\x1b[!p"); // DECSTR — soft reset
+      expect(parser.syncedOutput).toBe(false);
+    });
+  });
 });

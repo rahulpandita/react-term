@@ -118,6 +118,8 @@ export class WebTerminal {
   private readonly useOffscreenRender: boolean;
   /** Track whether alternate buffer is active so we can detect switches. */
   private wasAlternate = false;
+  /** Track sync output mode to detect transitions. */
+  private _syncedOutput = false;
 
   // Scrollback viewport: 0 = live (bottom), positive = lines scrolled back
   private viewportOffset = 0;
@@ -431,6 +433,21 @@ export class WebTerminal {
     this.inputHandler.setMouseProtocol(this.parser.mouseProtocol);
     this.inputHandler.setMouseEncoding(this.parser.mouseEncoding);
     this.inputHandler.setSendFocusEvents(this.parser.sendFocusEvents);
+
+    // Synchronized output mode 2026: gate the main-thread render loop.
+    // The offscreen render worker has its own loop and is not gated here.
+    const isSynced = this.parser.syncedOutput;
+    if (isSynced !== this._syncedOutput) {
+      this._syncedOutput = isSynced;
+      if (!this.renderBridge) {
+        if (isSynced) {
+          this.renderer.stopRenderLoop();
+        } else {
+          this.renderer.startRenderLoop();
+          this.renderer.render();
+        }
+      }
+    }
 
     // Detect alternate buffer switch and re-attach renderer
     const isAlt = this.bufferSet.isAlternate;
