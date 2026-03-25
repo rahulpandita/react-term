@@ -240,6 +240,8 @@ function buildTable(): Uint8Array {
   range(State.DCS_PASSTHROUGH, 0x1c, 0x1f, Action.PUT, State.DCS_PASSTHROUGH);
   range(State.DCS_PASSTHROUGH, 0x20, 0x7e, Action.PUT, State.DCS_PASSTHROUGH);
   entry(State.DCS_PASSTHROUGH, 0x7f, Action.IGNORE, State.DCS_PASSTHROUGH);
+  // C1 ST (0x9c) terminates DCS and dispatches the handler
+  entry(State.DCS_PASSTHROUGH, 0x9c, Action.UNHOOK, State.GROUND);
 
   // ----- DCS_IGNORE -----
   range(State.DCS_IGNORE, 0x00, 0x17, Action.IGNORE, State.DCS_IGNORE);
