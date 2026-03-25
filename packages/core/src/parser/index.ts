@@ -52,6 +52,12 @@ export class VTParser {
   private readonly oscParts = new Uint8Array(VTParser.MAX_OSC_LENGTH);
   private oscLength = 0;
 
+  // DCS string collection — pre-allocated typed array avoids GC/hidden-class overhead
+  private static readonly MAX_DCS_LENGTH = 4096;
+  private readonly dcsParts = new Uint8Array(VTParser.MAX_DCS_LENGTH);
+  private dcsLength = 0;
+  private dcsFinal = 0;
+
   // UTF-8 decoding state
   private utf8Bytes = 0;
   private utf8Codepoint = 0;
@@ -122,6 +128,15 @@ export class VTParser {
   // Synchronized output mode 2026 callback: (active: boolean) => void
   // Called when mode 2026 is activated (true) or deactivated (false).
   private onSyncOutput: ((active: boolean) => void) | null = null;
+
+  // DCS handler callback: (finalByte, params, intermediate, data) => void
+  // finalByte: the final byte that triggered HOOK (0x40-0x7E, identifies the DCS command).
+  // params: numeric params collected before the intermediate/final (CSI-style; may be empty).
+  // intermediate: the single intermediate byte collected (0x20-0x2F), or 0 if none.
+  // data: the passthrough data collected between HOOK and ST, as a string.
+  private onDcs:
+    | ((finalByte: number, params: readonly number[], intermediate: number, data: string) => void)
+    | null = null;
 
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
@@ -213,6 +228,19 @@ export class VTParser {
     this.onSyncOutput = cb;
   }
 
+  /** Register a callback for DCS (Device Control String) sequences.
+   *  Called when a DCS sequence is fully received (terminated by ST or C1 ST).
+   *  `finalByte` identifies the DCS command (0x40–0x7E, e.g. 0x70 for 'p').
+   *  `params` are the numeric params collected before the intermediate/final byte.
+   *  `intermediate` is the single intermediate byte (0x20–0x2F), or 0 if none.
+   *  `data` is the passthrough string collected between the final byte and ST.
+   */
+  setDcsCallback(
+    cb: (finalByte: number, params: readonly number[], intermediate: number, data: string) => void,
+  ): void {
+    this.onDcs = cb;
+  }
+
   get cursor(): CursorState {
     return this.bufferSet.active.cursor;
   }
@@ -264,6 +292,8 @@ export class VTParser {
         if (next === 0x5c) {
           if (state === State.OSC_STRING) {
             this.oscDispatch();
+          } else if (state === State.DCS_PASSTHROUGH) {
+            this.dcsDispatch();
           }
           // Clear params/intermediates so no state leaks from aborted sequences
           this.clear();
@@ -558,10 +588,16 @@ export class VTParser {
           this.csiDispatch(byte);
           break;
         case Action.PUT:
-          // DCS passthrough read-ahead — skip printable content bytes.
-          // We don't implement DCS handlers, so just advance past the data.
+          // DCS passthrough read-ahead — collect data bytes into the DCS buffer.
+          // Cap at MAX_DCS_LENGTH to prevent unbounded growth on malformed input.
+          if (this.dcsLength < VTParser.MAX_DCS_LENGTH) {
+            this.dcsParts[this.dcsLength++] = byte;
+          }
           while (i + 1 < len && data[i + 1] >= 0x20 && data[i + 1] <= 0x7e) {
             i++;
+            if (this.dcsLength < VTParser.MAX_DCS_LENGTH) {
+              this.dcsParts[this.dcsLength++] = data[i];
+            }
           }
           break;
         case Action.OSC_START:
@@ -587,7 +623,18 @@ export class VTParser {
         case Action.CLEAR:
           this.clear();
           break;
-        // NONE, HOOK, UNHOOK, IGNORE — no-op
+        case Action.HOOK:
+          // DCS HOOK: the final byte has been received; snapshot params and
+          // record the final byte, then reset the data buffer for collection.
+          this.finalizeParams();
+          this.dcsFinal = byte;
+          this.dcsLength = 0;
+          break;
+        case Action.UNHOOK:
+          // DCS UNHOOK: ST (C1 0x9c) terminated the DCS sequence.
+          this.dcsDispatch();
+          break;
+        // NONE, IGNORE — no-op
       }
     }
 
@@ -1084,6 +1131,23 @@ export class VTParser {
         buf.tabStops.add(buf.cursor.col);
         break;
     }
+  }
+
+  // ---- DCS dispatch ----
+
+  private dcsDispatch(): void {
+    if (!this.onDcs) return;
+    // Build the data string from collected passthrough bytes
+    let data = "";
+    for (let i = 0; i < this.dcsLength; i++) {
+      data += String.fromCharCode(this.dcsParts[i]);
+    }
+    // Build the params snapshot (already finalized by finalizeParams() in HOOK)
+    const params: number[] = [];
+    for (let i = 0; i < this.paramCount; i++) {
+      params.push(this.params[i]);
+    }
+    this.onDcs(this.dcsFinal, params, this.intermediatesByte, data);
   }
 
   // ---- OSC dispatch ----
