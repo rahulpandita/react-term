@@ -368,4 +368,49 @@ describe("WebTerminal", () => {
       expect(container.querySelector("canvas")).toBeNull();
     });
   });
+
+  // ---- Synchronized output (mode 2026) -----------------------------------
+
+  describe("synchronized output (mode 2026)", () => {
+    it("stops the render loop when ?2026h is received", () => {
+      patchCanvas();
+      const t = make(container);
+      const stopSpy = vi.spyOn(Canvas2DRenderer.prototype, "stopRenderLoop");
+      t.write("\x1b[?2026h");
+      expect(stopSpy).toHaveBeenCalledTimes(1);
+      t.dispose();
+    });
+
+    it("restarts the render loop when ?2026l is received", () => {
+      patchCanvas();
+      const t = make(container);
+      const startSpy = vi.spyOn(Canvas2DRenderer.prototype, "startRenderLoop");
+      t.write("\x1b[?2026h");
+      startSpy.mockClear();
+      t.write("\x1b[?2026l");
+      expect(startSpy).toHaveBeenCalledTimes(1);
+      t.dispose();
+    });
+
+    it("calls render() immediately when sync output ends (frame flush)", () => {
+      patchCanvas();
+      const t = make(container);
+      const renderSpy = vi.spyOn(Canvas2DRenderer.prototype, "render");
+      t.write("\x1b[?2026h");
+      renderSpy.mockClear();
+      t.write("\x1b[?2026l");
+      expect(renderSpy).toHaveBeenCalledTimes(1);
+      t.dispose();
+    });
+
+    it("does not stop/start the loop when mode is already off", () => {
+      patchCanvas();
+      const t = make(container);
+      const stopSpy = vi.spyOn(Canvas2DRenderer.prototype, "stopRenderLoop");
+      // Sending ?2026l without activating first must not call stop
+      t.write("\x1b[?2026l");
+      expect(stopSpy).not.toHaveBeenCalled();
+      t.dispose();
+    });
+  });
 });
