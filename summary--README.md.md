@@ -1,1 +1,1 @@
-h:16213 Features: off-main-thread, WebGL2, SAB, Canvas2D, React Native/Skia, multi-pane, accessibility, addons, OSC 52/4/7/8/10/11/12/104/133. OSC133=shell integration FinalTerm. Packages: core/web/react/native.
+h:14053 Features: off-main-thread, WebGL2, SAB, Canvas2D fallback, React Native/Skia, multi-pane, accessibility, addons, VT100/ANSI, OSC 52/4/7/8/10/11/12/104. Packages: core/web/react/native. Quick-start, rendering strategies, VTParser callbacks.

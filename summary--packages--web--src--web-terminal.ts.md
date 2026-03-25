@@ -1,1 +1,1 @@
-h:27791
+h:28370 WebTerminal: _syncedOutput tracks mode 2026. syncParserModes() gates main-thread loop: stopRenderLoop on ?2026h, startRenderLoop+render on ?2026l. Offscreen worker not gated. Options: cols,rows,fontSize,fontFamily,theme,scrollback,useWorker,renderer,renderMode,onData,onResize,onTitleChange.
