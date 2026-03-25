@@ -20,6 +20,8 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **OSC 10/11/12** — dynamic foreground/background/cursor color query/set via `setOsc10Callback`, `setOsc11Callback`, `setOsc12Callback`
 - **OSC 104** — reset indexed color palette entries via `setOsc104Callback`
 - **OSC 133** — shell integration / semantic prompts (FinalTerm protocol) via `setOsc133Callback`
+- **Bracketed paste** — DEC mode 2004 with injection-safe marker stripping; nested `ESC[200~`/`ESC[201~` sequences in pasted content are automatically stripped to prevent terminal injection attacks
+- **DEC mode 2026** — synchronized output render gating; `setSyncOutputCallback` notifies when the mode activates/deactivates, pausing/resuming the main-thread render loop for flicker-free batch updates
 
 ## Quick Start
 
@@ -333,6 +335,33 @@ OSC 133 ; C BEL             (output start)
 OSC 133 ; D ; 0 BEL         (command ended, exit code 0)
 OSC 133 ; E ; ls -la BEL    (command text "ls -la")
 OSC 133 ; P ; key=value BEL (property metadata)
+```
+
+### DEC Mode 2026 — Synchronized Output
+
+```ts
+parser.setSyncOutputCallback((active: boolean) => {
+  if (active) {
+    // Mode activated: terminal is about to receive a batch of output.
+    // Pause rendering to avoid partial-frame flicker.
+    renderer.stopRenderLoop();
+  } else {
+    // Mode deactivated: batch is complete.
+    // Resume rendering and flush one immediate frame.
+    renderer.startRenderLoop();
+    renderer.render();
+  }
+});
+```
+
+`active` is `true` when DECSET `?2026h` enables the mode and `false` when DECRST `?2026l` disables it. The `WebTerminal` class handles this automatically for main-thread rendering (Canvas 2D); the offscreen render worker has its own loop and is not affected.
+
+The `syncedOutput` boolean property on `VTParser` reflects the current state and is reset to `false` by soft reset (DECSTR, `ESC [ ! p`).
+
+Protocol sequences:
+```
+ESC [ ? 2026 h   (activate synchronized output — pause rendering)
+ESC [ ? 2026 l   (deactivate synchronized output — resume rendering)
 ```
 
 ## Development
