@@ -22,6 +22,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **OSC 133** — shell integration / semantic prompts (FinalTerm protocol) via `setOsc133Callback`
 - **Bracketed paste** — DEC mode 2004 with injection-safe marker stripping; nested `ESC[200~`/`ESC[201~` sequences in pasted content are automatically stripped to prevent terminal injection attacks
 - **DEC mode 2026** — synchronized output render gating; `setSyncOutputCallback` notifies when the mode activates/deactivates, pausing/resuming the main-thread render loop for flicker-free batch updates
+- **DCS handler framework** — `setDcsCallback` dispatches fully-parsed DCS (Device Control String) sequences (final byte, params, intermediate, passthrough data) to application code; unlocks tmux passthrough and custom protocol extensions
 
 ## Quick Start
 
@@ -363,6 +364,44 @@ Protocol sequences:
 ESC [ ? 2026 h   (activate synchronized output — pause rendering)
 ESC [ ? 2026 l   (deactivate synchronized output — resume rendering)
 ```
+
+### DCS — Device Control String Handler
+
+```ts
+parser.setDcsCallback((
+  finalByte: number,
+  params: readonly number[],
+  intermediate: number,
+  data: string,
+) => {
+  // finalByte identifies the DCS command (e.g. 0x70 = 'p', 0x71 = 'q')
+  // params are the numeric parameters before the intermediate/final byte
+  // intermediate is the single intermediate byte (0x20–0x2F), or 0 if none
+  // data is the passthrough string between the final byte and ST
+
+  if (finalByte === 0x70 /* 'p' */ && intermediate === 0) {
+    // Example: handle a custom DCS p sequence
+    handleCustomDcs(params, data);
+  }
+});
+```
+
+`setDcsCallback` registers a handler that is called once per fully-received DCS sequence — after the String Terminator (`ESC \` or C1 ST `0x9C`). The data collection buffer is capped at 4096 bytes to prevent unbounded memory growth on malformed input.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `finalByte` | `number` | Final byte that triggered the sequence (0x40–0x7E), e.g. `0x70` for `'p'` |
+| `params` | `readonly number[]` | Numeric params collected before the intermediate/final byte (CSI-style; may be empty) |
+| `intermediate` | `number` | Single intermediate byte (0x20–0x2F), or `0` if none |
+| `data` | `string` | Passthrough bytes between the final byte and ST, as a string (max 4096 chars) |
+
+Protocol sequences:
+```
+ESC P <params> <intermediate> <finalByte> <data> ESC \   (7-bit: ESC P … ESC \)
+ESC P <params> <intermediate> <finalByte> <data> 0x9C    (8-bit: ESC P … C1 ST)
+```
+
+Common use-cases: tmux passthrough (`DCS tmux; ... ST`), DECRQSS responses, Sixel graphics (`DCS … q … ST`), ReGIS graphics.
 
 ## Development
 
