@@ -1,4 +1,4 @@
-Last: 2026-03-25 run 23523550674. Tasks: 3+7.
-Tests: 1096(main) 1115(branch). Open: test-assist/input-handler-touch.
-Merged: #44 #48 #51 #56. Backlog: react-components(blocked) render-worker(WebGL).
-Touch: plain JS obj in new TouchEvent() — jsdom has TouchEvent not Touch.
+Last: 2026-03-26 run 23576302637. Tasks: 2+3+7.
+Tests: 1127(main) 1146(branch). Open PR: test-assist/input-handler-mouse.
+Touch: plain JS obj in new TouchEvent() (jsdom no Touch ctor).
+Mouse: mousemove/mouseup on document. buttons prop in MouseEventInit works.
