@@ -125,7 +125,7 @@ describe("InputHandler (touch events)", () => {
       dispatchTouchMove([touch(CELL_W * 3, 0)]);
       dispatchTouchMove([touch(CELL_W * 4, 0)]); // net: +CELL_W from last
       expect(onData).toHaveBeenCalled();
-      const sequences = onData.mock.calls.map((c: [Uint8Array]) => decode(c[0]));
+      const sequences = onData.mock.calls.map((c: Uint8Array[]) => decode(c[0]));
       expect(sequences.every((s: string) => s === "\x1b[C")).toBe(true);
     });
 
@@ -134,7 +134,7 @@ describe("InputHandler (touch events)", () => {
       dispatchTouchMove([touch(100 - CELL_W * 3, 0)]); // lock direction
       dispatchTouchMove([touch(100 - CELL_W * 4, 0)]); // net: -CELL_W
       expect(onData).toHaveBeenCalled();
-      const sequences = onData.mock.calls.map((c: [Uint8Array]) => decode(c[0]));
+      const sequences = onData.mock.calls.map((c: Uint8Array[]) => decode(c[0]));
       expect(sequences.every((s: string) => s === "\x1b[D")).toBe(true);
     });
 
@@ -142,7 +142,7 @@ describe("InputHandler (touch events)", () => {
       dispatchTouchStart([touch(0, 0)]);
       // Move right by 3*CELL_W in one step to lock horizontal and send 3 arrows
       dispatchTouchMove([touch(CELL_W * 3 + 1, 0)]); // lock + 3 steps
-      const seqs = onData.mock.calls.map((c: [Uint8Array]) => decode(c[0]));
+      const seqs = onData.mock.calls.map((c: Uint8Array[]) => decode(c[0]));
       const rightArrows = seqs.filter((s: string) => s === "\x1b[C");
       expect(rightArrows.length).toBe(3);
     });
