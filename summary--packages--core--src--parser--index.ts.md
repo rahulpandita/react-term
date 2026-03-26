@@ -1,1 +1,1 @@
-h:59138 VTParser: table-driven VT100/ANSI. syncedOutput(mode 2026), setSyncOutputCallback. OSC:0/1/2/4/7/8/10/11/12/52/104/133. Modes: appCursorKeys,appKeypad,bracketedPaste,mouseProtocol,mouseEncoding,focusEvents.
+h:61925 VTParser: table-driven VT100/ANSI. syncedOutput(mode 2026), setSyncOutputCallback. OSC:0/1/2/4/7/8/10/11/12/52/104/133. Modes: appCursorKeys,appKeypad,bracketedPaste,mouseProtocol,mouseEncoding,focusEvents. DCS: setDcsCallback(finalByte,params,intermediate,data); MAX_DCS_LENGTH=4096; dispatched on ESC-backslash or C1-ST(0x9c).
