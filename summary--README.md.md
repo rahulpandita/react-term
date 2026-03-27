@@ -1,1 +1,1 @@
-h:19560 README: off-main-thread,WebGL2,SAB,Canvas2D,RN/Skia,multi-pane,a11y,addons,VT100/ANSI,OSC52/4/7/8/10/11/12/104/133,bracketed-paste(2004,injection-safe),dec2026(setSyncOutputCallback),DCS(setDcsCallback:finalByte/params/intermediate/data,4096bytecap,tmuxpassthrough).pkgs:core/web/react/native.
+h:17637 README:off-main-thread,WebGL2,SAB,Canvas2D,RN/Skia,multi-pane,a11y,addons,VT100/ANSI,OSC52/4/7/8/10/11/12/104/133,mode2004,mode2026,DCS-tmux

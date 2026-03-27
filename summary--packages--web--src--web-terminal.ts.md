@@ -1,1 +1,1 @@
-h:28370 WebTerminal:_syncedOutput tracks mode2026,syncParserModes()gates main-thread loop.Options:cols,rows,fontSize,fontFamily,theme,scrollback,useWorker,renderer,renderMode,onData,onResize,onTitleChange.
+h:28370 WebTerminal:cols,rows,fontSize,fontFamily,theme,scrollback,useWorker,renderer,renderMode,onData,onResize,onTitleChange.syncedOutput,syncParserModes()
