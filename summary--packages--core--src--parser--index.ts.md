@@ -1,1 +1,1 @@
-h:61925 VTParser:table-driven VT100/ANSI.syncedOutput(mode2026),setSyncOutputCallback(cb).bracketedPasteMode(2004).OSC:4/7/8/10/11/12/52/104/133.DECSTR resets syncedOutput+bracketedPasteMode.
+h:66527 VTParser:table-driven VT100/ANSI.syncedOutput(mode2026),setSyncOutputCallback(cb).bracketedPasteMode(2004).OSC:4/7/8/10/11/12/52/104/133.setDcsCallback(finalByte,params,intermediate,data).setDcsTmuxCallback(innerSeq).DCS buf capped 4096 bytes.DECSTR resets syncedOutput+bracketedPasteMode.
