@@ -22,7 +22,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **OSC 133** — shell integration / semantic prompts (FinalTerm protocol) via `setOsc133Callback`
 - **Bracketed paste** — DEC mode 2004 with injection-safe marker stripping; nested `ESC[200~`/`ESC[201~` sequences in pasted content are automatically stripped to prevent terminal injection attacks
 - **DEC mode 2026** — synchronized output render gating; `setSyncOutputCallback` notifies when the mode activates/deactivates, pausing/resuming the main-thread render loop for flicker-free batch updates
-- **DCS handler framework** — `setDcsCallback` dispatches fully-parsed DCS (Device Control String) sequences (final byte, params, intermediate, passthrough data) to application code; unlocks tmux passthrough and custom protocol extensions
+- **DCS handler framework** — `setDcsCallback` dispatches fully-parsed DCS sequences (final byte, params, intermediate, passthrough data) to application code; `setDcsTmuxCallback` handles tmux passthrough (`ESC P tmux; … ESC \`) and automatically re-processes decoded inner sequences through the parser
 
 ## Quick Start
 
@@ -402,6 +402,34 @@ ESC P <params> <intermediate> <finalByte> <data> 0x9C    (8-bit: ESC P … C1 ST
 ```
 
 Common use-cases: tmux passthrough (`DCS tmux; ... ST`), DECRQSS responses, Sixel graphics (`DCS … q … ST`), ReGIS graphics.
+
+### DCS tmux Passthrough
+
+```ts
+parser.setDcsTmuxCallback((innerSeq: string) => {
+  // innerSeq is the decoded inner escape sequence string
+  // (doubled ESCs unescaped: \x1b\x1b → \x1b)
+  console.log('tmux passthrough inner sequence:', JSON.stringify(innerSeq));
+  // The inner sequence is also automatically re-processed through the parser,
+  // so VT effects (SGR, OSC, cursor control) are applied without extra work.
+});
+```
+
+`setDcsTmuxCallback` registers a handler called when the parser receives a tmux DCS passthrough sequence of the form `ESC P tmux; ESC ESC <inner> ESC \`. The inner escape sequence is decoded (doubled ESCs are unescaped) and passed as a string. The callback fires **before** the inner sequence is re-processed — the parser automatically replays the inner bytes through the VT state machine so terminal effects (SGR colors, OSC titles, cursor movement, etc.) apply transparently.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `innerSeq` | `string` | Decoded inner escape sequence; `\x1b\x1b` in the raw passthrough is decoded to a single `\x1b` |
+
+Protocol sequence (7-bit):
+```
+ESC P tmux; ESC ESC <inner-seq> ESC \
+```
+
+Where `<inner-seq>` is any VT sequence with its `ESC` bytes doubled. For example, `ESC[1m` (bold) is wrapped as:
+```
+\x1bPtmux;\x1b\x1b[1m\x1b\
+```
 
 ## Development
 
