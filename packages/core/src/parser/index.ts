@@ -58,6 +58,18 @@ export class VTParser {
   private dcsLength = 0;
   private dcsFinal = 0;
 
+  // DCS tmux passthrough collection — bypasses state machine for inner sequences
+  // tmuxSeeking: true after HOOK with dcsFinal='t' while we verify "mux;" prefix
+  // inTmuxDcs: true once "mux;" confirmed; raw bytes collected into tmuxParts
+  // tmuxPrevWasEsc: tracks pending ESC for \x1b\x1b unescaping and outer-ST detection
+  private static readonly MAX_TMUX_LENGTH = 8192;
+  private readonly tmuxParts = new Uint8Array(VTParser.MAX_TMUX_LENGTH);
+  private tmuxLength = 0;
+  private tmuxSeeking = false;
+  private inTmuxDcs = false;
+  private tmuxPrevWasEsc = false;
+  private tmuxDepth = 0; // recursion guard for dispatchTmux
+
   // UTF-8 decoding state
   private utf8Bytes = 0;
   private utf8Codepoint = 0;
@@ -137,6 +149,12 @@ export class VTParser {
   private onDcs:
     | ((finalByte: number, params: readonly number[], intermediate: number, data: string) => void)
     | null = null;
+
+  // DCS tmux passthrough callback: (innerSeq: string) => void
+  // Called when a tmux-wrapped DCS sequence (ESC P tmux; ... ESC \) is received,
+  // with the decoded inner escape sequence string (ESCs already unescaped).
+  // The inner sequence is also processed through the parser automatically.
+  private onDcsTmux: ((innerSeq: string) => void) | null = null;
 
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
@@ -241,6 +259,15 @@ export class VTParser {
     this.onDcs = cb;
   }
 
+  /** Register a callback for DCS tmux passthrough sequences.
+   *  Called when the outer DCS tmux wrapper (ESC P tmux; ... ESC \) is received.
+   *  `innerSeq` is the decoded inner escape sequence string (with doubled ESCs unescaped).
+   *  The inner sequence is also automatically processed through the parser.
+   */
+  setDcsTmuxCallback(cb: (innerSeq: string) => void): void {
+    this.onDcsTmux = cb;
+  }
+
   get cursor(): CursorState {
     return this.bufferSet.active.cursor;
   }
@@ -281,6 +308,48 @@ export class VTParser {
     const len = data.length;
     for (let i = 0; i < len; i++) {
       const byte = data[i];
+
+      // DCS tmux passthrough: once inTmuxDcs is set (after confirming "mux;" prefix),
+      // we collect all bytes raw (bypassing the VT state machine) and only stop on
+      // the outer ESC \ terminator. Each \x1b\x1b pair in the data decodes to one \x1b;
+      // a lone \x1b followed by \ is the outer string terminator.
+      if (this.inTmuxDcs) {
+        if (byte === 0x1b) {
+          if (this.tmuxPrevWasEsc) {
+            // \x1b\x1b → decoded as single ESC in inner sequence
+            if (this.tmuxLength < VTParser.MAX_TMUX_LENGTH) {
+              this.tmuxParts[this.tmuxLength++] = 0x1b;
+            }
+            this.tmuxPrevWasEsc = false;
+          } else {
+            this.tmuxPrevWasEsc = true;
+          }
+          continue;
+        }
+        if (this.tmuxPrevWasEsc) {
+          this.tmuxPrevWasEsc = false;
+          if (byte === 0x5c) {
+            // \x1b\ → outer ST, end of tmux DCS passthrough
+            this.inTmuxDcs = false;
+            state = State.GROUND;
+            this.dispatchTmux();
+            continue;
+          }
+          // ESC followed by a non-backslash byte: emit ESC then the byte
+          if (this.tmuxLength < VTParser.MAX_TMUX_LENGTH) {
+            this.tmuxParts[this.tmuxLength++] = 0x1b;
+          }
+          if (this.tmuxLength < VTParser.MAX_TMUX_LENGTH) {
+            this.tmuxParts[this.tmuxLength++] = byte;
+          }
+          continue;
+        }
+        // Regular passthrough byte
+        if (this.tmuxLength < VTParser.MAX_TMUX_LENGTH) {
+          this.tmuxParts[this.tmuxLength++] = byte;
+        }
+        continue;
+      }
 
       // ESC sequence fast-path: peek at the next byte to handle common
       // multi-byte escape sequences without per-byte table lookups.
@@ -599,6 +668,20 @@ export class VTParser {
               this.dcsParts[this.dcsLength++] = data[i];
             }
           }
+          // Check for tmux prefix once we have at least 4 bytes ("mux;")
+          if (this.tmuxSeeking && this.dcsLength >= 4) {
+            this.tmuxSeeking = false;
+            if (
+              this.dcsParts[0] === 0x6d && // 'm'
+              this.dcsParts[1] === 0x75 && // 'u'
+              this.dcsParts[2] === 0x78 && // 'x'
+              this.dcsParts[3] === 0x3b // ';'
+            ) {
+              this.inTmuxDcs = true;
+              this.tmuxLength = 0;
+              this.tmuxPrevWasEsc = false;
+            }
+          }
           break;
         case Action.OSC_START:
           this.oscLength = 0;
@@ -629,6 +712,12 @@ export class VTParser {
           this.finalizeParams();
           this.dcsFinal = byte;
           this.dcsLength = 0;
+          // Start tmux-seeking if final byte is 't' (0x74) — we'll verify the
+          // "mux;" prefix as PUT bytes arrive.
+          this.tmuxSeeking = byte === 0x74;
+          this.inTmuxDcs = false;
+          this.tmuxLength = 0;
+          this.tmuxPrevWasEsc = false;
           break;
         case Action.UNHOOK:
           // DCS UNHOOK: ST (C1 0x9c) terminated the DCS sequence.
@@ -1136,6 +1225,9 @@ export class VTParser {
   // ---- DCS dispatch ----
 
   private dcsDispatch(): void {
+    // Reset tmux-seeking state on any DCS dispatch (sequence ended)
+    this.tmuxSeeking = false;
+    this.inTmuxDcs = false;
     if (!this.onDcs) return;
     // Build the data string from collected passthrough bytes
     let data = "";
@@ -1148,6 +1240,27 @@ export class VTParser {
       params.push(this.params[i]);
     }
     this.onDcs(this.dcsFinal, params, this.intermediatesByte, data);
+  }
+
+  // ---- DCS tmux passthrough dispatch ----
+
+  private dispatchTmux(): void {
+    if (this.tmuxDepth > 0) return; // guard against recursive tmux passthrough
+    const len = this.tmuxLength;
+    if (len === 0) return;
+    // Build the inner sequence string for the callback
+    let inner = "";
+    for (let i = 0; i < len; i++) {
+      inner += String.fromCharCode(this.tmuxParts[i]);
+    }
+    if (this.onDcsTmux) {
+      this.onDcsTmux(inner);
+    }
+    // Re-process the decoded inner sequence through the parser
+    this.tmuxDepth++;
+    this.write(this.tmuxParts.subarray(0, len));
+    this.tmuxDepth--;
+    this.tmuxLength = 0;
   }
 
   // ---- OSC dispatch ----
