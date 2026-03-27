@@ -1,2 +1,1 @@
 - Build: node_modules/.bin/vitest run
-- Commit: git commit --no-verify
