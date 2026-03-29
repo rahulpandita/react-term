@@ -1,4 +1,4 @@
-Last: 2026-03-28 run 23676528733. Tasks: 3+7.
-Tests: 1157(main) 1172(branch). Open PRs: #68(keyboard), test-assist/web-links-mouse(15 weblinks tests).
-Touch: plain JS obj in TouchEvent (jsdom no Touch ctor). Mouse: mousemove/mouseup on document.
-WebLinks: mock terminal as {element,activeGrid,getCellSize}. jsdom rect={left:0,top:0}.
+Last: 2026-03-29 run 23700693951. Tasks: 3+4+7.
+Tests: 1157→1174. PRs: #68(keyboard), #71(weblinks), renderer-render-paths(17 tests).
+Mock tips: Canvas2DRenderer needs @vitest-environment jsdom. DrawOp[] captures fillStyle at draw time. Touch=plain JS obj. Mouse=on document. WebLinks mock={element,activeGrid,getCellSize}.
+Backlog: react-components(blocked), render-worker(blocked-WebGL).
