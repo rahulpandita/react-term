@@ -413,4 +413,128 @@ describe("WebTerminal", () => {
       t.dispose();
     });
   });
+
+  describe("scrollback viewport", () => {
+    /** Create a 3-row terminal — easy to overflow into scrollback. */
+    function make3(extra: ConstructorParameters<typeof WebTerminal>[1] = {}) {
+      return make(container, { rows: 3, scrollback: 100, ...extra });
+    }
+
+    /** Write N lines ("LINE1\n", "LINE2\n", …) to push content into scrollback. */
+    function writeLines(term: WebTerminal, count: number): void {
+      for (let i = 1; i <= count; i++) {
+        term.write(`LINE${i}\n`);
+      }
+    }
+
+    it("pushes rows into scrollback when content overflows the terminal height", () => {
+      const term = make3();
+      writeLines(term, 5);
+      // 5 lines into a 3-row terminal — rows 1 & 2 should have scrolled off
+      const bs = (term as unknown as Record<string, { scrollback: unknown[] }>).bufferSet;
+      expect(bs.scrollback.length).toBeGreaterThan(0);
+      term.dispose();
+    });
+
+    it("scrollViewport increases viewportOffset (scrolls toward older content)", () => {
+      const term = make3();
+      writeLines(term, 5);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(1);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(1);
+      term.dispose();
+    });
+
+    it("scrollViewport clamps to maximum scrollback length", () => {
+      const term = make3();
+      writeLines(term, 5);
+      const bs = (term as unknown as Record<string, { scrollback: unknown[] }>).bufferSet;
+      const maxOffset = bs.scrollback.length;
+      // Request more than available — should stop at max
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(maxOffset + 1000);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(maxOffset);
+      term.dispose();
+    });
+
+    it("scrollViewport with delta 0 leaves viewportOffset unchanged", () => {
+      const term = make3();
+      writeLines(term, 5);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(1);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(0);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(1);
+      term.dispose();
+    });
+
+    it("buildDisplayGrid is created when scrolled back", () => {
+      const term = make3();
+      writeLines(term, 5);
+      expect((term as unknown as Record<string, null>).displayGrid).toBeNull();
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(1);
+      expect((term as unknown as Record<string, unknown>).displayGrid).not.toBeNull();
+      term.dispose();
+    });
+
+    it("buildDisplayGrid content comes from scrollback at correct offset", () => {
+      const term = make3();
+      // Write exactly 4 lines: LINE1..4 into a 3-row terminal.
+      // Scrolling analysis:
+      //   After LINE3\n: LINE1 pushed to scrollback; live = [LINE2, LINE3, blank]
+      //   After LINE4\n: LINE2 pushed to scrollback; live = [LINE3, LINE4, blank]
+      // scrollback = [LINE1, LINE2]; scrollViewport(2) → viewportTop = 0
+      //   → displayGrid row 0 = scrollback[0] = LINE1
+      term.write("LINE1\n");
+      term.write("LINE2\n");
+      term.write("LINE3\n");
+      term.write("LINE4\n");
+      // Scroll back all the way to see LINE1 in display row 0
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
+      const dg = (term as unknown as Record<string, import("@react-term/core").CellGrid>)
+        .displayGrid;
+      expect(dg).not.toBeNull();
+      // Row 0 of the display grid should contain LINE1
+      const row0 = extractText(dg, 0, 0, 0, 4);
+      expect(row0).toBe("LINE1");
+      term.dispose();
+    });
+
+    it("snapToBottom resets viewportOffset to 0 and clears displayGrid", () => {
+      const term = make3();
+      writeLines(term, 5);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
+      (term as unknown as Record<string, () => void>).snapToBottom();
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(0);
+      expect((term as unknown as Record<string, null>).displayGrid).toBeNull();
+      term.dispose();
+    });
+
+    it("writing new data snaps the viewport back to live view", () => {
+      const term = make3();
+      writeLines(term, 5);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
+      // write() calls snapToBottom() internally
+      term.write("X");
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(0);
+      term.dispose();
+    });
+
+    it("negative scrollViewport delta moves toward live view", () => {
+      const term = make3();
+      writeLines(term, 5);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(-1);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(1);
+      term.dispose();
+    });
+
+    it("scrolling below 0 clamps viewportOffset to 0", () => {
+      const term = make3();
+      writeLines(term, 5);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(1);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(-100);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(0);
+      term.dispose();
+    });
+  });
 });
