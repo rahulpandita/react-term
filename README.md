@@ -23,6 +23,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **Bracketed paste** — DEC mode 2004 with injection-safe marker stripping; nested `ESC[200~`/`ESC[201~` sequences in pasted content are automatically stripped to prevent terminal injection attacks
 - **DEC mode 2026** — synchronized output render gating; `setSyncOutputCallback` notifies when the mode activates/deactivates, pausing/resuming the main-thread render loop for flicker-free batch updates
 - **DCS handler framework** — `setDcsCallback` dispatches fully-parsed DCS (Device Control String) sequences (final byte, params, intermediate, passthrough data) to application code; unlocks tmux passthrough and custom protocol extensions
+- **DCS tmux passthrough** — `setDcsTmuxCallback` decodes `ESC P tmux; … ESC \` sequences: doubled ESCs are unescaped, the inner sequence is re-processed through the VT state machine, and the callback receives the decoded inner string
 
 ## Quick Start
 
@@ -401,7 +402,44 @@ ESC P <params> <intermediate> <finalByte> <data> ESC \   (7-bit: ESC P … ESC \
 ESC P <params> <intermediate> <finalByte> <data> 0x9C    (8-bit: ESC P … C1 ST)
 ```
 
-Common use-cases: tmux passthrough (`DCS tmux; ... ST`), DECRQSS responses, Sixel graphics (`DCS … q … ST`), ReGIS graphics.
+Common use-cases: DECRQSS responses, Sixel graphics (`DCS … q … ST`), ReGIS graphics.
+
+### DCS tmux Passthrough
+
+```ts
+parser.setDcsTmuxCallback((innerSeq: string) => {
+  // innerSeq is the decoded inner escape sequence string
+  // e.g. "\x1b[1m" for a bold SGR wrapped in tmux DCS
+  console.log("tmux inner sequence:", innerSeq);
+});
+```
+
+`setDcsTmuxCallback` registers a handler for DCS tmux passthrough sequences of the form `ESC P tmux; ESC ESC (inner) ESC \`. The inner sequence is automatically re-processed through the VT state machine — window titles, SGR attributes, clipboard writes, and all other callbacks fire as if the inner sequence had been received directly. The callback receives the decoded inner string (doubled `ESC ESC` pairs unescaped to single `ESC`) after dispatch.
+
+| Property | Details |
+|----------|---------|
+| Trigger | `ESC P t` followed by `mux;` prefix in PUT bytes |
+| ESC unescaping | `\x1b\x1b` in passthrough → single `\x1b` in inner sequence |
+| Outer ST | `\x1b\` terminates the tmux DCS and triggers dispatch |
+| Inner re-processing | Inner bytes are fed back through `write()` automatically |
+| Recursion guard | Nested tmux passthrough is dropped (`tmuxDepth` counter) |
+| Buffer cap | 8 192 bytes; bytes beyond the cap are silently dropped |
+
+Protocol sequence:
+```
+ESC P tmux; ESC ESC (inner-sequence) ESC \
+```
+
+Where each `ESC` byte in the inner sequence is encoded as `ESC ESC` (doubled). The outer string terminator is a lone `ESC \`.
+
+Example — window title set via tmux passthrough:
+```ts
+parser.setTitleChangeCallback((title) => console.log("title:", title));
+
+// Sends: ESC P tmux; ESC ESC ] 0 ; My Title ESC ESC \ ESC \
+parser.write("\x1bPtmux;\x1b\x1b]0;My Title\x1b\x1b\\\x1b\\");
+// logs: title: My Title
+```
 
 ## Development
 
