@@ -1,1 +1,1 @@
-h:35822 InputHandler:kbd/mouse/touch/clipboard,bracketedPaste,setBracketedPasteMode,setMouseProtocol,setMouseEncoding
+h:35822 InputHandler:kbd/mouse/touch/clipboard,bracketedPaste,kitty

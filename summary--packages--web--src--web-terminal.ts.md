@@ -1,1 +1,1 @@
-h:28370 WebTerminal:cols,rows,fontSize,fontFamily,theme,scrollback,useWorker,renderer,renderMode,onData,onResize,onTitleChange.syncedOutput,syncParserModes()
+h:28370 WebTerminal:cols,rows,theme,useWorker,renderer,renderMode,onData,onResize
