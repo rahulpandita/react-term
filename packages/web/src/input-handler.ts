@@ -85,6 +85,9 @@ export class InputHandler {
   // Focus events
   private sendFocusEvents = false;
 
+  // Kitty keyboard protocol flags (mirror of VTParser.kittyFlags)
+  private kittyFlags = 0;
+
   private cellWidth = 0;
   private cellHeight = 0;
 
@@ -328,6 +331,10 @@ export class InputHandler {
     this.sendFocusEvents = enabled;
   }
 
+  setKittyFlags(flags: number): void {
+    this.kittyFlags = flags;
+  }
+
   updateCellSize(cellWidth: number, cellHeight: number): void {
     this.cellWidth = cellWidth;
     this.cellHeight = cellHeight;
@@ -545,10 +552,15 @@ export class InputHandler {
    * or null if the event should not be handled.
    */
   keyToSequence(e: KeyboardEvent): string | null {
-    const { key, ctrlKey, altKey, metaKey } = e;
+    const { key, ctrlKey, altKey, metaKey, shiftKey } = e;
 
     // Meta key combos are browser shortcuts — let them through
     if (metaKey) return null;
+
+    // Kitty disambiguate mode (flag 1): use CSI u encoding for ambiguous keys
+    if (this.kittyFlags & 1) {
+      return this._keyToSequenceKitty(key, ctrlKey, altKey, shiftKey);
+    }
 
     // Ctrl + single letter → control character
     if (ctrlKey && !altKey && key.length === 1) {
@@ -631,6 +643,164 @@ export class InputHandler {
     }
 
     // Printable character
+    if (key.length === 1) {
+      return key;
+    }
+
+    return null;
+  }
+
+  /**
+   * Kitty keyboard protocol key encoding (disambiguate mode, flag 1).
+   *
+   * Modifier bitmask (add 1 for the wire value):
+   *   shift=1, alt=2, ctrl=4
+   *
+   * Encoding rules:
+   * - Escape                → CSI 27 u
+   * - Modifier + letter     → CSI codepoint ; modifier+1 u
+   * - Shift+Tab             → CSI 9 ; 2 u
+   * - Modified cursor keys  → CSI 1 ; modifier+1 <ABCDHF>
+   * - Modified tilde keys   → CSI n ; modifier+1 ~
+   * - Modified ESC-O F1-F4  → CSI 1 ; modifier+1 <PQRS>
+   * - Unmodified keys       → fall back to legacy encoding
+   */
+  private _keyToSequenceKitty(
+    key: string,
+    ctrlKey: boolean,
+    altKey: boolean,
+    shiftKey: boolean,
+  ): string | null {
+    // Modifier value: 1 + bitmask(shift=1, alt=2, ctrl=4)
+    const mod = 1 + (shiftKey ? 1 : 0) + (altKey ? 2 : 0) + (ctrlKey ? 4 : 0);
+    const hasModifier = mod !== 1;
+
+    // Escape always gets CSI u encoding to remove ambiguity with ESC-prefix sequences
+    if (key === "Escape") {
+      return "\x1b[27u";
+    }
+
+    // Shift+Tab → CSI 9 ; 2 u
+    if (key === "Tab" && shiftKey) {
+      return `\x1b[9;${mod}u`;
+    }
+
+    // Modifier + single printable letter → CSI codepoint ; mod u
+    if (key.length === 1 && hasModifier && (ctrlKey || altKey)) {
+      return `\x1b[${key.charCodeAt(0)};${mod}u`;
+    }
+
+    // Modified cursor keys → CSI 1 ; mod <letter>
+    if (hasModifier) {
+      switch (key) {
+        case "ArrowUp":
+          return `\x1b[1;${mod}A`;
+        case "ArrowDown":
+          return `\x1b[1;${mod}B`;
+        case "ArrowRight":
+          return `\x1b[1;${mod}C`;
+        case "ArrowLeft":
+          return `\x1b[1;${mod}D`;
+        case "Home":
+          return `\x1b[1;${mod}H`;
+        case "End":
+          return `\x1b[1;${mod}F`;
+        // Modified tilde-style keys: CSI n ; mod ~
+        case "Delete":
+          return `\x1b[3;${mod}~`;
+        case "Insert":
+          return `\x1b[2;${mod}~`;
+        case "PageUp":
+          return `\x1b[5;${mod}~`;
+        case "PageDown":
+          return `\x1b[6;${mod}~`;
+        // Modified F1-F4 (ESC-O style → CSI 1 ; mod <letter>)
+        case "F1":
+          return `\x1b[1;${mod}P`;
+        case "F2":
+          return `\x1b[1;${mod}Q`;
+        case "F3":
+          return `\x1b[1;${mod}R`;
+        case "F4":
+          return `\x1b[1;${mod}S`;
+        // Modified F5-F12 (tilde-style)
+        case "F5":
+          return `\x1b[15;${mod}~`;
+        case "F6":
+          return `\x1b[17;${mod}~`;
+        case "F7":
+          return `\x1b[18;${mod}~`;
+        case "F8":
+          return `\x1b[19;${mod}~`;
+        case "F9":
+          return `\x1b[20;${mod}~`;
+        case "F10":
+          return `\x1b[21;${mod}~`;
+        case "F11":
+          return `\x1b[23;${mod}~`;
+        case "F12":
+          return `\x1b[24;${mod}~`;
+      }
+    }
+
+    // Unmodified keys: fall through to legacy encoding
+    switch (key) {
+      case "Enter":
+        return "\r";
+      case "Backspace":
+        return "\x7f";
+      case "Tab":
+        return "\t";
+      case "Delete":
+        return "\x1b[3~";
+      case "ArrowUp":
+        return "\x1b[A";
+      case "ArrowDown":
+        return "\x1b[B";
+      case "ArrowRight":
+        return "\x1b[C";
+      case "ArrowLeft":
+        return "\x1b[D";
+      case "Home":
+        return "\x1b[H";
+      case "End":
+        return "\x1b[F";
+      case "PageUp":
+        return "\x1b[5~";
+      case "PageDown":
+        return "\x1b[6~";
+      case "Insert":
+        return "\x1b[2~";
+      case "F1":
+        return "\x1bOP";
+      case "F2":
+        return "\x1bOQ";
+      case "F3":
+        return "\x1bOR";
+      case "F4":
+        return "\x1bOS";
+      case "F5":
+        return "\x1b[15~";
+      case "F6":
+        return "\x1b[17~";
+      case "F7":
+        return "\x1b[18~";
+      case "F8":
+        return "\x1b[19~";
+      case "F9":
+        return "\x1b[20~";
+      case "F10":
+        return "\x1b[21~";
+      case "F11":
+        return "\x1b[23~";
+      case "F12":
+        return "\x1b[24~";
+    }
+
+    if (key === "Shift" || key === "Control" || key === "Alt" || key === "Meta") {
+      return null;
+    }
+
     if (key.length === 1) {
       return key;
     }
