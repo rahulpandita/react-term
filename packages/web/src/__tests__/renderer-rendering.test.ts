@@ -119,7 +119,7 @@ function makeRenderer(cols = 80, rows = 24, cur: CursorState = HIDDEN_CURSOR) {
 
 describe("Canvas2DRenderer — cursor rendering", () => {
   let mockCtx: MockCtx;
-  let spy: ReturnType<typeof vi.spyOn>;
+  let spy: { mockRestore(): void };
 
   beforeEach(() => {
     mockCtx = makeMockCtx();
@@ -212,7 +212,7 @@ describe("Canvas2DRenderer — cursor rendering", () => {
 
 describe("Canvas2DRenderer — selection rendering", () => {
   let mockCtx: MockCtx;
-  let spy: ReturnType<typeof vi.spyOn>;
+  let spy: { mockRestore(): void };
 
   beforeEach(() => {
     mockCtx = makeMockCtx();
@@ -341,7 +341,7 @@ describe("Canvas2DRenderer — selection rendering", () => {
 
 describe("Canvas2DRenderer — highlight rendering", () => {
   let mockCtx: MockCtx;
-  let spy: ReturnType<typeof vi.spyOn>;
+  let spy: { mockRestore(): void };
 
   beforeEach(() => {
     mockCtx = makeMockCtx();
@@ -438,7 +438,7 @@ describe("Canvas2DRenderer — highlight rendering", () => {
 
 describe("Canvas2DRenderer — color resolution via render", () => {
   let mockCtx: MockCtx;
-  let spy: ReturnType<typeof vi.spyOn>;
+  let spy: { mockRestore(): void };
 
   beforeEach(() => {
     mockCtx = makeMockCtx();
