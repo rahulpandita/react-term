@@ -1,1 +1,1 @@
-h:68856 VTParser:VT100/ANSI,OSC:4/7/8/10/11/12/52/104/133,DCS:tmux-passthrough(setDcsTmuxCallback),DCS:general(setDcsCallback),mode2026,mode2004,kitty-keyboard-protocol(kittyFlags,setKittyFlagsCallback,CSI=/>/</?\u0020u)
+h:71004 VTParser:OSC:4/7/8/10/11/12/52/104/133,DCS:tmux,DCS:general,mode2026,mode2004,kitty,CSI-readahead,print-batch
