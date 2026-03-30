@@ -406,6 +406,52 @@ export class VTParser {
                 continue;
               }
             }
+            // CSI with parameters: ESC [ <digits/semicolons> <final>
+            // Parse all params inline to avoid state machine round-trip.
+            // NOTE: param parsing logic is duplicated in the Action.PARAM read-ahead
+            // below — keep both in sync when changing param handling (e.g. subparams).
+            if (fb >= 0x30 && fb <= 0x39) {
+              let j = i + 2;
+              let currentParam = 0;
+              let hasParam = false;
+              let paramCount = 0;
+              while (j < len) {
+                const b = data[j];
+                if (b >= 0x30 && b <= 0x39) {
+                  if (currentParam <= 99999) currentParam = currentParam * 10 + (b - 0x30);
+                  hasParam = true;
+                  j++;
+                } else if (b === 0x3b) {
+                  if (paramCount < VTParser.MAX_PARAMS)
+                    this.params[paramCount++] = hasParam ? currentParam : 0;
+                  currentParam = 0;
+                  hasParam = false;
+                  j++;
+                } else {
+                  break;
+                }
+              }
+              if (j < len) {
+                const finalByte = data[j];
+                if (finalByte >= 0x40 && finalByte <= 0x7e) {
+                  if (hasParam || paramCount > 0) {
+                    if (paramCount < VTParser.MAX_PARAMS)
+                      this.params[paramCount++] = hasParam ? currentParam : 0;
+                  }
+                  this.csiDispatch(finalByte, paramCount);
+                  state = State.GROUND;
+                  i = j;
+                  continue;
+                }
+              }
+              // Incomplete or non-final byte — save parsed state, let state machine handle
+              this.currentParam = currentParam;
+              this.hasParam = hasParam;
+              this.paramCount = paramCount;
+              state = State.CSI_PARAM;
+              i = j - 1; // main loop i++ will process data[j]
+              continue;
+            }
           }
           state = State.CSI_ENTRY;
           i++;
@@ -497,6 +543,8 @@ export class VTParser {
 
         let cachedRow = cursor.row;
         let cachedRowStart = grid.rowStart(cachedRow);
+        let cellIdx = cachedRowStart + cursor.col * CELL_SIZE;
+        const lastCol = gridCols - 1;
         let lastCp = 0;
         let j = i;
 
@@ -544,46 +592,40 @@ export class VTParser {
 
           // Inline cell write — duplicates printCodepoint() for throughput.
           // If you change wrap/cell-write/cursor logic here, update printCodepoint() too.
-          let scrolled = false;
           if (cursor.wrapPending) {
             cursor.wrapPending = false;
             if (this.autoWrapMode) {
+              grid.markDirty(cachedRow);
               cursor.col = 0;
               cursor.row++;
               if (cursor.row > buf.scrollBottom) {
                 cursor.row = buf.scrollBottom;
                 this._scrollUpFull();
-                scrolled = true;
               }
+              cachedRow = cursor.row;
+              cachedRowStart = grid.rowStart(cachedRow);
+              cellIdx = cachedRowStart;
             }
           }
 
-          if (cursor.col >= gridCols) cursor.col = gridCols - 1;
-
-          if (cursor.row !== cachedRow || scrolled) {
-            grid.markDirty(cachedRow);
-            cachedRow = cursor.row;
-            cachedRowStart = grid.rowStart(cachedRow);
-          }
-
-          const idx = cachedRowStart + cursor.col * CELL_SIZE;
-          gridData[idx] = (cp & 0x1fffff) | word0Base;
-          gridData[idx + 1] = word1;
+          gridData[cellIdx] = (cp & 0x1fffff) | word0Base;
+          gridData[cellIdx + 1] = word1;
 
           if (this.fgIsRGB) grid.rgbColors[cursor.col] = this.fgRGB;
           if (this.bgIsRGB) grid.rgbColors[256 + cursor.col] = this.bgRGB;
 
-          if (cursor.col >= gridCols - 1) {
+          if (cursor.col >= lastCol) {
             cursor.wrapPending = true;
           } else {
             cursor.col++;
+            cellIdx += CELL_SIZE;
           }
 
           lastCp = cp;
           j++;
         }
 
-        grid.markDirty(cachedRow);
+        if (j > i) grid.markDirty(cachedRow);
         if (lastCp > 0) this.lastPrintedCodepoint = lastCp;
 
         // Handle incomplete UTF-8 at end of buffer
@@ -632,6 +674,8 @@ export class VTParser {
           // and semicolons 0x3B) in a tight loop. For a typical CSI like
           // \x1b[38;2;128;64;32m this reduces 10 table lookups + 10 function
           // calls to 1 table lookup + 1 tight loop.
+          // NOTE: param parsing logic is duplicated in the ESC [ read-ahead
+          // above — keep both in sync when changing param handling (e.g. subparams).
           let j = i;
           do {
             const b = data[j];
@@ -876,8 +920,8 @@ export class VTParser {
     return this.paramCount;
   }
 
-  private csiDispatch(finalByte: number): void {
-    const paramCount = this.finalizeParams();
+  private csiDispatch(finalByte: number, preFinalized?: number): void {
+    const paramCount = preFinalized ?? this.finalizeParams();
     const p0 = paramCount > 0 ? this.params[0] : 0;
     const p1 = paramCount > 1 ? this.params[1] : 0;
     const buf = this.bufferSet.active;
