@@ -88,6 +88,10 @@ export class VTParser {
   mouseEncoding: MouseEncoding = "default"; // mode 1006
   sendFocusEvents = false; // mode 1004
 
+  // Kitty keyboard protocol flags (CSI = / > / < / ? u)
+  kittyFlags = 0; // current flags bitfield
+  private readonly kittyFlagsStack: number[] = []; // push/pop stack
+
   // REP — last printed codepoint for CSI b
   private lastPrintedCodepoint = 0;
 
@@ -155,6 +159,9 @@ export class VTParser {
   // with the decoded inner escape sequence string (ESCs already unescaped).
   // The inner sequence is also processed through the parser automatically.
   private onDcsTmux: ((innerSeq: string) => void) | null = null;
+
+  // Kitty keyboard flags change callback: (flags: number) => void
+  private onKittyFlags: ((flags: number) => void) | null = null;
 
   constructor(bufferSet: BufferSet) {
     this.bufferSet = bufferSet;
@@ -266,6 +273,11 @@ export class VTParser {
    */
   setDcsTmuxCallback(cb: (innerSeq: string) => void): void {
     this.onDcsTmux = cb;
+  }
+
+  /** Register a callback fired when kitty keyboard flags change (CSI =/>/</? u). */
+  setKittyFlagsCallback(cb: (flags: number) => void): void {
+    this.onKittyFlags = cb;
   }
 
   get cursor(): CursorState {
@@ -609,7 +621,7 @@ export class VTParser {
           this.execute(byte);
           break;
         case Action.COLLECT:
-          if (byte === 0x3f || byte === 0x3e || byte === 0x3d) {
+          if (byte === 0x3f || byte === 0x3e || byte === 0x3d || byte === 0x3c) {
             this.prefixByte = byte;
           } else {
             this.intermediatesByte = byte;
@@ -877,10 +889,58 @@ export class VTParser {
     }
 
     if (this.prefixByte === 0x3e) {
-      // '>' — Secondary Device Attributes
+      // '>' — Secondary Device Attributes and Kitty push-flags
       if (finalByte === 0x63 /* 'c' */ && (p0 || 0) === 0) {
         const response = new TextEncoder().encode("\x1b[>0;277;0c");
         this.responseBuffer.push(response);
+      } else if (finalByte === 0x75 /* 'u' */) {
+        // CSI > flags u — push current flags onto stack, then set new flags
+        this.kittyFlagsStack.push(this.kittyFlags);
+        if (this.kittyFlagsStack.length > 99) this.kittyFlagsStack.shift();
+        if (p0 !== 0) {
+          this.kittyFlags = p0;
+          this.onKittyFlags?.(this.kittyFlags);
+        }
+      }
+      return;
+    }
+
+    if (this.prefixByte === 0x3c) {
+      // '<' — Kitty pop-flags
+      if (finalByte === 0x75 /* 'u' */) {
+        // CSI < n u — pop n entries from the stack (default 1)
+        const n = p0 || 1;
+        for (let i = 0; i < n; i++) {
+          if (this.kittyFlagsStack.length > 0) {
+            this.kittyFlags = this.kittyFlagsStack.pop() ?? 0;
+          }
+        }
+        this.onKittyFlags?.(this.kittyFlags);
+      }
+      return;
+    }
+
+    if (this.prefixByte === 0x3d) {
+      // '=' — Kitty set-flags
+      if (finalByte === 0x75 /* 'u' */) {
+        // CSI = flags ; mode u — set keyboard flags
+        // mode: 1=set (default), 2=or, 3=and, 4=xor
+        const mode = p1 || 1;
+        switch (mode) {
+          case 1:
+            this.kittyFlags = p0;
+            break;
+          case 2:
+            this.kittyFlags |= p0;
+            break;
+          case 3:
+            this.kittyFlags &= p0;
+            break;
+          case 4:
+            this.kittyFlags ^= p0;
+            break;
+        }
+        this.onKittyFlags?.(this.kittyFlags);
       }
       return;
     }
@@ -1062,6 +1122,13 @@ export class VTParser {
       case 0x6e: // 'n' - DECDSR
         if (this.params[0] === 6) {
           this.reportCursorPosition();
+        }
+        break;
+      case 0x75: // 'u' - Kitty keyboard flags query
+        // CSI ? u — respond with current flags: \x1b[?{flags}u
+        {
+          const flagStr = `\x1b[?${this.kittyFlags}u`;
+          this.responseBuffer.push(new TextEncoder().encode(flagStr));
         }
         break;
     }
@@ -1963,6 +2030,8 @@ export class VTParser {
     this.lastPrintedCodepoint = 0;
     this.responseBuffer = [];
     this.titleStack = [];
+    this.kittyFlags = 0;
+    this.kittyFlagsStack.length = 0;
     this.bufferSet.activateNormal();
     this.softReset();
     this.buf.cursor.row = 0;
