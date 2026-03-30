@@ -1,1 +1,1 @@
-h:17637 README:off-main-thread,WebGL2,SAB,Canvas2D,RN/Skia,multi-pane,a11y,addons,VT100/ANSI,OSC52/4/7/8/10/11/12/104/133,mode2004,mode2026,DCS-tmux
+h:21445 README:off-main-thread,WebGL2,SAB,Canvas2D,RN/Skia,multi-pane,a11y,addons,VT100/ANSI,OSC52/4/7/8/10/11/12/104/133,mode2004,mode2026,DCS-tmux,DCS-general
