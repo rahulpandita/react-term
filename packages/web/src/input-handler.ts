@@ -130,6 +130,7 @@ export class InputHandler {
 
   // Bound listeners (so we can remove them)
   private boundKeyDown: ((e: KeyboardEvent) => void) | null = null;
+  private boundKeyUp: ((e: KeyboardEvent) => void) | null = null;
   private boundInput: ((e: Event) => void) | null = null;
   private boundCompositionStart: (() => void) | null = null;
   private boundCompositionEnd: ((e: CompositionEvent) => void) | null = null;
@@ -257,11 +258,13 @@ export class InputHandler {
 
     // Keyboard — listen on the textarea
     this.boundKeyDown = this.handleKeyDown.bind(this);
+    this.boundKeyUp = this.handleKeyUp.bind(this);
     this.boundInput = this.handleInput.bind(this);
     this.boundCompositionStart = this.handleCompositionStart.bind(this);
     this.boundCompositionEnd = this.handleCompositionEnd.bind(this);
     this.boundPaste = this.handlePaste.bind(this);
     ta.addEventListener("keydown", this.boundKeyDown);
+    ta.addEventListener("keyup", this.boundKeyUp);
     ta.addEventListener("input", this.boundInput);
     ta.addEventListener("compositionstart", this.boundCompositionStart);
     ta.addEventListener("compositionend", this.boundCompositionEnd);
@@ -367,6 +370,9 @@ export class InputHandler {
     if (this.textarea && this.boundKeyDown) {
       this.textarea.removeEventListener("keydown", this.boundKeyDown);
     }
+    if (this.textarea && this.boundKeyUp) {
+      this.textarea.removeEventListener("keyup", this.boundKeyUp);
+    }
     if (this.textarea && this.boundInput) {
       this.textarea.removeEventListener("input", this.boundInput);
     }
@@ -426,6 +432,7 @@ export class InputHandler {
     this.container = null;
     this.gestureHandler = null;
     this.boundKeyDown = null;
+    this.boundKeyUp = null;
     this.boundInput = null;
     this.boundCompositionStart = null;
     this.boundCompositionEnd = null;
@@ -494,6 +501,15 @@ export class InputHandler {
     }
   }
 
+  private handleKeyUp(e: KeyboardEvent): void {
+    if (this.composing) return;
+    const seq = this.keyUpToSequence(e);
+    if (seq !== null) {
+      e.preventDefault();
+      this.onData(toBytes(seq));
+    }
+  }
+
   /**
    * Handle input events from the hidden textarea.
    * On mobile browsers, the virtual keyboard fires `input` events rather
@@ -559,7 +575,7 @@ export class InputHandler {
 
     // Kitty disambiguate mode (flag 1): use CSI u encoding for ambiguous keys
     if (this.kittyFlags & 1) {
-      return this._keyToSequenceKitty(key, ctrlKey, altKey, shiftKey);
+      return this._keyToSequenceKitty(key, ctrlKey, altKey, shiftKey, e.repeat ? 2 : 1);
     }
 
     // Ctrl + single letter → control character
@@ -651,99 +667,118 @@ export class InputHandler {
   }
 
   /**
+   * Produce the key-release sequence for a keyup event.
+   * Only meaningful when kittyFlags & 2 (report event types) is active.
+   * Returns null if event types are not enabled or the key has no kitty-encoded release.
+   */
+  keyUpToSequence(e: KeyboardEvent): string | null {
+    if (!(this.kittyFlags & 2)) return null;
+    if (e.metaKey) return null;
+    return this._keyToSequenceKitty(e.key, e.ctrlKey, e.altKey, e.shiftKey, 3);
+  }
+
+  /**
    * Kitty keyboard protocol key encoding (disambiguate mode, flag 1).
    *
    * Modifier bitmask (add 1 for the wire value):
    *   shift=1, alt=2, ctrl=4
    *
    * Encoding rules:
-   * - Escape                → CSI 27 u
+   * - Escape                → CSI 27 u  (CSI 27;1:type u when flag 2)
    * - Modifier + letter     → CSI codepoint ; modifier+1 u
    * - Shift+Tab             → CSI 9 ; 2 u
    * - Modified cursor keys  → CSI 1 ; modifier+1 <ABCDHF>
    * - Modified tilde keys   → CSI n ; modifier+1 ~
    * - Modified ESC-O F1-F4  → CSI 1 ; modifier+1 <PQRS>
-   * - Unmodified keys       → fall back to legacy encoding
+   * - Unmodified keys       → fall back to legacy encoding (no event type suffix)
+   *
+   * When kittyFlags & 2 (report event types), `:eventType` is appended to the
+   * modifier parameter of all enhanced sequences (not legacy fallbacks).
    */
   private _keyToSequenceKitty(
     key: string,
     ctrlKey: boolean,
     altKey: boolean,
     shiftKey: boolean,
+    eventType = 1,
   ): string | null {
     // Modifier value: 1 + bitmask(shift=1, alt=2, ctrl=4)
     const mod = 1 + (shiftKey ? 1 : 0) + (altKey ? 2 : 0) + (ctrlKey ? 4 : 0);
     const hasModifier = mod !== 1;
+    // Event type suffix for flag 2 (report event types): ":eventType" appended to modifier
+    const et = this.kittyFlags & 2 ? `:${eventType}` : "";
 
     // Escape always gets CSI u encoding to remove ambiguity with ESC-prefix sequences
     if (key === "Escape") {
-      return "\x1b[27u";
+      return this.kittyFlags & 2 ? `\x1b[27;1:${eventType}u` : "\x1b[27u";
     }
 
     // Shift+Tab → CSI 9 ; 2 u
     if (key === "Tab" && shiftKey) {
-      return `\x1b[9;${mod}u`;
+      return `\x1b[9;${mod}${et}u`;
     }
 
     // Modifier + single printable letter → CSI codepoint ; mod u
     if (key.length === 1 && hasModifier && (ctrlKey || altKey)) {
-      return `\x1b[${key.charCodeAt(0)};${mod}u`;
+      return `\x1b[${key.charCodeAt(0)};${mod}${et}u`;
     }
 
     // Modified cursor keys → CSI 1 ; mod <letter>
     if (hasModifier) {
       switch (key) {
         case "ArrowUp":
-          return `\x1b[1;${mod}A`;
+          return `\x1b[1;${mod}${et}A`;
         case "ArrowDown":
-          return `\x1b[1;${mod}B`;
+          return `\x1b[1;${mod}${et}B`;
         case "ArrowRight":
-          return `\x1b[1;${mod}C`;
+          return `\x1b[1;${mod}${et}C`;
         case "ArrowLeft":
-          return `\x1b[1;${mod}D`;
+          return `\x1b[1;${mod}${et}D`;
         case "Home":
-          return `\x1b[1;${mod}H`;
+          return `\x1b[1;${mod}${et}H`;
         case "End":
-          return `\x1b[1;${mod}F`;
+          return `\x1b[1;${mod}${et}F`;
         // Modified tilde-style keys: CSI n ; mod ~
         case "Delete":
-          return `\x1b[3;${mod}~`;
+          return `\x1b[3;${mod}${et}~`;
         case "Insert":
-          return `\x1b[2;${mod}~`;
+          return `\x1b[2;${mod}${et}~`;
         case "PageUp":
-          return `\x1b[5;${mod}~`;
+          return `\x1b[5;${mod}${et}~`;
         case "PageDown":
-          return `\x1b[6;${mod}~`;
+          return `\x1b[6;${mod}${et}~`;
         // Modified F1-F4 (ESC-O style → CSI 1 ; mod <letter>)
         case "F1":
-          return `\x1b[1;${mod}P`;
+          return `\x1b[1;${mod}${et}P`;
         case "F2":
-          return `\x1b[1;${mod}Q`;
+          return `\x1b[1;${mod}${et}Q`;
         case "F3":
-          return `\x1b[1;${mod}R`;
+          return `\x1b[1;${mod}${et}R`;
         case "F4":
-          return `\x1b[1;${mod}S`;
+          return `\x1b[1;${mod}${et}S`;
         // Modified F5-F12 (tilde-style)
         case "F5":
-          return `\x1b[15;${mod}~`;
+          return `\x1b[15;${mod}${et}~`;
         case "F6":
-          return `\x1b[17;${mod}~`;
+          return `\x1b[17;${mod}${et}~`;
         case "F7":
-          return `\x1b[18;${mod}~`;
+          return `\x1b[18;${mod}${et}~`;
         case "F8":
-          return `\x1b[19;${mod}~`;
+          return `\x1b[19;${mod}${et}~`;
         case "F9":
-          return `\x1b[20;${mod}~`;
+          return `\x1b[20;${mod}${et}~`;
         case "F10":
-          return `\x1b[21;${mod}~`;
+          return `\x1b[21;${mod}${et}~`;
         case "F11":
-          return `\x1b[23;${mod}~`;
+          return `\x1b[23;${mod}${et}~`;
         case "F12":
-          return `\x1b[24;${mod}~`;
+          return `\x1b[24;${mod}${et}~`;
       }
     }
 
-    // Unmodified keys: fall through to legacy encoding
+    // Unmodified keys: fall through to legacy encoding.
+    // Legacy sequences don't support release events — return null on keyup (eventType=3).
+    if (eventType === 3) return null;
     switch (key) {
       case "Enter":
         return "\r";
