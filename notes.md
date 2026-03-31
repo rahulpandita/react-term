@@ -1,1 +1,1 @@
-- Build: node_modules/.bin/vitest run
+- Build: pnpm test
