@@ -1,1 +1,1 @@
-h:35822 InputHandler:kbd/mouse/touch/clipboard,bracketedPaste,kitty
+h:40426 InputHandler:kbd/mouse/touch/clipboard,bracketedPaste,mouseProtocol/Encoding,focusEvents,applicationCursorKeys,kitty(flags:setKittyFlags,disambiguate=flag1→CSI-u encoding)
