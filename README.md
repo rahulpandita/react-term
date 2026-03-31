@@ -24,6 +24,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **DEC mode 2026** — synchronized output render gating; `setSyncOutputCallback` notifies when the mode activates/deactivates, pausing/resuming the main-thread render loop for flicker-free batch updates
 - **DCS handler framework** — `setDcsCallback` dispatches fully-parsed DCS (Device Control String) sequences (final byte, params, intermediate, passthrough data) to application code; unlocks tmux passthrough and custom protocol extensions
 - **DCS tmux passthrough** — `setDcsTmuxCallback` decodes `ESC P tmux; … ESC \` sequences: doubled ESCs are unescaped, the inner sequence is re-processed through the VT state machine, and the callback receives the decoded inner string
+- **Kitty keyboard protocol flags** — `kittyFlags` property (bitmask) and `setKittyFlagsCallback` track the active keyboard enhancement flags; full push/pop stack (`CSI > u` / `CSI < u`), set/OR/AND/XOR modes (`CSI = flags ; mode u`), and query (`CSI ? u`) are all supported
 
 ## Quick Start
 
@@ -439,6 +440,58 @@ parser.setTitleChangeCallback((title) => console.log("title:", title));
 // Sends: ESC P tmux; ESC ESC ] 0 ; My Title ESC ESC \ ESC \
 parser.write("\x1bPtmux;\x1b\x1b]0;My Title\x1b\x1b\\\x1b\\");
 // logs: title: My Title
+```
+
+### Kitty Keyboard Protocol Flags
+
+```ts
+parser.setKittyFlagsCallback((flags: number) => {
+  // flags is the new bitmask after any CSI = / > / < u sequence
+  console.log("kitty flags changed:", flags);
+});
+```
+
+`setKittyFlagsCallback` registers a callback fired whenever the active Kitty keyboard enhancement flags change. The current bitmask is also readable at any time via `parser.kittyFlags`.
+
+**Flag values (bitmask):**
+
+| Bit | Value | Meaning |
+|-----|-------|---------|
+| 0 | `1` | Disambiguate escape codes |
+| 1 | `2` | Report event types (key-down / key-repeat / key-up) |
+| 2 | `4` | Report alternate keys |
+| 3 | `8` | Report all keys as escape codes |
+| 4 | `16` | Report associated text |
+
+**Supported sequences:**
+
+| Sequence | Action |
+|----------|--------|
+| `CSI = flags u` | Set flags (mode 1 = set, 2 = OR, 3 = AND, 4 = XOR) |
+| `CSI > flags u` | Push current flags onto stack, then set new flags |
+| `CSI < n u` | Pop `n` entries from stack (default 1) |
+| `CSI ? u` | Query current flags → responds with `\x1b[?{flags}u` |
+
+The stack depth is capped at 99 entries. Both `kittyFlags` and the stack are reset to zero on a full terminal reset (`RIS`, `\x1bc`).
+
+Example — reading the active flags and subscribing to changes:
+```ts
+import { VTParser } from '@react-term/core';
+
+const parser = new VTParser(bufferSet);
+
+parser.setKittyFlagsCallback((flags) => {
+  const disambiguate = (flags & 1) !== 0;
+  const reportEventTypes = (flags & 2) !== 0;
+  console.log({ disambiguate, reportEventTypes });
+});
+
+// App sends: CSI = 3 u  (set bits 0 and 1)
+parser.write("\x1b[=3u");
+// → callback fires with flags = 3
+
+// Inspect directly at any time:
+console.log(parser.kittyFlags); // 3
 ```
 
 ## Development
