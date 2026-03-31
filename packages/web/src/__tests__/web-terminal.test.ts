@@ -11,6 +11,7 @@
 
 import { DEFAULT_THEME, extractText } from "@react-term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { InputHandler } from "../input-handler.js";
 import { Canvas2DRenderer } from "../renderer.js";
 import { WebTerminal } from "../web-terminal.js";
 
@@ -535,6 +536,172 @@ describe("WebTerminal", () => {
       (term as unknown as Record<string, (n: number) => void>).scrollViewport(-100);
       expect((term as unknown as Record<string, number>).viewportOffset).toBe(0);
       term.dispose();
+    });
+  });
+
+  // ---- Parser mode sync --------------------------------------------------
+
+  describe("parser mode sync", () => {
+    it("DECSET 1 (application cursor keys) syncs to InputHandler after write()", () => {
+      const t = make(container);
+      const spy = vi.spyOn(InputHandler.prototype, "setApplicationCursorKeys");
+
+      t.write("\x1b[?1h"); // DECSET ?1 — enable application cursor mode
+      expect(spy).toHaveBeenCalledWith(true);
+      t.dispose();
+    });
+
+    it("DECRST 1 (application cursor keys off) syncs to InputHandler after write()", () => {
+      const t = make(container);
+      // Enable then disable
+      t.write("\x1b[?1h");
+      const spy = vi.spyOn(InputHandler.prototype, "setApplicationCursorKeys");
+      t.write("\x1b[?1l"); // DECRST ?1 — disable application cursor mode
+      expect(spy).toHaveBeenCalledWith(false);
+      t.dispose();
+    });
+
+    it("DECSET 2004 (bracketed paste mode) syncs to InputHandler after write()", () => {
+      const t = make(container);
+      const spy = vi.spyOn(InputHandler.prototype, "setBracketedPasteMode");
+
+      t.write("\x1b[?2004h");
+      expect(spy).toHaveBeenCalledWith(true);
+      t.dispose();
+    });
+
+    it("DECRST 2004 (bracketed paste mode off) syncs to InputHandler after write()", () => {
+      const t = make(container);
+      t.write("\x1b[?2004h");
+      const spy = vi.spyOn(InputHandler.prototype, "setBracketedPasteMode");
+      t.write("\x1b[?2004l");
+      expect(spy).toHaveBeenCalledWith(false);
+      t.dispose();
+    });
+
+    it("DECSET 1000 (VT200 mouse) syncs mouse protocol to InputHandler", () => {
+      const t = make(container);
+      const spy = vi.spyOn(InputHandler.prototype, "setMouseProtocol");
+
+      t.write("\x1b[?1000h");
+      expect(spy).toHaveBeenCalledWith("vt200");
+      t.dispose();
+    });
+
+    it("DECRST 1000 (VT200 mouse off) resets mouse protocol to none", () => {
+      const t = make(container);
+      t.write("\x1b[?1000h");
+      const spy = vi.spyOn(InputHandler.prototype, "setMouseProtocol");
+      t.write("\x1b[?1000l");
+      expect(spy).toHaveBeenCalledWith("none");
+      t.dispose();
+    });
+
+    it("DECSET 1004 (focus events) syncs to InputHandler after write()", () => {
+      const t = make(container);
+      const spy = vi.spyOn(InputHandler.prototype, "setSendFocusEvents");
+
+      t.write("\x1b[?1004h");
+      expect(spy).toHaveBeenCalledWith(true);
+      t.dispose();
+    });
+
+    it("DECSET 1049 (alternate buffer) re-attaches renderer to new grid", () => {
+      const t = make(container);
+      // Spy on attach *after* initial construction so we only see the re-attach
+      const attachSpy = vi.spyOn(Canvas2DRenderer.prototype, "attach");
+      attachSpy.mockClear();
+
+      t.write("\x1b[?1049h"); // enter alternate screen
+      expect(attachSpy).toHaveBeenCalledTimes(1);
+      t.dispose();
+    });
+
+    it("DECRST 1049 (exit alternate buffer) re-attaches renderer to normal grid", () => {
+      const t = make(container);
+      t.write("\x1b[?1049h"); // enter alternate screen
+      const attachSpy = vi.spyOn(Canvas2DRenderer.prototype, "attach");
+      attachSpy.mockClear();
+
+      t.write("\x1b[?1049l"); // exit alternate screen
+      expect(attachSpy).toHaveBeenCalledTimes(1);
+      t.dispose();
+    });
+  });
+
+  // ---- Resize content preservation ---------------------------------------
+
+  describe("resize content preservation", () => {
+    it("preserves content when growing rows", () => {
+      const t = make(container, { cols: 10, rows: 3 });
+      t.write("ABC\r\nDEF\r\nGHI");
+      t.resize(10, 5); // grow from 3 to 5 rows
+      const grid = t.activeGrid;
+      // Original rows should still be at rows 0-2
+      expect(extractText(grid, 0, 0, 0, 3).trim()).toBe("ABC");
+      expect(extractText(grid, 1, 0, 1, 3).trim()).toBe("DEF");
+      expect(extractText(grid, 2, 0, 2, 3).trim()).toBe("GHI");
+      t.dispose();
+    });
+
+    it("preserves content when growing columns", () => {
+      const t = make(container, { cols: 10, rows: 3 });
+      t.write("HELLO");
+      t.resize(20, 3); // grow cols from 10 to 20
+      const grid = t.activeGrid;
+      expect(extractText(grid, 0, 0, 0, 5).trim()).toBe("HELLO");
+      t.dispose();
+    });
+
+    it("preserves most recent rows when shrinking rows with cursor in range", () => {
+      // 5-row terminal, write 3 lines (cursor ends at row 2, within new size)
+      const t = make(container, { cols: 10, rows: 5 });
+      t.write("AAA\r\nBBB\r\nCCC");
+      t.resize(10, 4); // shrink to 4 rows — cursor row 2 < 4, no shift needed
+      const grid = t.activeGrid;
+      expect(extractText(grid, 0, 0, 0, 3).trim()).toBe("AAA");
+      expect(extractText(grid, 1, 0, 1, 3).trim()).toBe("BBB");
+      expect(extractText(grid, 2, 0, 2, 3).trim()).toBe("CCC");
+      t.dispose();
+    });
+
+    it("shifts content up to keep cursor visible when shrinking rows", () => {
+      // 5-row terminal — write content to fill all 5 rows (cursor lands at row 4)
+      const t = make(container, { cols: 10, rows: 5 });
+      t.write("ROW0\r\nROW1\r\nROW2\r\nROW3\r\nROW4");
+      const cursorBefore = t.activeCursor;
+      expect(cursorBefore.row).toBe(4); // cursor is at last row
+      // Shrink to 3 rows — cursor row 4 >= 3, so srcStartRow = 4 - 3 + 1 = 2
+      t.resize(10, 3);
+      const grid = t.activeGrid;
+      // Rows 2,3,4 of old grid should be at rows 0,1,2 of new grid
+      expect(extractText(grid, 0, 0, 0, 4).trim()).toBe("ROW2");
+      expect(extractText(grid, 1, 0, 1, 4).trim()).toBe("ROW3");
+      expect(extractText(grid, 2, 0, 2, 4).trim()).toBe("ROW4");
+      // Cursor should have moved to row 2 (4 - srcStartRow(2) = 2)
+      expect(t.activeCursor.row).toBe(2);
+      t.dispose();
+    });
+
+    it("cursor column is clamped when shrinking columns", () => {
+      const t = make(container, { cols: 20, rows: 5 });
+      // Position cursor at column 15
+      t.write("\x1b[1;16H"); // CUP row=1,col=16 (1-indexed → row=0, col=15)
+      expect(t.activeCursor.col).toBe(15);
+      t.resize(10, 5); // shrink cols to 10 — cursor col 15 should clamp to 9
+      expect(t.activeCursor.col).toBe(9);
+      t.dispose();
+    });
+
+    it("resize is idempotent — same dimensions do not change cursor or content", () => {
+      const t = make(container, { cols: 10, rows: 5 });
+      t.write("TEST");
+      const cursorBefore = { ...t.activeCursor };
+      t.resize(10, 5); // same dimensions
+      expect(t.activeCursor.row).toBe(cursorBefore.row);
+      expect(t.activeCursor.col).toBe(cursorBefore.col);
+      expect(extractText(t.activeGrid, 0, 0, 0, 4).trim()).toBe("TEST");
+      t.dispose();
     });
   });
 });
