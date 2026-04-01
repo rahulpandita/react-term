@@ -627,6 +627,56 @@ describe("WebTerminal", () => {
       expect(attachSpy).toHaveBeenCalledTimes(1);
       t.dispose();
     });
+
+    it("CSI = 1 u (kitty flag 1 set) syncs kittyFlags to InputHandler after write()", () => {
+      const t = make(container);
+      const spy = vi.spyOn(InputHandler.prototype, "setKittyFlags");
+
+      t.write("\x1b[=1u"); // CSI = 1 u — set kitty disambiguate flag
+      expect(spy).toHaveBeenCalledWith(1);
+      t.dispose();
+    });
+
+    it("CSI = 3 u (kitty flags 1+2 set) syncs combined kittyFlags to InputHandler", () => {
+      const t = make(container);
+      const spy = vi.spyOn(InputHandler.prototype, "setKittyFlags");
+
+      t.write("\x1b[=3u"); // CSI = 3 u — set flags 1|2
+      expect(spy).toHaveBeenCalledWith(3);
+      t.dispose();
+    });
+
+    it("CSI = 0 u (clear all kitty flags) syncs zero to InputHandler", () => {
+      const t = make(container);
+      t.write("\x1b[=1u"); // set flag first
+      const spy = vi.spyOn(InputHandler.prototype, "setKittyFlags");
+
+      t.write("\x1b[=0u"); // clear all flags
+      expect(spy).toHaveBeenCalledWith(0);
+      t.dispose();
+    });
+
+    it("CSI > 1 u (push kitty flags) does not corrupt InputHandler flags", () => {
+      const t = make(container);
+      t.write("\x1b[=1u"); // set flag 1
+      const spy = vi.spyOn(InputHandler.prototype, "setKittyFlags");
+
+      t.write("\x1b[>2u"); // push flags=2 onto the stack
+      // After push, active kittyFlags should be 2 (the pushed value)
+      expect(spy).toHaveBeenCalledWith(2);
+      t.dispose();
+    });
+
+    it("CSI < u (pop kitty flags) restores prior InputHandler flags", () => {
+      const t = make(container);
+      t.write("\x1b[=1u"); // set flag 1
+      t.write("\x1b[>2u"); // push flags=2
+      const spy = vi.spyOn(InputHandler.prototype, "setKittyFlags");
+
+      t.write("\x1b[<u"); // pop — should restore flag 1
+      expect(spy).toHaveBeenCalledWith(1);
+      t.dispose();
+    });
   });
 
   // ---- Resize content preservation ---------------------------------------
