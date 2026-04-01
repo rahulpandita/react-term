@@ -49,6 +49,49 @@ function toBytes(s: string): Uint8Array {
 }
 
 // ---------------------------------------------------------------------------
+// Kitty alternate-key helpers (flag 4)
+// ---------------------------------------------------------------------------
+
+/** Returns the shifted codepoint for an ASCII character (0 if not applicable). */
+function _kittyShiftedCp(cp: number): number {
+  if (cp >= 97 && cp <= 122) return cp - 32; // a-z → A-Z
+  if (cp >= 65 && cp <= 90) return cp; // A-Z → same (already the shifted form)
+  // digits 0-9 → their shifted symbols: )!@#$%^&*(
+  if (cp >= 48 && cp <= 57) return ")!@#$%^&*(".charCodeAt(cp - 48);
+  return 0;
+}
+
+/** Returns the base (unshifted) codepoint for an ASCII character (0 if not applicable). */
+function _kittyBaseCp(cp: number): number {
+  if (cp >= 65 && cp <= 90) return cp + 32; // A-Z → a-z
+  if (cp >= 97 && cp <= 122) return cp; // a-z → same (already the base form)
+  // shifted digit symbols → corresponding digit
+  switch (cp) {
+    case 33:
+      return 49; // ! → 1
+    case 64:
+      return 50; // @ → 2
+    case 35:
+      return 51; // # → 3
+    case 36:
+      return 52; // $ → 4
+    case 37:
+      return 53; // % → 5
+    case 94:
+      return 54; // ^ → 6
+    case 38:
+      return 55; // & → 7
+    case 42:
+      return 56; // * → 8
+    case 40:
+      return 57; // ( → 9
+    case 41:
+      return 48; // ) → 0
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Touch constants
 // ---------------------------------------------------------------------------
 
@@ -685,7 +728,7 @@ export class InputHandler {
    *
    * Encoding rules:
    * - Escape                → CSI 27 u  (CSI 27;1:type u when flag 2)
-   * - Modifier + letter     → CSI codepoint ; modifier+1 u
+   * - Modifier + letter     → CSI codepoint[:alt] ; modifier+1 u
    * - Shift+Tab             → CSI 9 ; 2 u
    * - Modified cursor keys  → CSI 1 ; modifier+1 <ABCDHF>
    * - Modified tilde keys   → CSI n ; modifier+1 ~
@@ -694,6 +737,8 @@ export class InputHandler {
    *
    * When kittyFlags & 2 (report event types), `:eventType` is appended to the
    * modifier parameter of all enhanced sequences (not legacy fallbacks).
+   * When kittyFlags & 4 (report alternate keys), the key codepoint gains
+   * `:shifted[:base]` sub-parameters for single printable characters.
    */
   private _keyToSequenceKitty(
     key: string,
@@ -718,9 +763,9 @@ export class InputHandler {
       return `\x1b[9;${mod}${et}u`;
     }
 
-    // Modifier + single printable letter → CSI codepoint ; mod u
+    // Modifier + single printable character → CSI codepoint[:alt] ; mod u
     if (key.length === 1 && hasModifier && (ctrlKey || altKey)) {
-      return `\x1b[${key.charCodeAt(0)};${mod}${et}u`;
+      return `\x1b[${key.charCodeAt(0)}${this._kittyAltParam(key)};${mod}${et}u`;
     }
 
     // Modified cursor keys → CSI 1 ; mod <letter>
@@ -841,6 +886,27 @@ export class InputHandler {
     }
 
     return null;
+  }
+
+  /**
+   * Alternate key sub-parameters for flag 4 (report alternate keys).
+   *
+   * Returns the sub-parameter string to append to the Unicode codepoint in
+   * CSI u sequences: `:shifted`, `::base`, `:shifted:base`, or `""`.
+   * - shifted: codepoint when Shift is held on the same physical key
+   * - base: codepoint of the physical key without modifiers (US QWERTY)
+   * Sub-parameters equal to the main codepoint are omitted.
+   */
+  private _kittyAltParam(key: string): string {
+    if (!(this.kittyFlags & 4) || key.length !== 1) return "";
+    const cp = key.charCodeAt(0);
+    const shifted = _kittyShiftedCp(cp);
+    const base = _kittyBaseCp(cp);
+    const alt1 = shifted !== 0 && shifted !== cp ? `${shifted}` : "";
+    const alt2 = base !== 0 && base !== cp ? `${base}` : "";
+    if (!alt1 && !alt2) return "";
+    if (!alt2) return `:${alt1}`;
+    return `:${alt1}:${alt2}`;
   }
 
   // -----------------------------------------------------------------------
