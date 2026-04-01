@@ -494,6 +494,54 @@ parser.write("\x1b[=3u");
 console.log(parser.kittyFlags); // 3
 ```
 
+### Kitty Keyboard Protocol — Disambiguate Key Encoding
+
+When bit 0 of the Kitty flags is active, `InputHandler` switches its key encoding from legacy VT sequences to the unambiguous Kitty CSI u format.
+
+```ts
+import { InputHandler } from '@react-term/web';
+
+const input = new InputHandler({ onData: (seq) => socket.send(seq) });
+
+// Enable disambiguate mode (flag 1):
+input.setKittyFlags(1);
+```
+
+**Key encoding with flag 1 active:**
+
+| Key | Legacy sequence | Kitty disambiguate |
+|-----|-----------------|--------------------|
+| Escape | `\x1b` | `\x1b[27u` |
+| Ctrl+a | `\x01` | `\x1b[97;5u` |
+| Alt+a | `\x1ba` | `\x1b[97;3u` |
+| Ctrl+Alt+a | — | `\x1b[97;7u` |
+| Shift+Tab | — | `\x1b[9;2u` |
+| Ctrl+ArrowUp | — | `\x1b[1;5A` |
+| Shift+Delete | — | `\x1b[3;2~` |
+| Ctrl+F1 | — | `\x1b[1;5P` |
+| ArrowUp (unmodified) | `\x1b[A` | `\x1b[A` (unchanged) |
+
+Modifier bitmask: shift=1, alt=2, ctrl=4. The wire value is bitmask + 1.  
+Unmodified printable characters and unmodified navigation keys retain their legacy encoding even with the flag active.
+
+**Wiring parser flags to key encoding:**
+
+In a full `WebTerminal` integration, the VTParser receives Kitty flag changes from the remote application (via `CSI = / > / < / ? u`) and the `InputHandler` must mirror those flags so that keys are encoded consistently. Connect them via `setKittyFlagsCallback`:
+
+```ts
+import { VTParser } from '@react-term/core';
+import { InputHandler } from '@react-term/web';
+
+const input = new InputHandler({ onData: (seq) => socket.send(seq) });
+
+parser.setKittyFlagsCallback((flags) => {
+  // Keep InputHandler encoding in sync with what the app requested
+  input.setKittyFlags(flags);
+});
+```
+
+Calling `input.setKittyFlags(0)` (or any value with bit 0 clear) restores legacy key encoding immediately.
+
 ## Development
 
 ```bash
@@ -525,6 +573,8 @@ Two benchmark packages measure parser and end-to-end rendering throughput:
 A **benchmark CI workflow** (`.github/workflows/benchmark.yml`) runs both suites in parallel and posts a throughput summary table to the GitHub Actions run page.
 
 Recent profiling-driven optimizations (PR [#29](https://github.com/rahulpandita/react-term/pull/29)) produced measurable gains: **vte-medium-cells +43 %**, **csi-params +20 %**, **unicode +31 %**. Key changes: `clearRowRaw()` for batched dirty marking, O(H) zero-alloc `copyWithin` for `insertLines`/`deleteLines`, inlined erase cell writes, and CSI REP clamping.
+
+PR [#77](https://github.com/rahulpandita/react-term/pull/77) introduced further parser improvements — **CSI full-sequence read-ahead** (parsing all params and dispatching inline, bypassing the state machine round-trip) and **print-batch streamlining** (running cell index, eliminated redundant per-character row-change checks, guarded post-batch dirty marking). Measured gains: **cursor-motion 1.15x faster**, **vte-cursor-motion 1.19x faster**, **csi-params 2.75x faster**, **sgr-color 1.53x faster**, **vte-dense-cells 1.85x faster**, **csi-long-params 2.95x faster**. The E2E suite shows react-term winning all 13 scenarios vs xterm.js (1.6×–30.3× faster).
 
 ### Agentic Workflows
 
