@@ -1,1 +1,1 @@
-h:28370 WebTerminal:cols,rows,theme,useWorker,renderer,renderMode,onData,onResize
+h:28431 WebTerminal:cols,rows,theme,useWorker,renderer,renderMode,onData,onResize;syncParserModes:applicationCursorKeys,bracketedPaste,mouseProtocol,mouseEncoding,sendFocus,kittyFlags(setKittyFlags-added-pr82)
