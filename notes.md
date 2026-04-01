@@ -1,1 +1,1 @@
-- Build: pnpm test
+- pnpm test
