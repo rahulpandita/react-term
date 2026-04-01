@@ -433,6 +433,7 @@ export class WebTerminal {
     this.inputHandler.setMouseProtocol(this.parser.mouseProtocol);
     this.inputHandler.setMouseEncoding(this.parser.mouseEncoding);
     this.inputHandler.setSendFocusEvents(this.parser.sendFocusEvents);
+    this.inputHandler.setKittyFlags(this.parser.kittyFlags);
 
     // Synchronized output mode 2026: gate the main-thread render loop.
     // The offscreen render worker has its own loop and is not gated here.
