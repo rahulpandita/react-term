@@ -1,2 +1,1 @@
-h:25900
-README.md summary: Project overview, features list (incl. Kitty disambiguate setKittyFlags, OSC callbacks, DCS), quick start, packages table, architecture ASCII, rendering strategies, addons, multi-pane, VTParser callbacks (OSC 52/4/7/8/10/11/12/104/133, DCS, Kitty), InputHandler.setKittyFlags() + CSI u encoding table, benchmarking (PR #29, PR #77 results), CI/code quality, agentic workflows, design decisions.
+h:19560
