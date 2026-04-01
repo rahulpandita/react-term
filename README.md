@@ -526,7 +526,9 @@ Unmodified printable characters and unmodified navigation keys retain their lega
 
 **Wiring parser flags to key encoding:**
 
-In a full `WebTerminal` integration, the VTParser receives Kitty flag changes from the remote application (via `CSI = / > / < / ? u`) and the `InputHandler` must mirror those flags so that keys are encoded consistently. Connect them via `setKittyFlagsCallback`:
+When using `WebTerminal`, Kitty flag changes received from the remote application are automatically propagated to `InputHandler` via `syncParserModes()` (called after every `write()`). No manual wiring is needed.
+
+When using `VTParser` and `InputHandler` directly (without `WebTerminal`), connect them via `setKittyFlagsCallback`:
 
 ```ts
 import { VTParser } from '@react-term/core';
@@ -541,6 +543,46 @@ parser.setKittyFlagsCallback((flags) => {
 ```
 
 Calling `input.setKittyFlags(0)` (or any value with bit 0 clear) restores legacy key encoding immediately.
+
+### Kitty Keyboard Protocol — Report Event Types (flag 2)
+
+When bit 1 of the Kitty flags is active (flag value `2`, typically combined with flag 1 as `setKittyFlags(3)`), `InputHandler` appends an `:event-type` sub-parameter to all enhanced Kitty CSI sequences. This lets the receiving application distinguish key-press, key-repeat, and key-release events.
+
+```ts
+import { InputHandler } from '@react-term/web';
+
+const input = new InputHandler({ onData: (seq) => socket.send(seq) });
+
+// Enable disambiguate (1) + report event types (2):
+input.setKittyFlags(3);
+```
+
+**Event type encoding:**
+
+| Event | Trigger | Type | Example (Ctrl+a) |
+|-------|---------|------|------------------|
+| Press | keydown, repeat=false | `1` | `\x1b[97;5:1u` |
+| Repeat | keydown, repeat=true | `2` | `\x1b[97;5:2u` |
+| Release | keyup | `3` | `\x1b[97;5:3u` |
+
+The `:event-type` suffix is appended to all enhanced sequences (CSI u, modified cursor/tilde/Fn keys). Unmodified keys that fall back to legacy encoding do not carry an event type.
+
+**`keyUpToSequence(e: KeyboardEvent): string | null`** — produces the release sequence for a keyup event when `kittyFlags & 2` is active. Returns `null` if flag 2 is not set or the key has no Kitty-encoded release (legacy-only unmodified keys).
+
+```ts
+// In a WebTerminal or custom setup, forward keyup events:
+textarea.addEventListener("keyup", (e) => {
+  const seq = input.keyUpToSequence(e);
+  if (seq !== null) {
+    e.preventDefault();
+    socket.send(seq);
+  }
+});
+```
+
+> **Note:** When using `WebTerminal`, keyup events are handled automatically — the `InputHandler` registers its own `keyup` listener on the textarea when `kittyFlags & 2` is set.
+
+**Escape with flag 2** uses the fully expanded form `\x1b[27;1:Nu` (where `N` is the event type), instead of the shorter `\x1b[27u` used by flag 1 alone, to carry the modifier field required for the event type sub-parameter.
 
 ## Development
 
