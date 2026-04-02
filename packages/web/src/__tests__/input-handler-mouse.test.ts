@@ -242,4 +242,80 @@ describe("InputHandler (mouse protocol and selection)", () => {
       expect(onSelectionChange).not.toHaveBeenCalled();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Container-offset coordinate calculation
+  //
+  // jsdom getBoundingClientRect() always returns {left:0, top:0}.
+  // Mock it here to verify that the InputHandler correctly subtracts the
+  // container offset when converting screen coordinates to grid cell positions.
+  // -------------------------------------------------------------------------
+
+  describe("container-offset mouse coordinate calculation", () => {
+    it("translates clientX/clientY correctly when container is offset on the page", () => {
+      // Container is at (left=100, top=50) on the page.
+      vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+        left: 100,
+        top: 50,
+        right: 100 + 80 * CELL_W,
+        bottom: 50 + 24 * CELL_H,
+        width: 80 * CELL_W,
+        height: 24 * CELL_H,
+        x: 100,
+        y: 50,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+      handler.setMouseProtocol("vt200");
+      handler.setMouseEncoding("sgr");
+
+      // Click at screen (140, 82): local x = 140-100 = 40, y = 82-50 = 32
+      // col = floor(40 / 8) = 5, row = floor(32 / 16) = 2
+      mouseDown(140, 82);
+      expect(onData).toHaveBeenCalledOnce();
+      const seq = decode(onData.mock.calls[0][0]);
+      // SGR press at col=5, row=2: ESC[<0;6;3M
+      expect(seq).toBe("\x1b[<0;6;3M");
+    });
+
+    it("clamps to col=0, row=0 when click is to the left or above the container", () => {
+      vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+        left: 200,
+        top: 100,
+        right: 200 + 80 * CELL_W,
+        bottom: 100 + 24 * CELL_H,
+        width: 80 * CELL_W,
+        height: 24 * CELL_H,
+        x: 200,
+        y: 100,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+      handler.setMouseProtocol("vt200");
+      handler.setMouseEncoding("sgr");
+
+      // Click at (50, 30) — both x and y are left/above the container
+      // local x = 50-200 = -150, local y = 30-100 = -70 → clamp to col=0, row=0
+      mouseDown(50, 30);
+      expect(onData).toHaveBeenCalledOnce();
+      const seq = decode(onData.mock.calls[0][0]);
+      // ESC[<0;1;1M (col=0→1-indexed=1, row=0→1-indexed=1)
+      expect(seq).toBe("\x1b[<0;1;1M");
+    });
+
+    it("updateCellSize changes are reflected in subsequent mouse coordinate calculations", () => {
+      handler.setMouseProtocol("vt200");
+      handler.setMouseEncoding("sgr");
+
+      // Change to larger cells (16×20)
+      handler.updateCellSize(16, 20);
+
+      // Click at (32, 40): col = floor(32/16) = 2, row = floor(40/20) = 2
+      mouseDown(32, 40);
+      expect(onData).toHaveBeenCalledOnce();
+      const seq = decode(onData.mock.calls[0][0]);
+      // ESC[<0;3;3M (col=2→1-indexed=3, row=2→1-indexed=3)
+      expect(seq).toBe("\x1b[<0;3;3M");
+    });
+  });
 });

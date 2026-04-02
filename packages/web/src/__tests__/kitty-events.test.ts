@@ -150,6 +150,31 @@ describe("kitty-events — flags 1+2, press (event type 1)", () => {
     expect(h.keyToSequence(keyDown("F5", { ctrlKey: true }))).toBe("\x1b[15;5:1~");
   });
 
+  it("Shift+F6 press → \\x1b[17;2:1~", () => {
+    const h = mkE();
+    expect(h.keyToSequence(keyDown("F6", { shiftKey: true }))).toBe("\x1b[17;2:1~");
+  });
+
+  it("Ctrl+F9 press → \\x1b[20;5:1~", () => {
+    const h = mkE();
+    expect(h.keyToSequence(keyDown("F9", { ctrlKey: true }))).toBe("\x1b[20;5:1~");
+  });
+
+  it("Shift+F12 press → \\x1b[24;2:1~", () => {
+    const h = mkE();
+    expect(h.keyToSequence(keyDown("F12", { shiftKey: true }))).toBe("\x1b[24;2:1~");
+  });
+
+  it("Ctrl+Insert press → \\x1b[2;5:1~", () => {
+    const h = mkE();
+    expect(h.keyToSequence(keyDown("Insert", { ctrlKey: true }))).toBe("\x1b[2;5:1~");
+  });
+
+  it("Shift+PageDown press → \\x1b[6;2:1~", () => {
+    const h = mkE();
+    expect(h.keyToSequence(keyDown("PageDown", { shiftKey: true }))).toBe("\x1b[6;2:1~");
+  });
+
   it("unmodified ArrowUp press → \\x1b[A (legacy fallback, no event type)", () => {
     // Unmodified keys still fall back to legacy encoding
     const h = mkE();
@@ -233,6 +258,26 @@ describe("kitty-events — flags 1+2, release (event type 3)", () => {
   it("modified Delete release → \\x1b[3;2:3~ (Shift+Delete)", () => {
     const h = mkE();
     expect(h.keyUpToSequence(keyUp("Delete", { shiftKey: true }))).toBe("\x1b[3;2:3~");
+  });
+
+  it("Ctrl+F6 release → \\x1b[17;5:3~ (tilde-style with event type)", () => {
+    const h = mkE();
+    expect(h.keyUpToSequence(keyUp("F6", { ctrlKey: true }))).toBe("\x1b[17;5:3~");
+  });
+
+  it("Shift+F12 release → \\x1b[24;2:3~", () => {
+    const h = mkE();
+    expect(h.keyUpToSequence(keyUp("F12", { shiftKey: true }))).toBe("\x1b[24;2:3~");
+  });
+
+  it("Ctrl+Insert release → \\x1b[2;5:3~", () => {
+    const h = mkE();
+    expect(h.keyUpToSequence(keyUp("Insert", { ctrlKey: true }))).toBe("\x1b[2;5:3~");
+  });
+
+  it("Shift+PageDown release → \\x1b[6;2:3~", () => {
+    const h = mkE();
+    expect(h.keyUpToSequence(keyUp("PageDown", { shiftKey: true }))).toBe("\x1b[6;2:3~");
   });
 
   it("unmodified ArrowUp release → null (legacy sequences don't report release)", () => {
