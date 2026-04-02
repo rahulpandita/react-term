@@ -1,1 +1,1 @@
-h:44564 InputHandler:kbd/mouse/touch/clipboard,bracketedPaste,mouseProtocol/Encoding,focusEvents,applicationCursorKeys,kitty(flags:setKittyFlags,flag1=disambiguate→CSI-u,flag2=eventTypes,flag4=alternateKeys:_kittyShiftedCp/_kittyBaseCp/_kittyAltParam→CSI cp[:shifted[:base]];mod u)
+h:44564 InputHandler:kbd/mouse/touch/clipboard,bracketedPaste,mouseProtocol/Encoding,focusEvents,applicationCursorKeys,kitty(flags:setKittyFlags,disambiguate=flag1→CSI-u,reportEventTypes=flag2→keyUpToSequence+:eventType suffix)
