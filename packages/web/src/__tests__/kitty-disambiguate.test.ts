@@ -180,6 +180,57 @@ describe("kitty-disambiguate — flag 1 set", () => {
     expect(h.keyToSequence(key("F5", { shiftKey: true }))).toBe("\x1b[15;2~");
   });
 
+  it("Ctrl+F6 → CSI 17 ; 5 ~  (\\x1b[17;5~)", () => {
+    const h = mkD();
+    expect(h.keyToSequence(key("F6", { ctrlKey: true }))).toBe("\x1b[17;5~");
+  });
+
+  it("Shift+F7 → CSI 18 ; 2 ~  (\\x1b[18;2~)", () => {
+    const h = mkD();
+    expect(h.keyToSequence(key("F7", { shiftKey: true }))).toBe("\x1b[18;2~");
+  });
+
+  it("Alt+F8 → CSI 19 ; 3 ~  (\\x1b[19;3~)", () => {
+    const h = mkD();
+    expect(h.keyToSequence(key("F8", { altKey: true }))).toBe("\x1b[19;3~");
+  });
+
+  it("Ctrl+F9 → CSI 20 ; 5 ~  (\\x1b[20;5~)", () => {
+    const h = mkD();
+    expect(h.keyToSequence(key("F9", { ctrlKey: true }))).toBe("\x1b[20;5~");
+  });
+
+  it("Shift+F10 → CSI 21 ; 2 ~  (\\x1b[21;2~)", () => {
+    const h = mkD();
+    expect(h.keyToSequence(key("F10", { shiftKey: true }))).toBe("\x1b[21;2~");
+  });
+
+  it("Ctrl+F11 → CSI 23 ; 5 ~  (\\x1b[23;5~)", () => {
+    const h = mkD();
+    expect(h.keyToSequence(key("F11", { ctrlKey: true }))).toBe("\x1b[23;5~");
+  });
+
+  it("Shift+F12 → CSI 24 ; 2 ~  (\\x1b[24;2~)", () => {
+    const h = mkD();
+    expect(h.keyToSequence(key("F12", { shiftKey: true }))).toBe("\x1b[24;2~");
+  });
+
+  it("Ctrl+Insert → CSI 2 ; 5 ~  (\\x1b[2;5~)", () => {
+    const h = mkD();
+    expect(h.keyToSequence(key("Insert", { ctrlKey: true }))).toBe("\x1b[2;5~");
+  });
+
+  it("Shift+PageDown → CSI 6 ; 2 ~  (\\x1b[6;2~)", () => {
+    const h = mkD();
+    expect(h.keyToSequence(key("PageDown", { shiftKey: true }))).toBe("\x1b[6;2~");
+  });
+
+  it("Ctrl+Alt+F6 → CSI 17 ; 7 ~  (\\x1b[17;7~)", () => {
+    const h = mkD();
+    // mod = 1 + 0(shift) + 2(alt) + 4(ctrl) = 7
+    expect(h.keyToSequence(key("F6", { ctrlKey: true, altKey: true }))).toBe("\x1b[17;7~");
+  });
+
   // --- Modified ESC-O style function keys (F1-F4) ---
   it("Ctrl+F1 → CSI 1 ; 5 P  (\\x1b[1;5P)", () => {
     const h = mkD();
