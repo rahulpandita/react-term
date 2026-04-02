@@ -764,7 +764,8 @@ export class InputHandler {
     }
 
     // Modifier + single printable character → CSI codepoint[:alt] ; mod u
-    if (key.length === 1 && hasModifier && (ctrlKey || altKey)) {
+    // Flag 8 (report all keys as escape codes) also encodes unmodified/shift-only chars.
+    if (key.length === 1 && ((hasModifier && (ctrlKey || altKey)) || this.kittyFlags & 8)) {
       return `\x1b[${key.charCodeAt(0)}${this._kittyAltParam(key)};${mod}${et}u`;
     }
 
@@ -822,6 +823,18 @@ export class InputHandler {
     }
 
     // Unmodified keys: fall through to legacy encoding.
+    // Flag 8 (report all keys as escape codes): functional keys that produce literal
+    // characters are encoded as CSI u before the legacy-only eventType=3 guard.
+    if (this.kittyFlags & 8) {
+      switch (key) {
+        case "Enter":
+          return `\x1b[13;1${et}u`;
+        case "Tab":
+          return `\x1b[9;1${et}u`;
+        case "Backspace":
+          return `\x1b[127;1${et}u`;
+      }
+    }
     // Legacy sequences don't support release events — return null on keyup (eventType=3).
     if (eventType === 3) return null;
     switch (key) {
