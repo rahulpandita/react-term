@@ -30,7 +30,7 @@ importers:
 
   packages/bench:
     dependencies:
-      '@react-term/core':
+      '@next_term/core':
         specifier: workspace:*
         version: link:../core
       '@xterm/headless':
@@ -45,13 +45,13 @@ importers:
 
   packages/demo:
     dependencies:
-      '@react-term/core':
+      '@next_term/core':
         specifier: workspace:*
         version: link:../core
-      '@react-term/react':
+      '@next_term/react':
         specifier: workspace:*
         version: link:../react
-      '@react-term/web':
+      '@next_term/web':
         specifier: workspace:*
         version: link:../web
       react:
@@ -91,16 +91,16 @@ importers:
 
   packages/e2e-bench:
     dependencies:
-      '@react-term/bench':
+      '@next_term/bench':
         specifier: workspace:*
         version: link:../bench
-      '@react-term/core':
+      '@next_term/core':
         specifier: workspace:*
         version: link:../core
-      '@react-term/react':
+      '@next_term/react':
         specifier: workspace:*
         version: link:../react
-      '@react-term/web':
+      '@next_term/web':
         specifier: workspace:*
         version: link:../web
       '@xterm/addon-fit':
@@ -149,7 +149,7 @@ importers:
 
   packages/native:
     dependencies:
-      '@react-term/core':
+      '@next_term/core':
         specifier: workspace:*
         version: link:../core
       react:
@@ -171,10 +171,10 @@ importers:
 
   packages/react:
     dependencies:
-      '@react-term/core':
+      '@next_term/core':
         specifier: workspace:*
         version: link:../core
-      '@react-term/web':
+      '@next_term/web':
         specifier: workspace:*
         version: link:../web
     devDependencies:
@@ -196,7 +196,7 @@ importers:
 
   packages/web:
     dependencies:
-      '@react-term/core':
+      '@next_term/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:

@@ -11,8 +11,8 @@
  * and a viewport rectangle (in CSS pixels relative to the canvas).
  */
 
-import type { CellGrid, CursorState, SelectionRange, Theme } from "@react-term/core";
-import { DEFAULT_THEME } from "@react-term/core";
+import type { CellGrid, CursorState, SelectionRange, Theme } from "@next_term/core";
+import { DEFAULT_THEME } from "@next_term/core";
 import { build256Palette } from "./renderer.js";
 import {
   BG_INSTANCE_FLOATS,

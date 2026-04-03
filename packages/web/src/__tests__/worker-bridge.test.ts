@@ -1,5 +1,5 @@
-import type { CursorState } from "@react-term/core";
-import { CELL_SIZE, CellGrid } from "@react-term/core";
+import type { CursorState } from "@next_term/core";
+import { CELL_SIZE, CellGrid } from "@next_term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkerBridge } from "../worker-bridge.js";
 

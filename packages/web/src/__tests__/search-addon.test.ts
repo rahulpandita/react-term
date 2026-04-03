@@ -1,4 +1,4 @@
-import { CellGrid } from "@react-term/core";
+import { CellGrid } from "@next_term/core";
 import { describe, expect, it } from "vitest";
 import { extractRowText, findAllMatches, SearchAddon } from "../addons/search.js";
 import type { WebTerminal } from "../web-terminal.js";

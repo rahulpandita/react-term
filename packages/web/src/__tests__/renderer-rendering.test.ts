@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import type { CursorState } from "@react-term/core";
-import { CellGrid, DEFAULT_THEME } from "@react-term/core";
+import type { CursorState } from "@next_term/core";
+import { CellGrid, DEFAULT_THEME } from "@next_term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HighlightRange } from "../renderer.js";
 import { Canvas2DRenderer } from "../renderer.js";

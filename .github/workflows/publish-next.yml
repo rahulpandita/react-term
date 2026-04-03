@@ -1,0 +1,50 @@
+name: Publish @next
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm -r --filter "@next_term/core" --filter "@next_term/web" --filter "@next_term/react" --filter "@next_term/native" build
+
+      - name: Set pre-release versions
+        run: |
+          SUFFIX="next.${{ github.run_number }}"
+          for pkg in core web react native; do
+            cd packages/$pkg
+            VERSION=$(node -p "require('./package.json').version")
+            npm version "${VERSION}-${SUFFIX}" --no-git-tag-version
+            echo "  @next_term/$pkg → ${VERSION}-${SUFFIX}"
+            cd ../..
+          done
+
+      - name: Publish packages
+        run: |
+          # Publish in dependency order: core → web → react, native
+          for pkg in core web react native; do
+            cd packages/$pkg
+            npm publish --tag next --provenance
+            cd ../..
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -3,7 +3,7 @@
  *
  * Pure-logic handler with zero platform dependencies — translates
  * gesture coordinates and states into terminal actions. Used by
- * both @react-term/web (DOM touch events) and @react-term/native
+ * both @next_term/web (DOM touch events) and @next_term/native
  * (React Native gesture handler).
  */
 

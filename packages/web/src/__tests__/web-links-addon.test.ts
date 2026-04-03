@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { CellGrid } from "@react-term/core";
+import { CellGrid } from "@next_term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findLinks, WebLinksAddon } from "../addons/web-links.js";
 

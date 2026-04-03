@@ -11,7 +11,7 @@
  * Until the native renderer is built, the SkiaRenderer (JS fallback) is used.
  */
 
-import type { SelectionRange, Theme } from "@react-term/core";
+import type { SelectionRange, Theme } from "@next_term/core";
 
 export interface NativeRendererConfig {
   /** Font size in device-independent points. */
@@ -27,7 +27,7 @@ export interface NativeRendererConfig {
 export interface INativeRenderer {
   /**
    * Initialize the native renderer with a SharedArrayBuffer-backed grid.
-   * The buffer layout matches @react-term/core's CellGrid packing.
+   * The buffer layout matches @next_term/core's CellGrid packing.
    */
   attach(buffer: SharedArrayBuffer, cols: number, rows: number): void;
 

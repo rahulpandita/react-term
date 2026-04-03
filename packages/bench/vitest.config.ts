@@ -9,7 +9,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@react-term/core": path.resolve(
+      "@next_term/core": path.resolve(
         __dirname,
         "../core/src/index.ts",
       ),

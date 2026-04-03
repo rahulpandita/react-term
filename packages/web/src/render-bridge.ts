@@ -5,7 +5,7 @@
  * updates, and handles configuration changes (theme, font, resize).
  */
 
-import type { CursorState, SelectionRange, Theme } from "@react-term/core";
+import type { CursorState, SelectionRange, Theme } from "@next_term/core";
 import type {
   RenderWorkerDisposeMessage,
   RenderWorkerFontMessage,

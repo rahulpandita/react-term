@@ -1,5 +1,5 @@
 import { WebSocketServer, type WebSocket } from 'ws';
-import { scenarios } from '@react-term/bench/src/generators/index.js';
+import { scenarios } from '@next_term/bench/src/generators/index.js';
 
 const PORT = 8081;
 const CHUNK_SIZE = 64 * 1024; // 64KB

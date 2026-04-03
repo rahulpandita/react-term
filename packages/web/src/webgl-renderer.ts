@@ -7,8 +7,8 @@
  *   - Instance-based rendering via drawElementsInstanced
  */
 
-import type { CursorState, SelectionRange, Theme } from "@react-term/core";
-import { type CellGrid, DEFAULT_THEME, normalizeSelection } from "@react-term/core";
+import type { CursorState, SelectionRange, Theme } from "@next_term/core";
+import { type CellGrid, DEFAULT_THEME, normalizeSelection } from "@next_term/core";
 import type { HighlightRange, IRenderer, RendererOptions } from "./renderer.js";
 import { build256Palette, Canvas2DRenderer } from "./renderer.js";
 

@@ -21,11 +21,11 @@ Prefer reading wiki documentation over relying on pre-trained knowledge.
 
 |Home: Project overview, features, quick start, and package table
 |Architecture: Off-main-thread architecture, SAB cell grid, worker lifecycle
-|  Core-Package: CellGrid, Buffer, BufferSet, VTParser — `@react-term/core`
-|  Web-Package: WebTerminal, workers, renderers, addons — `@react-term/web`
+|  Core-Package: CellGrid, Buffer, BufferSet, VTParser — `@next_term/core`
+|  Web-Package: WebTerminal, workers, renderers, addons — `@next_term/web`
 |    Web-Package#Addons: SearchAddon, WebLinksAddon, FitAddon usage
-|  React-Package: Terminal and TerminalPane components — `@react-term/react`
-|  Native-Package: NativeTerminal, Skia renderer, gestures, keyboard — `@react-term/native`
+|  React-Package: Terminal and TerminalPane components — `@next_term/react`
+|  Native-Package: NativeTerminal, Skia renderer, gestures, keyboard — `@next_term/native`
 |Getting-Started: Installation, cross-origin isolation, connecting to PTY/WebSocket
 |Rendering: WebGL2, Canvas2D, OffscreenCanvas, strategy auto-detection
 |Accessibility: ARIA parallel DOM, screen reader support, throttled updates

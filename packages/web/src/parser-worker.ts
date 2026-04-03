@@ -7,7 +7,7 @@
  * ArrayBuffers in the flush message.
  */
 
-import { BufferSet, VTParser } from "@react-term/core";
+import { BufferSet, VTParser } from "@next_term/core";
 
 // Type declaration for Web Worker global scope (not included in DOM lib)
 declare type DedicatedWorkerGlobalScope = typeof globalThis & {

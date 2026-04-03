@@ -8,7 +8,7 @@
  * Layout is described as a recursive tree of horizontal / vertical splits.
  */
 
-import type { Theme } from "@react-term/core";
+import type { Theme } from "@next_term/core";
 import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import { collectPaneIds, type PaneLayout } from "./pane-layout.js";

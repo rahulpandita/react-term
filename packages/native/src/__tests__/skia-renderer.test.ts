@@ -1,5 +1,5 @@
-import type { CursorState, SelectionRange } from "@react-term/core";
-import { CellGrid, DEFAULT_THEME } from "@react-term/core";
+import type { CursorState, SelectionRange } from "@next_term/core";
+import { CellGrid, DEFAULT_THEME } from "@next_term/core";
 import { describe, expect, it } from "vitest";
 import type { RenderCommand } from "../renderer/SkiaRenderer.js";
 import { SkiaRenderer } from "../renderer/SkiaRenderer.js";

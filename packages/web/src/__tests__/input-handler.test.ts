@@ -1,4 +1,4 @@
-import { CellGrid } from "@react-term/core";
+import { CellGrid } from "@next_term/core";
 import { describe, expect, it, vi } from "vitest";
 import { InputHandler } from "../input-handler.js";
 

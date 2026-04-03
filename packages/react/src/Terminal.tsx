@@ -1,5 +1,5 @@
-import type { Theme } from "@react-term/core";
-import { calculateFit, WebTerminal } from "@react-term/web";
+import type { Theme } from "@next_term/core";
+import { calculateFit, WebTerminal } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 

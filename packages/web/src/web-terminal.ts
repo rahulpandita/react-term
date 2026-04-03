@@ -1,5 +1,5 @@
 /**
- * WebTerminal — main entry point for the @react-term/web package.
+ * WebTerminal — main entry point for the @next_term/web package.
  *
  * Orchestrates the core BufferSet/VTParser, Canvas2DRenderer, InputHandler,
  * and the requestAnimationFrame render loop.
@@ -13,8 +13,8 @@
  * RenderBridge, leaving the main thread free for DOM event handling only.
  */
 
-import type { CursorState, Theme } from "@react-term/core";
-import { BufferSet, CellGrid, DEFAULT_THEME, VTParser } from "@react-term/core";
+import type { CursorState, Theme } from "@next_term/core";
+import { BufferSet, CellGrid, DEFAULT_THEME, VTParser } from "@next_term/core";
 import { AccessibilityManager } from "./accessibility.js";
 import type { ITerminalAddon } from "./addon.js";
 import { calculateFit } from "./fit.js";
@@ -387,7 +387,7 @@ export class WebTerminal {
   }
 
   /** The active grid (for addons to read cell data). */
-  get activeGrid(): import("@react-term/core").CellGrid {
+  get activeGrid(): import("@next_term/core").CellGrid {
     return this.bufferSet.active.grid;
   }
 

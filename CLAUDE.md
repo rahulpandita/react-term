@@ -12,8 +12,8 @@ react-term — Modern terminal emulator for React/React Native
 
 ## Commands
 - `pnpm test` — Run all tests (vitest)
-- `pnpm --filter @react-term/demo dev` — Start demo
-- `pnpm --filter @react-term/demo start` — Start demo + PTY server
+- `pnpm --filter @next_term/demo dev` — Start demo
+- `pnpm --filter @next_term/demo start` — Start demo + PTY server
 
 ## Key patterns
 - Cell data: 2 x Uint32 per cell, bit-packed (see core/src/cell-grid.ts)

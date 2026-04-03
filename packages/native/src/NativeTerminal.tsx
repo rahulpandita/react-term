@@ -1,7 +1,7 @@
 /**
  * NativeTerminal — React Native terminal component.
  *
- * Uses @react-term/core's BufferSet + VTParser for terminal emulation, and
+ * Uses @next_term/core's BufferSet + VTParser for terminal emulation, and
  * the SkiaRenderer to generate declarative render commands. Touch input is
  * handled by GestureHandler; keyboard input by KeyboardHandler via a hidden
  * TextInput equivalent.
@@ -13,8 +13,8 @@
  * - KeyboardHandler translates key events to VT sequences
  */
 
-import type { SelectionRange, Theme } from "@react-term/core";
-import { BufferSet, DEFAULT_THEME, VTParser } from "@react-term/core";
+import type { SelectionRange, Theme } from "@next_term/core";
+import { BufferSet, DEFAULT_THEME, VTParser } from "@next_term/core";
 import React, {
   forwardRef,
   useCallback,

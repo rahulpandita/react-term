@@ -5,12 +5,12 @@
  *   pnpm profile
  *
  * Or from the repo root:
- *   pnpm --filter @react-term/bench profile
+ *   pnpm --filter @next_term/bench profile
  *
  * This generates .cpuprofile files in packages/bench/profiles/ that
  * can be opened in Chrome DevTools (Performance tab) or VS Code.
  */
-import { BufferSet, VTParser } from "@react-term/core";
+import { BufferSet, VTParser } from "@next_term/core";
 
 const SIZE = 5 * 1024 * 1024;
 

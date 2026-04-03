@@ -1,4 +1,4 @@
-import { BufferSet, VTParser } from "@react-term/core";
+import { BufferSet, VTParser } from "@next_term/core";
 
 export interface ReactTermHarness {
   write(data: Uint8Array): void;

@@ -1,4 +1,4 @@
-import { Terminal } from "@react-term/react";
+import { Terminal } from "@next_term/react";
 import {
   type ComponentType,
   type ForwardRefExoticComponent,
