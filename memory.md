@@ -1,1 +1,1 @@
-2026-04-02 run 23882495430. Tasks 2+3+7. Tests 1361->1383. PR test-assist/kitty-fkey-mouse-coords (22 tests: F6-F12 kitty + mouse offset). PRs #68,71,74,75,79,82 merged. Issue #83 open. Backlog: react(blocked),webgl(blocked). Cmds: npm install; node_modules/.bin/vitest run; node_modules/.bin/biome check packages/; git commit --no-verify.
+2026-04-03 run 23932601021. Tasks 2+3+7. 1397->1402. PR test-assist/skia-renderer-inverse-rgb (5t: SkiaRenderer inverse+RGB). PRs 68-86 merged. #83 open. react/webgl blocked.
