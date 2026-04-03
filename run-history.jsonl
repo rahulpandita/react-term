@@ -1,2 +1,2 @@
-{"run":"2026-04-01","task":"kitty-alternates"}
-{"run":"2026-04-02","task":"kitty-allkeys","pr_branch":"feature-assist/kitty-allkeys"}
+{"run":"2026-04-03","task":"kitty-allkeys","pr_branch":"feature-assist/kitty-allkeys-9033ff810d0676f9","outcome":"merged"}
+{"run":"2026-04-03","task":"kitty-assoctext","pr_branch":"feature-assist/kitty-assoctext","note":"final feature in registry"}
