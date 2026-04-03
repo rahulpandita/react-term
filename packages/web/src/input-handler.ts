@@ -760,13 +760,13 @@ export class InputHandler {
 
     // Shift+Tab → CSI 9 ; 2 u
     if (key === "Tab" && shiftKey) {
-      return `\x1b[9;${mod}${et}u`;
+      return `\x1b[9;${mod}${et}${this._kittyTextParam("Tab")}u`;
     }
 
     // Modifier + single printable character → CSI codepoint[:alt] ; mod u
     // Flag 8 (report all keys as escape codes) also encodes unmodified/shift-only chars.
     if (key.length === 1 && ((hasModifier && (ctrlKey || altKey)) || this.kittyFlags & 8)) {
-      return `\x1b[${key.charCodeAt(0)}${this._kittyAltParam(key)};${mod}${et}u`;
+      return `\x1b[${key.charCodeAt(0)}${this._kittyAltParam(key)};${mod}${et}${this._kittyTextParam(key)}u`;
     }
 
     // Modified cursor keys → CSI 1 ; mod <letter>
@@ -828,11 +828,11 @@ export class InputHandler {
     if (this.kittyFlags & 8) {
       switch (key) {
         case "Enter":
-          return `\x1b[13;1${et}u`;
+          return `\x1b[13;1${et}${this._kittyTextParam("Enter")}u`;
         case "Tab":
-          return `\x1b[9;1${et}u`;
+          return `\x1b[9;1${et}${this._kittyTextParam("Tab")}u`;
         case "Backspace":
-          return `\x1b[127;1${et}u`;
+          return `\x1b[127;1${et}${this._kittyTextParam("Backspace")}u`;
       }
     }
     // Legacy sequences don't support release events — return null on keyup (eventType=3).
@@ -920,6 +920,26 @@ export class InputHandler {
     if (!alt1 && !alt2) return "";
     if (!alt2) return `:${alt1}`;
     return `:${alt1}:${alt2}`;
+  }
+
+  /**
+   * Associated text sub-parameter for flag 16 (report associated text).
+   *
+   * Returns the `;codepoint` third-parameter suffix for keys that produce text,
+   * or `""` when flag 16 is inactive or the key produces no associated text.
+   */
+  private _kittyTextParam(key: string): string {
+    if (!(this.kittyFlags & 16)) return "";
+    if (key.length === 1) return `;${key.charCodeAt(0)}`;
+    switch (key) {
+      case "Enter":
+        return ";13";
+      case "Tab":
+        return ";9";
+      case "Backspace":
+        return ";127";
+    }
+    return "";
   }
 
   // -----------------------------------------------------------------------
