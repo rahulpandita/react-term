@@ -156,17 +156,24 @@ jobs:
             // --- E2E benchmarks ---
             report += '## E2E Benchmarks (Playwright)\n\n';
 
-            // Try to find and parse the JSON results
+            // Try to find and parse the JSON results (artifact preserves directory structure)
             const e2eDir = path.join('artifacts', 'e2e-bench-results');
             let jsonResults = null;
-            if (fs.existsSync(e2eDir)) {
-              const files = fs.readdirSync(e2eDir).filter(f => f.endsWith('.json'));
-              if (files.length > 0) {
-                const jsonPath = path.join(e2eDir, files[files.length - 1]);
-                try {
-                  jsonResults = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-                } catch {}
+            function findJsonFiles(dir) {
+              let results = [];
+              if (!fs.existsSync(dir)) return results;
+              for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) results.push(...findJsonFiles(full));
+                else if (entry.name.endsWith('.json')) results.push(full);
               }
+              return results;
+            }
+            const jsonFiles = findJsonFiles(e2eDir);
+            if (jsonFiles.length > 0) {
+              try {
+                jsonResults = JSON.parse(fs.readFileSync(jsonFiles[jsonFiles.length - 1], 'utf-8'));
+              } catch {}
             }
 
             if (jsonResults && jsonResults.length > 0) {
