@@ -192,13 +192,9 @@ jobs:
               const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
               const scenarios = [...byScenario.keys()];
 
-              // Build SVG bar chart helper
-              function buildChart(title, unit, getValue, lowerIsBetter) {
-                const barH = 18, gap = 4, labelW = 180, valueW = 70, chartW = 280;
-                const rowH = (barH + gap) * 2 + gap * 2;
-                const svgH = 40 + scenarios.length * rowH;
-                const svgW = labelW + chartW + valueW + 20;
-
+              // Build markdown table with bar visualization
+              const maxBarLen = 20;
+              function buildTable(title, unit, getValue) {
                 let maxVal = 0;
                 const data = scenarios.map(s => {
                   const e = byScenario.get(s);
@@ -207,53 +203,27 @@ jobs:
                   maxVal = Math.max(maxVal, rt, xt);
                   return { scenario: s, rt, xt };
                 });
+                const bar = (val) => {
+                  const len = maxVal > 0 ? Math.round((val / maxVal) * maxBarLen) : 0;
+                  return '█'.repeat(len) + '░'.repeat(maxBarLen - len);
+                };
 
-                let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" font-family="monospace" font-size="12">\n`;
-                svg += `<text x="${svgW / 2}" y="20" text-anchor="middle" font-size="14" font-weight="bold">${title} (${unit})</text>\n`;
-
-                data.forEach((d, i) => {
-                  const y = 36 + i * rowH;
-                  const rtW = maxVal > 0 ? (d.rt / maxVal) * chartW : 0;
-                  const xtW = maxVal > 0 ? (d.xt / maxVal) * chartW : 0;
-                  const rtBetter = lowerIsBetter ? d.rt <= d.xt : d.rt >= d.xt;
-
-                  // Scenario label
-                  svg += `<text x="${labelW - 8}" y="${y + barH + gap + 4}" text-anchor="end" font-size="11">${d.scenario}</text>\n`;
-
-                  // react-term bar (always green)
-                  svg += `<rect x="${labelW}" y="${y}" width="${rtW}" height="${barH}" fill="#22c55e" rx="3"/>\n`;
-                  svg += `<text x="${labelW + rtW + 4}" y="${y + 13}" font-size="11" fill="#333">${d.rt.toFixed(1)}</text>\n`;
-
-                  // xterm bar (always blue)
-                  svg += `<rect x="${labelW}" y="${y + barH + gap}" width="${xtW}" height="${barH}" fill="#3b82f6" rx="3"/>\n`;
-                  svg += `<text x="${labelW + xtW + 4}" y="${y + barH + gap + 13}" font-size="11" fill="#333">${d.xt.toFixed(1)}</text>\n`;
-
-                  // Separator
-                  if (i < data.length - 1) {
-                    svg += `<line x1="${labelW}" y1="${y + rowH - gap}" x2="${labelW + chartW}" y2="${y + rowH - gap}" stroke="#e5e7eb" stroke-width="1"/>\n`;
-                  }
-                });
-
-                // Legend
-                const legendY = svgH - 4;
-                svg += `<rect x="${labelW}" y="${legendY - 10}" width="12" height="12" fill="#22c55e" rx="2"/>\n`;
-                svg += `<text x="${labelW + 16}" y="${legendY}" font-size="11">react-term</text>\n`;
-                svg += `<rect x="${labelW + 100}" y="${legendY - 10}" width="12" height="12" fill="#3b82f6" rx="2"/>\n`;
-                svg += `<text x="${labelW + 116}" y="${legendY}" font-size="11">xterm</text>\n`;
-                svg += '';
-
-                svg += '</svg>';
-                return svg;
+                let md = `| Scenario | react-term | ${unit} | xterm | ${unit} |\n`;
+                md += '|----------|------------|------|-------|------|\n';
+                for (const d of data) {
+                  md += `| ${d.scenario} | \`${bar(d.rt)}\` | ${d.rt.toFixed(1)} | \`${bar(d.xt)}\` | ${d.xt.toFixed(1)} |\n`;
+                }
+                return md;
               }
 
-              report += '### Avg Time (lower is better)\n\n';
-              report += buildChart('Avg Time', 'ms', t => avg(t.time), true) + '\n\n';
+              report += '### Avg Time — ms (lower is better)\n\n';
+              report += buildTable('Avg Time', 'ms', t => avg(t.time)) + '\n';
 
-              report += '### Avg FPS (higher is better)\n\n';
-              report += buildChart('Avg FPS', 'fps', t => avg(t.fps), false) + '\n\n';
+              report += '### Avg FPS — fps (higher is better)\n\n';
+              report += buildTable('Avg FPS', 'fps', t => avg(t.fps)) + '\n';
 
-              report += '### Throughput (higher is better)\n\n';
-              report += buildChart('Throughput', 'MB/s', t => avg(t.mbps), false) + '\n\n';
+              report += '### Throughput — MB/s (higher is better)\n\n';
+              report += buildTable('Throughput', 'MB/s', t => avg(t.mbps)) + '\n';
 
               // Keep a summary table for quick reference
               report += '<details><summary>Detailed results table</summary>\n\n';
