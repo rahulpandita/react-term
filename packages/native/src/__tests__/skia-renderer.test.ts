@@ -459,4 +459,149 @@ describe("SkiaRenderer", () => {
       expect(aCmd?.color).toBe("#ff0000");
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Inverse attribute (SGR 7 / attrs bit 6 = 0x40) — fg and bg swapped
+  // -----------------------------------------------------------------------
+
+  describe("inverse attribute (ATTR_INVERSE = 0x40)", () => {
+    it("draws text in bg color and bg rect in fg color when inverse is set", () => {
+      const renderer = createRenderer();
+      const grid = new CellGrid(5, 1);
+
+      // fgIndex=1 (red palette), bgIndex=0 (default bg), attrs=0x40 (inverse).
+      // After swap: text = resolved(bg=0) = theme.background,
+      //             bg   = resolved(fg=1) = palette[1] (red).
+      grid.setCell(0, 0, 0x41, 1, 0, 0x40); // 'A', fg=red(1), bg=default, inverse
+
+      const cursor: CursorState = {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: "block",
+        wrapPending: false,
+      };
+      const commands = renderer.renderFrame(grid, cursor, null);
+
+      const textCmds = findCommands(commands, "text");
+      const aCmd = textCmds.find((c) => c.text === "A");
+      expect(aCmd).toBeDefined();
+      // After inverse the text is drawn using the original background color
+      expect(aCmd?.color).toBe(DEFAULT_THEME.background);
+
+      // A per-cell rect with the original fg color (palette[1] = red) must appear
+      const rectCmds = findCommands(commands, "rect");
+      const fgColorRect = rectCmds.find(
+        (c) => c.color !== DEFAULT_THEME.background && c.color !== DEFAULT_THEME.foreground,
+      );
+      expect(fgColorRect).toBeDefined();
+    });
+
+    it("draws text in original bg palette color when inverse + explicit bg", () => {
+      const renderer = createRenderer();
+      const grid = new CellGrid(5, 1);
+
+      // fgIndex=7 (default fg), bgIndex=2 (green), attrs=0x40 (inverse).
+      // After swap: text = palette[2] (green), bg = theme.foreground.
+      grid.setCell(0, 0, 0x42, 7, 2, 0x40); // 'B', fg=default(7), bg=green(2), inverse
+
+      const cursor: CursorState = {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: "block",
+        wrapPending: false,
+      };
+      const commands = renderer.renderFrame(grid, cursor, null);
+
+      const textCmds = findCommands(commands, "text");
+      const bCmd = textCmds.find((c) => c.text === "B");
+      expect(bCmd).toBeDefined();
+      // Text color should be palette[2] (green), not the default fg or bg
+      expect(bCmd?.color).not.toBe(DEFAULT_THEME.foreground);
+      expect(bCmd?.color).not.toBe(DEFAULT_THEME.background);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // RGB / true-color cells (isFgRGB / isBgRGB flags in setCell)
+  // -----------------------------------------------------------------------
+
+  describe("RGB (true-color) cells", () => {
+    it("renders fg RGB color as 'rgb(r,g,b)' string", () => {
+      const renderer = createRenderer();
+      const grid = new CellGrid(5, 1);
+
+      // fgIsRGB=true; rgbColors[col] holds the packed 24-bit value
+      grid.setCell(0, 0, 0x41, 0, 0, 0, true, false); // 'A', fgIsRGB=true
+      grid.rgbColors[0] = (255 << 16) | (128 << 8) | 0; // rgb(255,128,0)
+
+      const cursor: CursorState = {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: "block",
+        wrapPending: false,
+      };
+      const commands = renderer.renderFrame(grid, cursor, null);
+
+      const textCmds = findCommands(commands, "text");
+      const aCmd = textCmds.find((c) => c.text === "A");
+      expect(aCmd).toBeDefined();
+      expect(aCmd?.color).toBe("rgb(255,128,0)");
+    });
+
+    it("renders bg RGB color as a background rect with 'rgb(r,g,b)' color", () => {
+      const renderer = createRenderer();
+      const grid = new CellGrid(5, 1);
+
+      // bgIsRGB=true; rgbColors[256 + col] holds the packed 24-bit value
+      grid.setCell(0, 0, 0x41, 7, 0, 0, false, true); // 'A', bgIsRGB=true
+      grid.rgbColors[256 + 0] = (0 << 16) | (0 << 8) | 200; // rgb(0,0,200)
+
+      const cursor: CursorState = {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: "block",
+        wrapPending: false,
+      };
+      const commands = renderer.renderFrame(grid, cursor, null);
+
+      // A per-cell rect with the RGB background color must appear
+      const rectCmds = findCommands(commands, "rect");
+      const rgbBgRect = rectCmds.find((c) => c.color === "rgb(0,0,200)");
+      expect(rgbBgRect).toBeDefined();
+    });
+
+    it("RGB fg + inverse: RGB value becomes background rect; text uses theme.background", () => {
+      const renderer = createRenderer();
+      const grid = new CellGrid(5, 1);
+
+      // fgIsRGB=true, attrs=0x40 (inverse).
+      // After swap: bg = rgb(200,50,10), text = theme.background.
+      grid.setCell(0, 0, 0x43, 0, 0, 0x40, true, false); // 'C', fgIsRGB, inverse
+      grid.rgbColors[0] = (200 << 16) | (50 << 8) | 10; // rgb(200,50,10)
+
+      const cursor: CursorState = {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: "block",
+        wrapPending: false,
+      };
+      const commands = renderer.renderFrame(grid, cursor, null);
+
+      // Text uses the original bg (theme.background) after the swap
+      const textCmds = findCommands(commands, "text");
+      const cCmd = textCmds.find((c) => c.text === "C");
+      expect(cCmd).toBeDefined();
+      expect(cCmd?.color).toBe(DEFAULT_THEME.background);
+
+      // Background rect uses the original RGB fg color
+      const rectCmds = findCommands(commands, "rect");
+      const rgbRect = rectCmds.find((c) => c.color === "rgb(200,50,10)");
+      expect(rgbRect).toBeDefined();
+    });
+  });
 });
