@@ -2,6 +2,11 @@
   "name": "@next_term/web",
   "version": "0.1.0",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rahulpandita/react-term",
+    "directory": "packages/web"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

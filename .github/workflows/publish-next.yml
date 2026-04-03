@@ -44,7 +44,7 @@ jobs:
           # Publish in dependency order: core → web → react, native
           for pkg in core web react native; do
             cd packages/$pkg
-            npm publish --tag next --provenance
+            npm publish --tag next
             cd ../..
           done
         env:
