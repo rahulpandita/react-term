@@ -29,7 +29,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 ## Quick Start
 
 ```tsx
-import { Terminal } from '@react-term/react';
+import { Terminal } from '@next_term/react';
 
 function App() {
   const termRef = useRef(null);
@@ -50,10 +50,10 @@ function App() {
 
 | Package | Description | Source | Tests | Total |
 |---------|------------|-------:|------:|------:|
-| `@react-term/core` | Cell grid, VT parser, buffer management | 2.7K | 6.7K | 9.4K |
-| `@react-term/web` | Canvas 2D, WebGL2, workers, addons | 6.8K | 2.9K | 9.7K |
-| `@react-term/react` | React component, multi-pane layout | 451 | 106 | 557 |
-| `@react-term/native` | React Native, gesture/keyboard, Skia | 1.0K | 944 | 2.0K |
+| `@next_term/core` | Cell grid, VT parser, buffer management | 2.7K | 6.7K | 9.4K |
+| `@next_term/web` | Canvas 2D, WebGL2, workers, addons | 6.8K | 2.9K | 9.7K |
+| `@next_term/react` | React component, multi-pane layout | 451 | 106 | 557 |
+| `@next_term/native` | React Native, gesture/keyboard, Skia | 1.0K | 944 | 2.0K |
 | **Total** | | **11.0K** | **10.7K** | **21.7K** |
 
 ## Architecture
@@ -82,7 +82,7 @@ react-term auto-detects the best rendering strategy:
 ## Addons
 
 ```tsx
-import { SearchAddon, WebLinksAddon, FitAddon } from '@react-term/web';
+import { SearchAddon, WebLinksAddon, FitAddon } from '@next_term/web';
 
 const searchAddon = new SearchAddon();
 const webLinksAddon = new WebLinksAddon();
@@ -99,7 +99,7 @@ searchAddon.findNext('error', { caseSensitive: false, regex: true });
 ## Multi-Pane
 
 ```tsx
-import { TerminalPane } from '@react-term/react';
+import { TerminalPane } from '@next_term/react';
 
 <TerminalPane
   layout={{
@@ -119,11 +119,11 @@ import { TerminalPane } from '@react-term/react';
 
 ### `collectPaneIds`
 
-`collectPaneIds` is exported as a public helper from `@react-term/react`. It performs a depth-first traversal of a `PaneLayout` tree and returns all leaf pane IDs in order. Useful when you need the full set of pane IDs to initialize connections or manage state outside of the component.
+`collectPaneIds` is exported as a public helper from `@next_term/react`. It performs a depth-first traversal of a `PaneLayout` tree and returns all leaf pane IDs in order. Useful when you need the full set of pane IDs to initialize connections or manage state outside of the component.
 
 ```ts
-import { collectPaneIds } from '@react-term/react';
-import type { PaneLayout } from '@react-term/react';
+import { collectPaneIds } from '@next_term/react';
+import type { PaneLayout } from '@next_term/react';
 
 const layout: PaneLayout = {
   type: 'horizontal',
@@ -142,12 +142,12 @@ const ids = collectPaneIds(layout);
 
 ## VTParser Callbacks
 
-`VTParser` (from `@react-term/core`) exposes hooks for terminal protocol extensions:
+`VTParser` (from `@next_term/core`) exposes hooks for terminal protocol extensions:
 
 ### OSC 52 — Clipboard
 
 ```ts
-import { VTParser } from '@react-term/core';
+import { VTParser } from '@next_term/core';
 
 const parser = new VTParser();
 
@@ -476,7 +476,7 @@ The stack depth is capped at 99 entries. Both `kittyFlags` and the stack are res
 
 Example — reading the active flags and subscribing to changes:
 ```ts
-import { VTParser } from '@react-term/core';
+import { VTParser } from '@next_term/core';
 
 const parser = new VTParser(bufferSet);
 
@@ -500,7 +500,7 @@ console.log(parser.kittyFlags); // 3
 When bit 0 of the Kitty flags is active, `InputHandler` switches its key encoding from legacy VT sequences to the unambiguous Kitty CSI u format.
 
 ```ts
-import { InputHandler } from '@react-term/web';
+import { InputHandler } from '@next_term/web';
 
 const input = new InputHandler({ onData: (seq) => socket.send(seq) });
 
@@ -532,8 +532,8 @@ When using `WebTerminal`, Kitty flag changes received from the remote applicatio
 When using `VTParser` and `InputHandler` directly (without `WebTerminal`), connect them via `setKittyFlagsCallback`:
 
 ```ts
-import { VTParser } from '@react-term/core';
-import { InputHandler } from '@react-term/web';
+import { VTParser } from '@next_term/core';
+import { InputHandler } from '@next_term/web';
 
 const input = new InputHandler({ onData: (seq) => socket.send(seq) });
 
@@ -550,7 +550,7 @@ Calling `input.setKittyFlags(0)` (or any value with bit 0 clear) restores legacy
 When bit 1 of the Kitty flags is active (flag value `2`, typically combined with flag 1 as `setKittyFlags(3)`), `InputHandler` appends an `:event-type` sub-parameter to all enhanced Kitty CSI sequences. This lets the receiving application distinguish key-press, key-repeat, and key-release events.
 
 ```ts
-import { InputHandler } from '@react-term/web';
+import { InputHandler } from '@next_term/web';
 
 const input = new InputHandler({ onData: (seq) => socket.send(seq) });
 
@@ -597,7 +597,7 @@ CSI codepoint[:shifted[:base]] ; modifier[:eventType] u
 - **base**: codepoint of the physical key without any modifiers, US QWERTY layout (omitted when equal to `codepoint`)
 
 ```ts
-import { InputHandler } from '@react-term/web';
+import { InputHandler } from '@next_term/web';
 
 const input = new InputHandler({ onData: (seq) => socket.send(seq) });
 
@@ -647,9 +647,9 @@ The repository enforces code quality via:
 
 Two benchmark packages measure parser and end-to-end rendering throughput:
 
-- **`@react-term/bench`** — unit-level parser benchmarks via `vitest bench`. Includes vtebench-compatible scenarios (dense cells, light cells, Unicode, cursor motion, scrolling) for apples-to-apples comparisons with alacritty/vtebench. Run with `pnpm --filter @react-term/bench bench`.
+- **`@next_term/bench`** — unit-level parser benchmarks via `vitest bench`. Includes vtebench-compatible scenarios (dense cells, light cells, Unicode, cursor motion, scrolling) for apples-to-apples comparisons with alacritty/vtebench. Run with `pnpm --filter @next_term/bench bench`.
   - Slow scroll-region scenarios (2–4 s/iteration) are exported separately as `slowScenarios` for local profiling.
-- **`@react-term/e2e-bench`** — end-to-end Playwright benchmarks that drive a Vite dev server and compare react-term against xterm.js across multiple scenarios. Results are written as JSON to `packages/e2e-bench/results/`. Run with `pnpm --filter @react-term/e2e-bench bench`.
+- **`@next_term/e2e-bench`** — end-to-end Playwright benchmarks that drive a Vite dev server and compare react-term against xterm.js across multiple scenarios. Results are written as JSON to `packages/e2e-bench/results/`. Run with `pnpm --filter @next_term/e2e-bench bench`.
 
 A **benchmark CI workflow** (`.github/workflows/benchmark.yml`) runs both suites in parallel and posts a throughput summary table to the GitHub Actions run page.
 

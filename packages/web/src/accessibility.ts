@@ -8,7 +8,7 @@
  * Inspired by the xterm.js accessibility approach.
  */
 
-import type { CellGrid } from "@react-term/core";
+import type { CellGrid } from "@next_term/core";
 
 // ---------------------------------------------------------------------------
 // Helpers

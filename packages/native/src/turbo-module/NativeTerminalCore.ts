@@ -8,7 +8,7 @@
  * - SharedArrayBuffer-backed cell grid for zero-copy JS access
  *
  * Until the native module is built, the JS-side `NativeTerminal` component
- * uses `@react-term/core`'s BufferSet + VTParser as a fallback.
+ * uses `@next_term/core`'s BufferSet + VTParser as a fallback.
  */
 
 /**

@@ -1,9 +1,9 @@
 {
-  "name": "@react-term/web",
+  "name": "@next_term/web",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
@@ -15,11 +15,14 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@react-term/core": "workspace:*"
+    "@next_term/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   },
-  "files": ["dist"]
+  "files": ["dist", "!dist/__tests__"],
+  "publishConfig": {
+    "access": "public"
+  }
 }

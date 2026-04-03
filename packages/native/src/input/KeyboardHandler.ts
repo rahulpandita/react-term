@@ -2,7 +2,7 @@
  * Keyboard input handling for the React Native terminal.
  *
  * Translates key presses and IME text input into VT escape sequences,
- * matching the logic in `@react-term/web`'s InputHandler.
+ * matching the logic in `@next_term/web`'s InputHandler.
  *
  * This is pure logic with no React Native dependencies — the RN component
  * feeds events from a hidden TextInput into this handler.
@@ -80,7 +80,7 @@ export class KeyboardHandler {
    * Convert a key name + modifiers into the VT sequence string to send
    * to the PTY, or null if the key should not be handled.
    *
-   * This mirrors `@react-term/web` InputHandler.keyToSequence exactly.
+   * This mirrors `@next_term/web` InputHandler.keyToSequence exactly.
    */
   keyToSequence(key: string, modifiers: KeyModifiers): string | null {
     const { ctrl, alt, meta } = modifiers;

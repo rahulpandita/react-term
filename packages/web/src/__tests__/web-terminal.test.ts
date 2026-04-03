@@ -9,7 +9,7 @@
  * minimal mock so renderer.attach() does not throw.
  */
 
-import { DEFAULT_THEME, extractText } from "@react-term/core";
+import { DEFAULT_THEME, extractText } from "@next_term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InputHandler } from "../input-handler.js";
 import { Canvas2DRenderer } from "../renderer.js";
@@ -488,7 +488,7 @@ describe("WebTerminal", () => {
       term.write("LINE4\n");
       // Scroll back all the way to see LINE1 in display row 0
       (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
-      const dg = (term as unknown as Record<string, import("@react-term/core").CellGrid>)
+      const dg = (term as unknown as Record<string, import("@next_term/core").CellGrid>)
         .displayGrid;
       expect(dg).not.toBeNull();
       // Row 0 of the display grid should contain LINE1

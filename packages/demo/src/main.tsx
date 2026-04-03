@@ -1,6 +1,6 @@
-import type { Theme } from "@react-term/core";
-import type { PaneLayout, TerminalHandle, TerminalPaneHandle } from "@react-term/react";
-import { Terminal, TerminalPane } from "@react-term/react";
+import type { Theme } from "@next_term/core";
+import type { PaneLayout, TerminalHandle, TerminalPaneHandle } from "@next_term/react";
+import { Terminal, TerminalPane } from "@next_term/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 

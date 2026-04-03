@@ -1,5 +1,5 @@
 {
-  "name": "@react-term/core",
+  "name": "@next_term/core",
   "version": "0.0.1",
   "license": "MIT",
   "type": "module",
@@ -14,5 +14,8 @@
   "scripts": {
     "build": "tsc"
   },
-  "files": ["dist"]
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  }
 }

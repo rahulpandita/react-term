@@ -26,7 +26,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Run parser benchmarks
-        run: pnpm --filter @react-term/bench bench | tee parser-bench-output.txt
+        run: pnpm --filter @next_term/bench bench | tee parser-bench-output.txt
         env:
           NO_COLOR: 1
       - name: Upload parser results
@@ -49,9 +49,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install Playwright Chromium
-        run: pnpm --filter @react-term/e2e-bench exec playwright install chromium --with-deps
+        run: pnpm --filter @next_term/e2e-bench exec playwright install chromium --with-deps
       - name: Run E2E benchmarks
-        run: pnpm --filter @react-term/e2e-bench bench 2>&1 | tee e2e-bench-output.txt
+        run: pnpm --filter @next_term/e2e-bench bench 2>&1 | tee e2e-bench-output.txt
       - name: Upload E2E results JSON
         uses: actions/upload-artifact@v7
         if: always()

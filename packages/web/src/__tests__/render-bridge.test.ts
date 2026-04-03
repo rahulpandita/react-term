@@ -1,5 +1,5 @@
-import type { CursorState, Theme } from "@react-term/core";
-import { DEFAULT_THEME } from "@react-term/core";
+import type { CursorState, Theme } from "@next_term/core";
+import { DEFAULT_THEME } from "@next_term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { canUseOffscreenCanvas, RenderBridge } from "../render-bridge.js";
 

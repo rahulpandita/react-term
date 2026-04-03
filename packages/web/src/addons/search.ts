@@ -1,4 +1,4 @@
-import type { CellGrid } from "@react-term/core";
+import type { CellGrid } from "@next_term/core";
 import type { ITerminalAddon } from "../addon.js";
 import type { WebTerminal } from "../web-terminal.js";
 

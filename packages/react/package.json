@@ -1,16 +1,30 @@
 {
-  "name": "@react-term/react",
+  "name": "@next_term/react",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "files": ["dist", "!dist/__tests__"],
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
-    "@react-term/core": "workspace:*",
-    "@react-term/web": "workspace:*"
+    "@next_term/core": "workspace:*",
+    "@next_term/web": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

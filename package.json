@@ -6,13 +6,13 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "pnpm --filter @react-term/demo dev",
-    "start": "pnpm --filter @react-term/demo start",
+    "dev": "pnpm --filter @next_term/demo dev",
+    "start": "pnpm --filter @next_term/demo start",
     "build": "pnpm -r build",
     "clean": "pnpm -r exec rm -rf dist",
     "lint": "biome check packages/",
     "lint:fix": "biome check --write packages/",
-    "bench": "pnpm --filter @react-term/bench bench",
+    "bench": "pnpm --filter @next_term/bench bench",
     "typecheck": "tsc -b",
     "prepare": "git config core.hooksPath .githooks"
   },

@@ -10,8 +10,8 @@
  * and resize events.
  */
 
-import type { Theme } from "@react-term/core";
-import { CellGrid, DEFAULT_THEME } from "@react-term/core";
+import type { Theme } from "@next_term/core";
+import { CellGrid, DEFAULT_THEME } from "@next_term/core";
 import { build256Palette } from "./renderer.js";
 
 // Type declaration for Web Worker global scope (not included in DOM lib)

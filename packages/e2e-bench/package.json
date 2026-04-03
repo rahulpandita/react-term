@@ -1,5 +1,5 @@
 {
-  "name": "@react-term/e2e-bench",
+  "name": "@next_term/e2e-bench",
   "version": "0.0.1",
   "private": true,
   "license": "MIT",
@@ -13,10 +13,10 @@
     "bench:headed": "playwright test --headed"
   },
   "dependencies": {
-    "@react-term/react": "workspace:*",
-    "@react-term/core": "workspace:*",
-    "@react-term/web": "workspace:*",
-    "@react-term/bench": "workspace:*",
+    "@next_term/react": "workspace:*",
+    "@next_term/core": "workspace:*",
+    "@next_term/web": "workspace:*",
+    "@next_term/bench": "workspace:*",
     "@xterm/xterm": "^5.5.0",
     "@xterm/addon-fit": "^0.10.0",
     "react": "^19.0.0",

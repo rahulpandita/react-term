@@ -1,5 +1,5 @@
-import type { CursorState, SelectionRange, Theme } from "@react-term/core";
-import { type CellGrid, DEFAULT_THEME, normalizeSelection } from "@react-term/core";
+import type { CursorState, SelectionRange, Theme } from "@next_term/core";
+import { type CellGrid, DEFAULT_THEME, normalizeSelection } from "@next_term/core";
 
 // ---------------------------------------------------------------------------
 // Public interfaces

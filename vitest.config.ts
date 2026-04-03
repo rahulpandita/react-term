@@ -7,8 +7,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@react-term/core': path.resolve(__dirname, 'packages/core/src/index.ts'),
-      '@react-term/web': path.resolve(__dirname, 'packages/web/src/index.ts'),
+      '@next_term/core': path.resolve(__dirname, 'packages/core/src/index.ts'),
+      '@next_term/web': path.resolve(__dirname, 'packages/web/src/index.ts'),
     },
   },
 });

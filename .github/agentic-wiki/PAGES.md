@@ -1,6 +1,6 @@
 # Home
 
-*{ Write a project overview for react-term — a modern terminal emulator for React and React Native. Include a brief description, the key features (off-main-thread VT parser, WebGL2 renderer, SharedArrayBuffer, Canvas 2D fallback, React Native with Skia, multi-pane support, accessibility, addons), a quick-start code example showing the Terminal React component, and the package table from README.md showing @react-term/core, @react-term/web, @react-term/react, @react-term/native. }*
+*{ Write a project overview for react-term — a modern terminal emulator for React and React Native. Include a brief description, the key features (off-main-thread VT parser, WebGL2 renderer, SharedArrayBuffer, Canvas 2D fallback, React Native with Skia, multi-pane support, accessibility, addons), a quick-start code example showing the Terminal React component, and the package table from README.md showing @next_term/core, @next_term/web, @next_term/react, @next_term/native. }*
 
 # Architecture
 
@@ -8,11 +8,11 @@
 
 ## Core Package
 
-*{ Document the @react-term/core package (packages/core/). Describe CellGrid (the SharedArrayBuffer-backed cell grid, cell packing format with 2×Uint32 per cell, dirty rows tracking, RGB color storage, cursor data), Buffer and BufferSet (scroll regions, tab stops, cursor save/restore, scrollback, alternate screen), VTParser (the VT100/ANSI state machine, including OSC sequence callbacks: clipboard access via OSC 52, indexed-colour palette set/query via OSC 4/104, working-directory reporting via OSC 7, and dynamic color query/set for foreground/background/cursor colors via OSC 10/11/12), and the exported types (CursorState, TerminalOptions, Theme, DirtyState). Include a Mermaid diagram showing the relationships between CellGrid, Buffer, BufferSet, and VTParser. Link to the source files at packages/core/src/. }*
+*{ Document the @next_term/core package (packages/core/). Describe CellGrid (the SharedArrayBuffer-backed cell grid, cell packing format with 2×Uint32 per cell, dirty rows tracking, RGB color storage, cursor data), Buffer and BufferSet (scroll regions, tab stops, cursor save/restore, scrollback, alternate screen), VTParser (the VT100/ANSI state machine, including OSC sequence callbacks: clipboard access via OSC 52, indexed-colour palette set/query via OSC 4/104, working-directory reporting via OSC 7, and dynamic color query/set for foreground/background/cursor colors via OSC 10/11/12), and the exported types (CursorState, TerminalOptions, Theme, DirtyState). Include a Mermaid diagram showing the relationships between CellGrid, Buffer, BufferSet, and VTParser. Link to the source files at packages/core/src/. }*
 
 ## Web Package
 
-*{ Document the @react-term/web package (packages/web/). Cover: WebTerminal as the main orchestrator, WorkerBridge (parser worker lifecycle, flow control with high/low watermarks, SAB vs Transferable fallback), RenderBridge (OffscreenCanvas render worker, feature detection), Canvas2DRenderer, WebGLRenderer (instanced rendering, glyph atlas, 2 draw calls per frame), InputHandler, AccessibilityManager, SharedWebGLContext (shared context for multi-pane, bypasses Chrome 16-context limit), and the addons system (SearchAddon, WebLinksAddon, FitAddon). Include a Mermaid sequence diagram showing the write data flow from WebTerminal through WorkerBridge to the parser worker and back. Link to packages/web/src/. }*
+*{ Document the @next_term/web package (packages/web/). Cover: WebTerminal as the main orchestrator, WorkerBridge (parser worker lifecycle, flow control with high/low watermarks, SAB vs Transferable fallback), RenderBridge (OffscreenCanvas render worker, feature detection), Canvas2DRenderer, WebGLRenderer (instanced rendering, glyph atlas, 2 draw calls per frame), InputHandler, AccessibilityManager, SharedWebGLContext (shared context for multi-pane, bypasses Chrome 16-context limit), and the addons system (SearchAddon, WebLinksAddon, FitAddon). Include a Mermaid sequence diagram showing the write data flow from WebTerminal through WorkerBridge to the parser worker and back. Link to packages/web/src/. }*
 
 ####+ Addons
 
@@ -20,15 +20,15 @@
 
 ## React Package
 
-*{ Document the @react-term/react package (packages/react/). Describe the Terminal component (all props: cols, rows, fontSize, fontFamily, theme, scrollback, onData, onResize, onTitleChange, autoFit, className, style, renderMode, renderer, useWorker) and its TerminalHandle imperative ref (write, resize, focus, blur, fit). Describe TerminalPane for multi-pane split layouts (PaneLayout tree type, horizontal/vertical splits, shared WebGL context), its TerminalPaneHandle (getTerminal, getPaneIds), and a code example for creating a 2-pane split. Link to packages/react/src/. }*
+*{ Document the @next_term/react package (packages/react/). Describe the Terminal component (all props: cols, rows, fontSize, fontFamily, theme, scrollback, onData, onResize, onTitleChange, autoFit, className, style, renderMode, renderer, useWorker) and its TerminalHandle imperative ref (write, resize, focus, blur, fit). Describe TerminalPane for multi-pane split layouts (PaneLayout tree type, horizontal/vertical splits, shared WebGL context), its TerminalPaneHandle (getTerminal, getPaneIds), and a code example for creating a 2-pane split. Link to packages/react/src/. }*
 
 ## Native Package
 
-*{ Document the @react-term/native package (packages/native/). Cover: NativeTerminal component (touch-first input, NativeTerminalProps/NativeTerminalHandle), TerminalSurface (low-level rendering surface, TerminalSurfaceProps), GestureHandler (touch gesture recognition, GestureState enum, GestureConfig), KeyboardHandler (hardware keyboard input, KeyModifiers), SkiaRenderer (React Native Skia-based renderer, RenderCommand), and the TurboModule interface (NativeTerminalCoreSpec). Include a diagram showing how the components layer together. Link to packages/native/src/. }*
+*{ Document the @next_term/native package (packages/native/). Cover: NativeTerminal component (touch-first input, NativeTerminalProps/NativeTerminalHandle), TerminalSurface (low-level rendering surface, TerminalSurfaceProps), GestureHandler (touch gesture recognition, GestureState enum, GestureConfig), KeyboardHandler (hardware keyboard input, KeyModifiers), SkiaRenderer (React Native Skia-based renderer, RenderCommand), and the TurboModule interface (NativeTerminalCoreSpec). Include a diagram showing how the components layer together. Link to packages/native/src/. }*
 
 # Getting Started
 
-*{ Write a complete getting-started guide for react-term. Cover: prerequisites (Node.js, pnpm), installation of @react-term/react and @react-term/web into an existing React project, the minimal Terminal component usage example, configuring cross-origin isolation headers required for SharedArrayBuffer (COOP/COEP), the three rendering strategies and when each is selected automatically, and how to connect to a PTY/WebSocket by handling the onData callback. Include code snippets for installation, configuration, and usage. }*
+*{ Write a complete getting-started guide for react-term. Cover: prerequisites (Node.js, pnpm), installation of @next_term/react and @next_term/web into an existing React project, the minimal Terminal component usage example, configuring cross-origin isolation headers required for SharedArrayBuffer (COOP/COEP), the three rendering strategies and when each is selected automatically, and how to connect to a PTY/WebSocket by handling the onData callback. Include code snippets for installation, configuration, and usage. }*
 
 #### Prerequisites
 
@@ -83,11 +83,11 @@ Prefer reading wiki documentation over relying on pre-trained knowledge.
 
 |Home: Project overview, features, quick start, and package table
 |Architecture: Off-main-thread architecture, rendering strategies, and worker design
-|  Core: CellGrid, Buffer, BufferSet, VTParser — the @react-term/core package
-|  Web: WebTerminal, renderers, workers, addons — the @react-term/web package
+|  Core: CellGrid, Buffer, BufferSet, VTParser — the @next_term/core package
+|  Web: WebTerminal, renderers, workers, addons — the @next_term/web package
 |    Web#Addons: SearchAddon, WebLinksAddon, FitAddon usage
-|  React: Terminal and TerminalPane React components — the @react-term/react package
-|  Native: NativeTerminal, Skia renderer, gesture/keyboard input — the @react-term/native package
+|  React: Terminal and TerminalPane React components — the @next_term/react package
+|  Native: NativeTerminal, Skia renderer, gesture/keyboard input — the @next_term/native package
 |Getting-Started: Installation, cross-origin isolation, connecting to PTY/WebSocket
 |  Getting-Started#Prerequisites: Node.js, pnpm, browser requirements
 |  Getting-Started#Installation: npm/yarn/pnpm install commands
@@ -110,10 +110,10 @@ You can serve this at `yoursite.com/llms.txt` or include it in your repository t
 
 - [Home](https://github.com/rahulpandita/react-term/wiki/Home): Project overview, features, quick start
 - [Architecture](https://github.com/rahulpandita/react-term/wiki/Architecture): Off-main-thread architecture and worker design
-- [Core](https://github.com/rahulpandita/react-term/wiki/Core): @react-term/core — CellGrid, Buffer, VTParser
-- [Web](https://github.com/rahulpandita/react-term/wiki/Web): @react-term/web — WebTerminal, renderers, workers, addons
-- [React](https://github.com/rahulpandita/react-term/wiki/React): @react-term/react — Terminal and TerminalPane components
-- [Native](https://github.com/rahulpandita/react-term/wiki/Native): @react-term/native — NativeTerminal, Skia, gestures
+- [Core](https://github.com/rahulpandita/react-term/wiki/Core): @next_term/core — CellGrid, Buffer, VTParser
+- [Web](https://github.com/rahulpandita/react-term/wiki/Web): @next_term/web — WebTerminal, renderers, workers, addons
+- [React](https://github.com/rahulpandita/react-term/wiki/React): @next_term/react — Terminal and TerminalPane components
+- [Native](https://github.com/rahulpandita/react-term/wiki/Native): @next_term/native — NativeTerminal, Skia, gestures
 - [Getting-Started](https://github.com/rahulpandita/react-term/wiki/Getting-Started): Installation, configuration, connecting to PTY
 - [Rendering](https://github.com/rahulpandita/react-term/wiki/Rendering): WebGL2, Canvas2D, OffscreenCanvas rendering strategies
 - [Accessibility](https://github.com/rahulpandita/react-term/wiki/Accessibility): ARIA, screen reader support

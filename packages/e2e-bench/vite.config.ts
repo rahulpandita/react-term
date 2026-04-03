@@ -6,9 +6,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@react-term/core': path.resolve(__dirname, '../core/src/index.ts'),
-      '@react-term/web': path.resolve(__dirname, '../web/src/index.ts'),
-      '@react-term/react': path.resolve(__dirname, '../react/src/index.ts'),
+      '@next_term/core': path.resolve(__dirname, '../core/src/index.ts'),
+      '@next_term/web': path.resolve(__dirname, '../web/src/index.ts'),
+      '@next_term/react': path.resolve(__dirname, '../react/src/index.ts'),
     },
   },
   build: {

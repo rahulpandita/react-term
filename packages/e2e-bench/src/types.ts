@@ -1,4 +1,4 @@
-import type { TerminalHandle } from "@react-term/react";
+import type { TerminalHandle } from "@next_term/react";
 
 export type TerminalType = "react-term" | "xterm" | "ghostty";
 

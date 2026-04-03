@@ -7,12 +7,12 @@
  * positioned behind the terminal canvas so it's invisible but focusable.
  *
  * Touch gestures are delegated to the shared GestureHandler from
- * @react-term/core, providing the same behavior on web and native:
+ * @next_term/core, providing the same behavior on web and native:
  * tap to focus, pan to scroll, long-press to select, pinch to zoom.
  */
 
-import type { CellGrid, MouseEncoding, MouseProtocol } from "@react-term/core";
-import { extractText, GestureHandler, GestureState } from "@react-term/core";
+import type { CellGrid, MouseEncoding, MouseProtocol } from "@next_term/core";
+import { extractText, GestureHandler, GestureState } from "@next_term/core";
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -144,7 +144,7 @@ export class InputHandler {
   private selecting = false;
   private selection: SelectionState | null = null;
 
-  // Shared gesture handler (from @react-term/core)
+  // Shared gesture handler (from @next_term/core)
   private gestureHandler: GestureHandler | null = null;
 
   // Touch DOM state (bridges DOM TouchEvents to GestureHandler)

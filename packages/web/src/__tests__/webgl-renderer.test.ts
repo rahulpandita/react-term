@@ -1,4 +1,4 @@
-import { DEFAULT_THEME } from "@react-term/core";
+import { DEFAULT_THEME } from "@next_term/core";
 import { describe, expect, it } from "vitest";
 import {
   BG_INSTANCE_FLOATS,

@@ -1,5 +1,5 @@
 {
-  "name": "@react-term/bench",
+  "name": "@next_term/bench",
   "version": "0.0.1",
   "private": true,
   "license": "MIT",
@@ -10,7 +10,7 @@
     "profile": "node --cpu-prof --cpu-prof-dir=./profiles --import tsx src/profile.ts"
   },
   "dependencies": {
-    "@react-term/core": "workspace:*",
+    "@next_term/core": "workspace:*",
     "@xterm/headless": "^5.5.0"
   },
   "devDependencies": {

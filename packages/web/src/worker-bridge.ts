@@ -10,8 +10,8 @@
  * when the PTY produces data faster than the worker can parse it.
  */
 
-import type { CursorState } from "@react-term/core";
-import { CELL_SIZE, type CellGrid, modPositive } from "@react-term/core";
+import type { CursorState } from "@next_term/core";
+import { CELL_SIZE, type CellGrid, modPositive } from "@next_term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 
 // ---- Flow-control constants ------------------------------------------------

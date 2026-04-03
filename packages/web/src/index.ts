@@ -1,12 +1,12 @@
 // Re-export types from core so consumers don't need to depend on core directly
-export type { CursorState, SelectionRange, TerminalOptions, Theme } from "@react-term/core";
+export type { CursorState, SelectionRange, TerminalOptions, Theme } from "@next_term/core";
 export {
   CELL_SIZE,
   CellGrid,
   DEFAULT_THEME,
   extractText,
   normalizeSelection,
-} from "@react-term/core";
+} from "@next_term/core";
 export { AccessibilityManager, extractRowText } from "./accessibility.js";
 // Addon system
 export type { ITerminalAddon } from "./addon.js";

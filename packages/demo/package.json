@@ -1,5 +1,5 @@
 {
-  "name": "@react-term/demo",
+  "name": "@next_term/demo",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
@@ -11,9 +11,9 @@
     "start": "concurrently \"pnpm server\" \"pnpm dev\""
   },
   "dependencies": {
-    "@react-term/react": "workspace:*",
-    "@react-term/core": "workspace:*",
-    "@react-term/web": "workspace:*",
+    "@next_term/react": "workspace:*",
+    "@next_term/core": "workspace:*",
+    "@next_term/web": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

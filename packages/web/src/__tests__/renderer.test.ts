@@ -1,4 +1,4 @@
-import { CellGrid, DEFAULT_THEME } from "@react-term/core";
+import { CellGrid, DEFAULT_THEME } from "@next_term/core";
 import { describe, expect, it } from "vitest";
 import { build256Palette, Canvas2DRenderer } from "../renderer.js";
 
