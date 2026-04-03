@@ -1,1 +1,1 @@
-h:45090 InputHandler:kitty(1:CSI-u,2:eventType,4:altKeys-shifted+base),mouse,touch,paste
+h:45815 InputHandler:kitty(1:CSI-u,2:eventType,4:altKeys-shifted+base,8:allKeys,16:assocText),mouse,touch,paste
