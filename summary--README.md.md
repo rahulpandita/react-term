@@ -1,1 +1,1 @@
-h:27882 README:overview,features(kitty-flag2-reportEventTypes),quickstart,packages,architecture,rendering-strategies,addons,multi-pane,VTParser-callbacks,OSC,DCS,kitty-keyboard(flag1+flag2+keyUpToSequence)
+h:29927 README:overview,features(kitty:1+2+4),quickstart,pkgs,arch,render,addons,multipane,OSC,DCS

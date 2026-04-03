@@ -1,1 +1,1 @@
-h:45090 InputHandler:kbd/mouse/touch/clipboard,bracketedPaste,mouseProtocol/Encoding,focusEvents,applicationCursorKeys,kitty(flags:setKittyFlags,disambiguate=flag1→CSI-u,reportEventTypes=flag2→keyUpToSequence+:eventType suffix,alternateKeys=flag4→altParam,allkeys=flag8→unmodifiedPrintable+Enter/Tab/Backspace→CSI-u)
+h:45090 InputHandler:kitty(1:CSI-u,2:eventType,4:altKeys-shifted+base),mouse,touch,paste

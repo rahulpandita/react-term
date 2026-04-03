@@ -1,1 +1,1 @@
-h:71004 VTParser:OSC:4/7/8/10/11/12/52/104/133,DCS:tmux,DCS:general,mode2026,mode2004,kitty,CSI-readahead,print-batch
+h:71004 VTParser:OSC:4/7/8/10/11/12/52/104/133,DCS,mode2026,kitty
