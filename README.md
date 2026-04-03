@@ -483,7 +483,8 @@ const parser = new VTParser(bufferSet);
 parser.setKittyFlagsCallback((flags) => {
   const disambiguate = (flags & 1) !== 0;
   const reportEventTypes = (flags & 2) !== 0;
-  console.log({ disambiguate, reportEventTypes });
+  const reportAlternateKeys = (flags & 4) !== 0;
+  console.log({ disambiguate, reportEventTypes, reportAlternateKeys });
 });
 
 // App sends: CSI = 3 u  (set bits 0 and 1)
@@ -583,6 +584,44 @@ textarea.addEventListener("keyup", (e) => {
 > **Note:** When using `WebTerminal`, keyup events are handled automatically — the `InputHandler` registers its own `keyup` listener on the textarea when `kittyFlags & 2` is set.
 
 **Escape with flag 2** uses the fully expanded form `\x1b[27;1:Nu` (where `N` is the event type), instead of the shorter `\x1b[27u` used by flag 1 alone, to carry the modifier field required for the event type sub-parameter.
+
+### Kitty Keyboard Protocol — Report Alternate Keys (flag 4)
+
+When bit 2 of the Kitty flags is active (flag value `4`, typically combined with flag 1 as `setKittyFlags(5)`), `InputHandler` appends alternate key sub-parameters to the key codepoint in CSI u sequences for single printable characters. This lets the receiving application identify the physical key and its shifted variant independently of which modifier was held.
+
+```
+CSI codepoint[:shifted[:base]] ; modifier[:eventType] u
+```
+
+- **shifted**: codepoint of the key when Shift is held on the same physical key (omitted when equal to `codepoint`)
+- **base**: codepoint of the physical key without any modifiers, US QWERTY layout (omitted when equal to `codepoint`)
+
+```ts
+import { InputHandler } from '@react-term/web';
+
+const input = new InputHandler({ onData: (seq) => socket.send(seq) });
+
+// Enable disambiguate (1) + report alternate keys (4):
+input.setKittyFlags(5);
+```
+
+**Alternate key examples (flags 1+4, press event):**
+
+| Input | Sequence | Notes |
+|-------|----------|-------|
+| Ctrl+a | `\x1b[97:65;5u` | main=`a`(97), shifted=`A`(65) |
+| Ctrl+A (Shift+Ctrl+a) | `\x1b[65::97;6u` | main=`A`(65), shifted omitted (same), base=`a`(97) |
+| Alt+1 | `\x1b[49:33;3u` | main=`1`(49), shifted=`!`(33) |
+| Alt+! (Shift+Alt+1) | `\x1b[33::49;3u` | main=`!`(33), shifted omitted (same), base=`1`(49) |
+
+Functional keys (arrows, F-keys, tilde-style) are unaffected — they use positional encoding, not Unicode codepoints, so no alternate sub-parameters are added. Flag 4 is a no-op without flag 1.
+
+**Composing flags 2 and 4:** Both flags can be active simultaneously (`setKittyFlags(7)` — flags 1+2+4). The event type sub-parameter is appended to the modifier field, and the alternate key sub-parameters are appended to the codepoint field:
+
+| Input | Sequence (flags 1+2+4, press) |
+|-------|-------------------------------|
+| Ctrl+a | `\x1b[97:65;5:1u` |
+| Ctrl+A (Shift+Ctrl+a) | `\x1b[65::97;6:1u` |
 
 ## Development
 
