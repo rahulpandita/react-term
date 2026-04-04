@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TERMINALS = ['react-term', 'xterm'] as const;
-const PANE_COUNTS = [2, 4, 6] as const;
+const PANE_COUNTS = [2, 4, 8, 16, 32] as const;
 const SCENARIO = 'sgr-color';
 const WARMUP_RUNS = 2;
 const MEASURED_RUNS = 5;
@@ -62,8 +62,8 @@ test('multi-pane benchmark matrix', async ({ page }) => {
 
   // --- Comparison table (using median from computeStats) ---
   const compCols = [
-    'Terminal', 'Panes', 'Throughput (MB/s)', 'Avg FPS',
-    'setTimeout Avg (ms)', 'setTimeout Max (ms)', 'Long Tasks',
+    'Terminal', 'Panes', 'MB/s', 'Frame p50 (ms)', 'Frame p99 (ms)',
+    'Idle (ms)', 'setTimeout Avg', 'setTimeout Max',
   ];
   const compRows: string[][] = [];
   for (const [key, runs] of grouped) {
@@ -72,10 +72,11 @@ test('multi-pane benchmark matrix', async ({ page }) => {
       term,
       panes,
       computeStats(runs.map(r => r.metrics.throughputMBps)).median.toFixed(2),
-      computeStats(runs.map(r => r.metrics.avgFps)).median.toFixed(1),
+      computeStats(runs.map(r => r.metrics.frameTimeP50)).median.toFixed(1),
+      computeStats(runs.map(r => r.metrics.frameTimeP99)).median.toFixed(1),
+      computeStats(runs.map(r => r.metrics.timeToIdleMs)).median.toFixed(1),
       computeStats(runs.map(r => r.responsiveness.avgSetTimeoutDelay)).median.toFixed(2),
       computeStats(runs.map(r => r.responsiveness.maxSetTimeoutDelay)).median.toFixed(2),
-      computeStats(runs.map(r => r.metrics.longTaskCount)).median.toFixed(1),
     ]);
   }
 
@@ -83,8 +84,8 @@ test('multi-pane benchmark matrix', async ({ page }) => {
 
   // --- Detailed per-run table ---
   const detailCols = [
-    'Terminal', 'Panes', 'Run', 'Time (ms)', 'MB/s', 'Avg FPS',
-    'setTimeout Avg', 'setTimeout Max', 'Long Tasks', 'LT Duration (ms)',
+    'Terminal', 'Panes', 'Run', 'Time (ms)', 'MB/s',
+    'Frame p50', 'Frame p99', 'Idle (ms)', 'setTimeout Avg', 'setTimeout Max',
   ];
   const detailRows: string[][] = [];
   for (const r of allResults) {
@@ -94,11 +95,11 @@ test('multi-pane benchmark matrix', async ({ page }) => {
       String(r.run),
       r.metrics.totalTimeMs.toFixed(1),
       r.metrics.throughputMBps.toFixed(2),
-      r.metrics.avgFps.toFixed(1),
+      r.metrics.frameTimeP50.toFixed(1),
+      r.metrics.frameTimeP99.toFixed(1),
+      r.metrics.timeToIdleMs.toFixed(1),
       r.responsiveness.avgSetTimeoutDelay.toFixed(2),
       r.responsiveness.maxSetTimeoutDelay.toFixed(2),
-      String(r.metrics.longTaskCount),
-      r.metrics.longTaskDurationMs.toFixed(1),
     ]);
   }
 

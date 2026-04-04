@@ -16,7 +16,7 @@ const ALL_TERMINALS: TerminalType[] = ["react-term", "xterm", "ghostty"];
 
 type BenchMode = "single" | "multi-pane";
 
-const PANE_COUNTS = [2, 4, 6] as const;
+const PANE_COUNTS = [2, 4, 8, 16, 32] as const;
 
 declare global {
   interface Window {
@@ -398,13 +398,12 @@ function MultiPaneResultsTable({ results }: { results: MultiPaneResult[] }) {
               "Panes",
               "Run",
               "Time (ms)",
-              "Avg FPS",
               "MB/s",
-              "Long Tasks",
-              "LT Dur (ms)",
+              "Frame p50",
+              "Frame p99",
+              "Idle (ms)",
               "setTimeout Avg",
               "setTimeout Max",
-              "Samples",
             ].map((h) => (
               <th
                 key={h}
@@ -426,13 +425,12 @@ function MultiPaneResultsTable({ results }: { results: MultiPaneResult[] }) {
               <td style={tdStyle}>{r.paneCount}</td>
               <td style={tdStyle}>{r.run}</td>
               <td style={tdStyle}>{fmt(r.metrics.totalTimeMs)}</td>
-              <td style={tdStyle}>{fmt(r.metrics.avgFps)}</td>
               <td style={tdStyle}>{fmt(r.metrics.throughputMBps, 2)}</td>
-              <td style={tdStyle}>{r.metrics.longTaskCount}</td>
-              <td style={tdStyle}>{fmt(r.metrics.longTaskDurationMs)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.frameTimeP50)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.frameTimeP99)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.timeToIdleMs)}</td>
               <td style={tdStyle}>{fmt(r.responsiveness.avgSetTimeoutDelay, 2)}</td>
               <td style={tdStyle}>{fmt(r.responsiveness.maxSetTimeoutDelay, 2)}</td>
-              <td style={tdStyle}>{r.responsiveness.samples}</td>
             </tr>
           ))}
         </tbody>

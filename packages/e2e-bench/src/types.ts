@@ -10,8 +10,12 @@ export interface BenchmarkConfig {
 
 export interface BenchmarkMetrics {
   totalTimeMs: number;
-  avgFps: number;
-  droppedFrames: number;
+  /** Median frame-to-frame interval in ms (lower = smoother) */
+  frameTimeP50: number;
+  /** 99th percentile frame time in ms (jank indicator) */
+  frameTimeP99: number;
+  /** Time from last data byte to render idle (ms). Includes idle detection overhead (~100-150ms) — fair for comparison since both terminals get the same delay. */
+  timeToIdleMs: number;
   longTaskCount: number;
   longTaskDurationMs: number;
   memoryBeforeBytes: number | null;
@@ -19,7 +23,6 @@ export interface BenchmarkMetrics {
   throughputMBps: number;
   serverSendMs: number;
   totalBytes: number;
-  estimatedRefreshHz: number;
 }
 
 export interface BenchmarkResult {
