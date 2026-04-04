@@ -234,13 +234,27 @@ let bgProgram: WebGLProgram | null = null;
 let glyphProgram: WebGLProgram | null = null;
 let quadVBO: WebGLBuffer | null = null;
 let quadEBO: WebGLBuffer | null = null;
-let bgInstanceVBO: WebGLBuffer | null = null;
-let glyphInstanceVBO: WebGLBuffer | null = null;
+let bgInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
+let glyphInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
+let activeBufferIdx = 0;
 let bgVAO: WebGLVertexArrayObject | null = null;
 let glyphVAO: WebGLVertexArrayObject | null = null;
 
+// Cached uniform locations (Bug 1 fix)
+let bgResolutionLoc: WebGLUniformLocation | null = null;
+let bgCellSizeLoc: WebGLUniformLocation | null = null;
+let glyphResolutionLoc: WebGLUniformLocation | null = null;
+let glyphCellSizeLoc: WebGLUniformLocation | null = null;
+let glyphAtlasLoc: WebGLUniformLocation | null = null;
+
 let bgInstances: Float32Array = new Float32Array(0);
 let glyphInstances: Float32Array = new Float32Array(0);
+let bgCount = 0;
+let glyphCount = 0;
+
+// Pre-allocated overlay buffers (Bug 5 fix)
+const cursorDataBuf = new Float32Array(BG_INSTANCE_FLOATS);
+let selBuffer = new Float32Array(256 * BG_INSTANCE_FLOATS);
 
 let rafId: number | null = null;
 let disposed = false;
@@ -378,8 +392,16 @@ function initGLResources(): void {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quadEBO);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, quadIndices, gl.STATIC_DRAW);
 
-  bgInstanceVBO = gl.createBuffer();
-  glyphInstanceVBO = gl.createBuffer();
+  bgInstanceVBOs = [gl.createBuffer(), gl.createBuffer()];
+  glyphInstanceVBOs = [gl.createBuffer(), gl.createBuffer()];
+  activeBufferIdx = 0;
+
+  // Cache uniform locations (Bug 1 fix)
+  bgResolutionLoc = gl.getUniformLocation(bgProgram, "u_resolution");
+  bgCellSizeLoc = gl.getUniformLocation(bgProgram, "u_cellSize");
+  glyphResolutionLoc = gl.getUniformLocation(glyphProgram, "u_resolution");
+  glyphCellSizeLoc = gl.getUniformLocation(glyphProgram, "u_cellSize");
+  glyphAtlasLoc = gl.getUniformLocation(glyphProgram, "u_atlas");
 
   bgVAO = gl.createVertexArray();
   gl.bindVertexArray(bgVAO);
@@ -406,7 +428,7 @@ function setupBgVAO(g: WebGL2RenderingContext): void {
 
   g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, quadEBO);
 
-  g.bindBuffer(g.ARRAY_BUFFER, bgInstanceVBO);
+  g.bindBuffer(g.ARRAY_BUFFER, bgInstanceVBOs[0]);
   const stride = BG_INSTANCE_FLOATS * FLOAT;
 
   const aCellPos = g.getAttribLocation(program, "a_cellPos");
@@ -432,7 +454,7 @@ function setupGlyphVAO(g: WebGL2RenderingContext): void {
 
   g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, quadEBO);
 
-  g.bindBuffer(g.ARRAY_BUFFER, glyphInstanceVBO);
+  g.bindBuffer(g.ARRAY_BUFFER, glyphInstanceVBOs[0]);
   const stride = GLYPH_INSTANCE_FLOATS * FLOAT;
 
   const aCellPos = g.getAttribLocation(program, "a_cellPos");
@@ -515,10 +537,25 @@ function render(): void {
   }
   if (!anyDirty) return;
 
-  let bgCount = 0;
-  let glyphCount = 0;
+  // Bug 2 fix: Only rebuild dirty rows; clean rows retain data from previous frame.
+  // bgCount is always cols*rows (every cell has a bg). glyphCount needs recounting.
+  bgCount = cols * rows;
+  glyphCount = 0;
 
   for (let row = 0; row < rows; row++) {
+    if (!grid.isDirty(row)) {
+      // Count glyphs in clean rows so glyphCount stays correct
+      const _bgRowOffset = row * cols * BG_INSTANCE_FLOATS;
+      for (let col = 0; col < cols; col++) {
+        const codepoint = grid.getCodepoint(row, col);
+        if (codepoint > 0x20) glyphCount++;
+      }
+      continue;
+    }
+
+    // Row-level glyph packing: we need to rebuild glyph data for this row.
+    // Since glyph instances are sparse, we collect glyph count for all rows
+    // and repack below.
     for (let col = 0; col < cols; col++) {
       const codepoint = grid.getCodepoint(row, col);
       const fgIdx = grid.getFgIndex(row, col);
@@ -536,9 +573,10 @@ function render(): void {
         bg = tmp;
       }
 
+      // BG offset is deterministic: row * cols + col
       packBgInstance(
         bgInstances,
-        bgCount * BG_INSTANCE_FLOATS,
+        (row * cols + col) * BG_INSTANCE_FLOATS,
         col,
         row,
         bg[0],
@@ -546,7 +584,6 @@ function render(): void {
         bg[2],
         bg[3],
       );
-      bgCount++;
 
       if (codepoint > 0x20) {
         const bold = !!(attrs & ATTR_BOLD);
@@ -554,28 +591,56 @@ function render(): void {
         const glyph = atlas?.getGlyph(codepoint, bold, italic);
 
         if (glyph) {
-          packGlyphInstance(
-            glyphInstances,
-            glyphCount * GLYPH_INSTANCE_FLOATS,
-            col,
-            row,
-            fg[0],
-            fg[1],
-            fg[2],
-            fg[3],
-            glyph.u,
-            glyph.v,
-            glyph.w,
-            glyph.h,
-            glyph.pw,
-            glyph.ph,
-          );
           glyphCount++;
         }
       }
     }
     grid.clearDirty(row);
   }
+
+  // Glyph instances are sparse — rebuild fully (fast; only glyph cells are touched)
+  let gi = 0;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const codepoint = grid.getCodepoint(row, col);
+      if (codepoint <= 0x20) continue;
+      const fgIdx = grid.getFgIndex(row, col);
+      const attrs = grid.getAttrs(row, col);
+      const fgIsRGB = grid.isFgRGB(row, col);
+      const bgIsRGB = grid.isBgRGB(row, col);
+      const bgIdx = grid.getBgIndex(row, col);
+      let fg = resolveColorFloat(fgIdx, fgIsRGB, grid, col, true);
+      let bg = resolveColorFloat(bgIdx, bgIsRGB, grid, col, false);
+      if (attrs & ATTR_INVERSE) {
+        const tmp = fg;
+        fg = bg;
+        bg = tmp;
+      }
+      const bold = !!(attrs & ATTR_BOLD);
+      const italic = !!(attrs & ATTR_ITALIC);
+      const glyph = atlas?.getGlyph(codepoint, bold, italic);
+      if (glyph) {
+        packGlyphInstance(
+          glyphInstances,
+          gi * GLYPH_INSTANCE_FLOATS,
+          col,
+          row,
+          fg[0],
+          fg[1],
+          fg[2],
+          fg[3],
+          glyph.u,
+          glyph.v,
+          glyph.w,
+          glyph.h,
+          glyph.pw,
+          glyph.ph,
+        );
+        gi++;
+      }
+    }
+  }
+  glyphCount = gi;
 
   // Upload atlas
   atlas?.upload(gl);
@@ -589,17 +654,22 @@ function render(): void {
   const cellW = cellWidth * dpr;
   const cellH = cellHeight * dpr;
 
-  // Background pass
-  if (bgCount > 0 && bgProgram && bgVAO && bgInstanceVBO) {
-    gl.useProgram(bgProgram);
-    gl.uniform2f(gl.getUniformLocation(bgProgram, "u_resolution"), canvasWidth, canvasHeight);
-    gl.uniform2f(gl.getUniformLocation(bgProgram, "u_cellSize"), cellW, cellH);
+  // Bug 3: alternate VBOs each frame
+  const curBgVBO = bgInstanceVBOs[activeBufferIdx];
+  const curGlyphVBO = glyphInstanceVBOs[activeBufferIdx];
+  activeBufferIdx ^= 1;
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, bgInstanceVBO);
+  // Background pass
+  if (bgCount > 0 && bgProgram && bgVAO && curBgVBO) {
+    gl.useProgram(bgProgram);
+    gl.uniform2f(bgResolutionLoc, canvasWidth, canvasHeight);
+    gl.uniform2f(bgCellSizeLoc, cellW, cellH);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, curBgVBO);
     gl.bufferData(
       gl.ARRAY_BUFFER,
       bgInstances.subarray(0, bgCount * BG_INSTANCE_FLOATS),
-      gl.DYNAMIC_DRAW,
+      gl.STREAM_DRAW,
     );
 
     gl.bindVertexArray(bgVAO);
@@ -607,23 +677,23 @@ function render(): void {
   }
 
   // Glyph pass
-  if (glyphCount > 0 && glyphProgram && glyphVAO && glyphInstanceVBO) {
+  if (glyphCount > 0 && glyphProgram && glyphVAO && curGlyphVBO) {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     gl.useProgram(glyphProgram);
-    gl.uniform2f(gl.getUniformLocation(glyphProgram, "u_resolution"), canvasWidth, canvasHeight);
-    gl.uniform2f(gl.getUniformLocation(glyphProgram, "u_cellSize"), cellW, cellH);
+    gl.uniform2f(glyphResolutionLoc, canvasWidth, canvasHeight);
+    gl.uniform2f(glyphCellSizeLoc, cellW, cellH);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, atlas?.getTexture() ?? null);
-    gl.uniform1i(gl.getUniformLocation(glyphProgram, "u_atlas"), 0);
+    gl.uniform1i(glyphAtlasLoc, 0);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, glyphInstanceVBO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, curGlyphVBO);
     gl.bufferData(
       gl.ARRAY_BUFFER,
       glyphInstances.subarray(0, glyphCount * GLYPH_INSTANCE_FLOATS),
-      gl.DYNAMIC_DRAW,
+      gl.STREAM_DRAW,
     );
 
     gl.bindVertexArray(glyphVAO);
@@ -632,25 +702,31 @@ function render(): void {
     gl.disable(gl.BLEND);
   }
 
+  // Bug 6: enable BLEND once for both overlay passes
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
   // Selection overlay
   drawSelection();
 
   // Cursor
   drawCursor();
 
+  gl.disable(gl.BLEND);
+
   gl.bindVertexArray(null);
 }
 
 function drawSelection(): void {
   if (!gl || !grid || !selection) return;
-  if (!bgProgram || !bgVAO || !bgInstanceVBO) return;
+  if (!bgProgram || !bgVAO || !bgInstanceVBOs[0]) return;
 
   const sr = Math.max(0, selection.startRow);
   const er = Math.min(rows - 1, selection.endRow);
   if (sr === er && selection.startCol === selection.endCol) return;
 
   const selColor = hexToFloat4(theme.selectionBackground);
-  const selInstances: number[] = [];
+  let selIdx = 0;
 
   for (let row = sr; row <= er; row++) {
     let colStart: number;
@@ -671,78 +747,83 @@ function drawSelection(): void {
     }
 
     for (let col = colStart; col <= colEnd; col++) {
-      selInstances.push(col, row, selColor[0], selColor[1], selColor[2], 0.5);
+      const needed = (selIdx + 1) * BG_INSTANCE_FLOATS;
+      if (needed > selBuffer.length) {
+        const newBuf = new Float32Array(needed * 2);
+        newBuf.set(selBuffer);
+        selBuffer = newBuf;
+      }
+      const off = selIdx * BG_INSTANCE_FLOATS;
+      selBuffer[off] = col;
+      selBuffer[off + 1] = row;
+      selBuffer[off + 2] = selColor[0];
+      selBuffer[off + 3] = selColor[1];
+      selBuffer[off + 4] = selColor[2];
+      selBuffer[off + 5] = 0.5;
+      selIdx++;
     }
   }
 
-  if (selInstances.length === 0) return;
+  if (selIdx === 0) return;
 
-  const selData = new Float32Array(selInstances);
-  const selCount = selInstances.length / BG_INSTANCE_FLOATS;
-
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
+  // Bug 6: BLEND already enabled by caller
   gl.useProgram(bgProgram);
-  gl.uniform2f(
-    gl.getUniformLocation(bgProgram, "u_resolution"),
-    canvas?.width ?? 0,
-    canvas?.height ?? 0,
-  );
-  gl.uniform2f(gl.getUniformLocation(bgProgram, "u_cellSize"), cellWidth * dpr, cellHeight * dpr);
+  gl.uniform2f(bgResolutionLoc, canvas?.width ?? 0, canvas?.height ?? 0);
+  gl.uniform2f(bgCellSizeLoc, cellWidth * dpr, cellHeight * dpr);
 
-  gl.bindBuffer(gl.ARRAY_BUFFER, bgInstanceVBO);
-  gl.bufferData(gl.ARRAY_BUFFER, selData, gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bgInstanceVBOs[0]);
+  gl.bufferData(
+    gl.ARRAY_BUFFER,
+    selBuffer.subarray(0, selIdx * BG_INSTANCE_FLOATS),
+    gl.STREAM_DRAW,
+  );
 
   gl.bindVertexArray(bgVAO);
-  gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, selCount);
-
-  gl.disable(gl.BLEND);
+  gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, selIdx);
 }
 
 function drawCursor(): void {
   if (!gl || !cursorVisible) return;
-  if (!bgProgram || !bgVAO || !bgInstanceVBO) return;
+  if (!bgProgram || !bgVAO || !bgInstanceVBOs[0]) return;
 
   const cc = themeCursorFloat;
 
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
+  // Bug 6: BLEND already enabled by caller
   gl.useProgram(bgProgram);
-  gl.uniform2f(
-    gl.getUniformLocation(bgProgram, "u_resolution"),
-    canvas?.width ?? 0,
-    canvas?.height ?? 0,
-  );
-  gl.uniform2f(gl.getUniformLocation(bgProgram, "u_cellSize"), cellWidth * dpr, cellHeight * dpr);
+  gl.uniform2f(bgResolutionLoc, canvas?.width ?? 0, canvas?.height ?? 0);
+  gl.uniform2f(bgCellSizeLoc, cellWidth * dpr, cellHeight * dpr);
 
-  let cursorData: Float32Array;
+  // Bug 5: reuse pre-allocated cursorDataBuf
+  cursorDataBuf[0] = cursorCol;
+  cursorDataBuf[2] = cc[0];
+  cursorDataBuf[3] = cc[1];
+  cursorDataBuf[4] = cc[2];
 
   switch (cursorStyle) {
     case "block":
-      cursorData = new Float32Array([cursorCol, cursorRow, cc[0], cc[1], cc[2], 0.5]);
+      cursorDataBuf[1] = cursorRow;
+      cursorDataBuf[5] = 0.5;
       break;
     case "underline": {
       const lineH = Math.max(2 * dpr, 1);
-      const fractionalRow = cursorRow + (cellHeight * dpr - lineH) / (cellHeight * dpr);
-      cursorData = new Float32Array([cursorCol, fractionalRow, cc[0], cc[1], cc[2], cc[3]]);
+      cursorDataBuf[1] = cursorRow + (cellHeight * dpr - lineH) / (cellHeight * dpr);
+      cursorDataBuf[5] = cc[3];
       break;
     }
     case "bar":
-      cursorData = new Float32Array([cursorCol, cursorRow, cc[0], cc[1], cc[2], cc[3]]);
+      cursorDataBuf[1] = cursorRow;
+      cursorDataBuf[5] = cc[3];
       break;
     default:
-      cursorData = new Float32Array([cursorCol, cursorRow, cc[0], cc[1], cc[2], 0.5]);
+      cursorDataBuf[1] = cursorRow;
+      cursorDataBuf[5] = 0.5;
   }
 
-  gl.bindBuffer(gl.ARRAY_BUFFER, bgInstanceVBO);
-  gl.bufferData(gl.ARRAY_BUFFER, cursorData, gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bgInstanceVBOs[0]);
+  gl.bufferData(gl.ARRAY_BUFFER, cursorDataBuf, gl.STREAM_DRAW);
 
   gl.bindVertexArray(bgVAO);
   gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, 1);
-
-  gl.disable(gl.BLEND);
 }
 
 // ---------------------------------------------------------------------------
@@ -799,8 +880,10 @@ function disposeResources(): void {
     if (glyphProgram) gl.deleteProgram(glyphProgram);
     if (quadVBO) gl.deleteBuffer(quadVBO);
     if (quadEBO) gl.deleteBuffer(quadEBO);
-    if (bgInstanceVBO) gl.deleteBuffer(bgInstanceVBO);
-    if (glyphInstanceVBO) gl.deleteBuffer(glyphInstanceVBO);
+    if (bgInstanceVBOs[0]) gl.deleteBuffer(bgInstanceVBOs[0]);
+    if (bgInstanceVBOs[1]) gl.deleteBuffer(bgInstanceVBOs[1]);
+    if (glyphInstanceVBOs[0]) gl.deleteBuffer(glyphInstanceVBOs[0]);
+    if (glyphInstanceVBOs[1]) gl.deleteBuffer(glyphInstanceVBOs[1]);
     if (bgVAO) gl.deleteVertexArray(bgVAO);
     if (glyphVAO) gl.deleteVertexArray(glyphVAO);
   }
