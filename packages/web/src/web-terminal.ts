@@ -158,8 +158,10 @@ export class WebTerminal {
   constructor(container: HTMLElement, options?: WebTerminalOptions) {
     this.container = container;
 
-    const cols = options?.cols ?? DEFAULT_COLS;
-    const rows = options?.rows ?? DEFAULT_ROWS;
+    const MAX_COLS = 500;
+    const MAX_ROWS = 500;
+    const cols = Math.min(options?.cols ?? DEFAULT_COLS, MAX_COLS);
+    const rows = Math.min(options?.rows ?? DEFAULT_ROWS, MAX_ROWS);
     const fontSize = options?.fontSize ?? DEFAULT_FONT_SIZE;
     const fontFamily = options?.fontFamily ?? DEFAULT_FONT_FAMILY;
     const theme = mergeTheme(options?.theme);
@@ -538,7 +540,6 @@ export class WebTerminal {
     const oldBufferSet = this.bufferSet;
     const oldGrid = oldBufferSet.active.grid;
     const oldCursor = oldBufferSet.active.cursor;
-    const oldCols = oldBufferSet.cols;
     const oldRows = oldBufferSet.rows;
 
     // Create new buffer set
@@ -549,7 +550,6 @@ export class WebTerminal {
     // When rows grow, content stays at the top.
     const newGrid = this.bufferSet.active.grid;
     const copyRows = Math.min(oldRows, rows);
-    const _copyCols = Math.min(oldCols, cols);
 
     // Determine source start row: if cursor was below the new row count,
     // shift content up so cursor remains visible.

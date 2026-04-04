@@ -521,7 +521,6 @@ function render(): void {
   for (let row = 0; row < rows; row++) {
     if (!grid.isDirty(row)) {
       // Count glyphs in clean rows so glyphCount stays correct
-      const _bgRowOffset = row * cols * BG_INSTANCE_FLOATS;
       for (let col = 0; col < cols; col++) {
         const codepoint = grid.getCodepoint(row, col);
         if (codepoint > 0x20) glyphCount++;
@@ -666,14 +665,14 @@ function render(): void {
   const cellW = cellWidth * dpr;
   const cellH = cellHeight * dpr;
 
-  // alternate VBOs each frame
-  const curBgVBO = bgInstanceVBOs[activeBufferIdx];
-  const curGlyphVBO = glyphInstanceVBOs[activeBufferIdx];
+  // Alternate VBOs each frame — write to current index, GPU reads previous
+  const writeIdx = activeBufferIdx;
   activeBufferIdx ^= 1;
 
-  // Background pass
-  const curBgVAO = bgVAOs[activeBufferIdx ^ 1];
-  const curGlyphVAO = glyphVAOs[activeBufferIdx ^ 1];
+  const curBgVBO = bgInstanceVBOs[writeIdx];
+  const curGlyphVBO = glyphInstanceVBOs[writeIdx];
+  const curBgVAO = bgVAOs[writeIdx];
+  const curGlyphVAO = glyphVAOs[writeIdx];
   if (bgCount > 0 && bgProgram && curBgVAO && curBgVBO) {
     gl.useProgram(bgProgram);
     gl.uniform2f(bgResolutionLoc, canvasWidth, canvasHeight);
