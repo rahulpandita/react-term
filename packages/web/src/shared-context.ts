@@ -823,6 +823,16 @@ export class SharedWebGLContext {
   // Color resolution
   // -----------------------------------------------------------------------
 
+  setTheme(theme: Partial<Theme>): void {
+    this.theme = { ...DEFAULT_THEME, ...theme };
+    this.palette = build256Palette(this.theme);
+    this.buildPaletteFloat();
+    // Mark all terminals fully dirty so they re-render with new colors
+    for (const id of this.terminalFullyRendered.keys()) {
+      this.terminalFullyRendered.set(id, false);
+    }
+  }
+
   private buildPaletteFloat(): void {
     this.paletteFloat = this.palette.map((c) => hexToFloat4(c));
     this.themeFgFloat = hexToFloat4(this.theme.foreground);

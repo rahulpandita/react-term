@@ -230,6 +230,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     }, []);
 
     // Create and manage the shared WebGL context
+    // biome-ignore lint/correctness/useExhaustiveDependencies: theme handled via separate setTheme effect
     useEffect(() => {
       const container = containerRef.current;
       if (!container) return;
@@ -254,13 +255,18 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
 
         ctx.init();
 
-        // Sync canvas size with container
+        // Sync canvas size with container (debounced via rAF to avoid
+        // clearing the canvas on every pixel of a drag-resize)
         const activeCtx = ctx;
+        let resizeRafId = 0;
         const ro = new ResizeObserver((entries) => {
-          for (const entry of entries) {
-            const { width, height } = entry.contentRect;
-            activeCtx.syncCanvasSize(width, height);
-          }
+          cancelAnimationFrame(resizeRafId);
+          resizeRafId = requestAnimationFrame(() => {
+            for (const entry of entries) {
+              const { width, height } = entry.contentRect;
+              activeCtx.syncCanvasSize(width, height);
+            }
+          });
         });
         ro.observe(container);
 
@@ -269,6 +275,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         setSharedContext(ctx);
 
         return () => {
+          cancelAnimationFrame(resizeRafId);
           activeCtx.stopRenderLoop();
           activeCtx.dispose();
           ro.disconnect();
@@ -291,7 +298,14 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         setSharedContext(null);
         return;
       }
-    }, [fontSize, fontFamily, theme]);
+    }, [fontSize, fontFamily]); // theme handled via separate setTheme effect below
+
+    // Update theme on existing context without recreating GL resources
+    useEffect(() => {
+      if (sharedContextRef.current && theme) {
+        sharedContextRef.current.setTheme(theme);
+      }
+    }, [theme]);
 
     useImperativeHandle(
       ref,

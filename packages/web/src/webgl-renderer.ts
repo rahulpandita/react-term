@@ -992,6 +992,18 @@ export class WebGLRenderer implements IRenderer {
     this.glyphCellSizeLoc = gl.getUniformLocation(this.glyphProgram, "u_cellSize");
     this.glyphAtlasLoc = gl.getUniformLocation(this.glyphProgram, "u_atlas");
 
+    // Cache attribute locations
+    this.bgAttribLocs = {
+      cellPos: gl.getAttribLocation(this.bgProgram, "a_cellPos"),
+      color: gl.getAttribLocation(this.bgProgram, "a_color"),
+    };
+    this.glyphAttribLocs = {
+      cellPos: gl.getAttribLocation(this.glyphProgram, "a_cellPos"),
+      color: gl.getAttribLocation(this.glyphProgram, "a_color"),
+      texCoord: gl.getAttribLocation(this.glyphProgram, "a_texCoord"),
+      glyphSize: gl.getAttribLocation(this.glyphProgram, "a_glyphSize"),
+    };
+
     // Reset dirty-row tracking state on GL reinit
     this.hasRenderedOnce = false;
 
@@ -1335,40 +1347,27 @@ export class WebGLRenderer implements IRenderer {
   // Bug 3: Instance attribute rebinding helpers for double-buffered VBOs
   // -----------------------------------------------------------------------
 
+  // Cached attribute locations (populated in initGLResources)
+  private bgAttribLocs: { cellPos: number; color: number } = { cellPos: -1, color: -1 };
+  private glyphAttribLocs: { cellPos: number; color: number; texCoord: number; glyphSize: number } =
+    { cellPos: -1, color: -1, texCoord: -1, glyphSize: -1 };
+
   private rebindBgInstanceAttribs(gl: WebGL2RenderingContext, vbo: WebGLBuffer): void {
-    if (!this.bgProgram) return;
     const FLOAT = 4;
     const stride = BG_INSTANCE_FLOATS * FLOAT;
-    const program = this.bgProgram;
-
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-
-    const aCellPos = gl.getAttribLocation(program, "a_cellPos");
-    gl.vertexAttribPointer(aCellPos, 2, gl.FLOAT, false, stride, 0);
-
-    const aColor = gl.getAttribLocation(program, "a_color");
-    gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, stride, 2 * FLOAT);
+    gl.vertexAttribPointer(this.bgAttribLocs.cellPos, 2, gl.FLOAT, false, stride, 0);
+    gl.vertexAttribPointer(this.bgAttribLocs.color, 4, gl.FLOAT, false, stride, 2 * FLOAT);
   }
 
   private rebindGlyphInstanceAttribs(gl: WebGL2RenderingContext, vbo: WebGLBuffer): void {
-    if (!this.glyphProgram) return;
     const FLOAT = 4;
     const stride = GLYPH_INSTANCE_FLOATS * FLOAT;
-    const program = this.glyphProgram;
-
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-
-    const aCellPos = gl.getAttribLocation(program, "a_cellPos");
-    gl.vertexAttribPointer(aCellPos, 2, gl.FLOAT, false, stride, 0);
-
-    const aColor = gl.getAttribLocation(program, "a_color");
-    gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, stride, 2 * FLOAT);
-
-    const aTexCoord = gl.getAttribLocation(program, "a_texCoord");
-    gl.vertexAttribPointer(aTexCoord, 4, gl.FLOAT, false, stride, 6 * FLOAT);
-
-    const aGlyphSize = gl.getAttribLocation(program, "a_glyphSize");
-    gl.vertexAttribPointer(aGlyphSize, 2, gl.FLOAT, false, stride, 10 * FLOAT);
+    gl.vertexAttribPointer(this.glyphAttribLocs.cellPos, 2, gl.FLOAT, false, stride, 0);
+    gl.vertexAttribPointer(this.glyphAttribLocs.color, 4, gl.FLOAT, false, stride, 2 * FLOAT);
+    gl.vertexAttribPointer(this.glyphAttribLocs.texCoord, 4, gl.FLOAT, false, stride, 6 * FLOAT);
+    gl.vertexAttribPointer(this.glyphAttribLocs.glyphSize, 2, gl.FLOAT, false, stride, 10 * FLOAT);
   }
 
   // -----------------------------------------------------------------------
