@@ -264,6 +264,18 @@ export class SharedWebGLContext {
       throw new Error("WebGL2 is not available");
     }
 
+    // Detect software rendering (SwiftShader) — shared context is a net loss
+    // on software renderers because it concentrates all panes on one slow context.
+    // Fall back to independent per-pane rendering in that case.
+    const debugInfo = this.gl.getExtension("WEBGL_debug_renderer_info");
+    if (debugInfo) {
+      const renderer = this.gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
+      if (/swiftshader|llvmpipe|software/i.test(renderer)) {
+        this.gl = null;
+        throw new Error(`Software renderer detected (${renderer}), skipping shared context`);
+      }
+    }
+
     this.initGLResources();
   }
 
