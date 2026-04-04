@@ -603,5 +603,37 @@ describe("SkiaRenderer", () => {
       const rgbRect = rectCmds.find((c) => c.color === "rgb(200,50,10)");
       expect(rgbRect).toBeDefined();
     });
+
+    it("RGB bg + inverse: text uses RGB bg color; background rect drawn in theme.foreground", () => {
+      const renderer = createRenderer();
+      const grid = new CellGrid(5, 1);
+
+      // bgIsRGB=true, fgIdx=7 (default fg), attrs=0x40 (inverse).
+      // resolveColor(7, false) → theme.foreground
+      // resolveColor(0, true)  → rgb(100,200,50) from rgbColors[256+col]
+      // After swap: fg = rgb(100,200,50), bg = theme.foreground
+      grid.setCell(0, 0, 0x44, 7, 0, 0x40, false, true); // 'D', bgIsRGB, inverse
+      grid.rgbColors[256 + 0] = (100 << 16) | (200 << 8) | 50; // rgb(100,200,50)
+
+      const cursor: CursorState = {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: "block",
+        wrapPending: false,
+      };
+      const commands = renderer.renderFrame(grid, cursor, null);
+
+      // Text uses the original bg RGB color (swapped to fg)
+      const textCmds = findCommands(commands, "text");
+      const dCmd = textCmds.find((c) => c.text === "D");
+      expect(dCmd).toBeDefined();
+      expect(dCmd?.color).toBe("rgb(100,200,50)");
+
+      // Background rect drawn in theme.foreground (swapped from default fg)
+      const rectCmds = findCommands(commands, "rect");
+      const fgRect = rectCmds.find((c) => c.color === DEFAULT_THEME.foreground);
+      expect(fgRect).toBeDefined();
+    });
   });
 });
