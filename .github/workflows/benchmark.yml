@@ -52,7 +52,7 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @next_term/e2e-bench exec playwright install chromium --with-deps
       - name: Run react-term benchmarks
-        run: pnpm --filter @next_term/e2e-bench bench -- --grep "e2e benchmark" 2>&1 | tee e2e-bench-output.txt
+        run: cd packages/e2e-bench && npx playwright test --grep "e2e benchmark" 2>&1 | tee ../../e2e-bench-output.txt
         env:
           BENCH_TERMINAL: react-term
       - name: Upload results
@@ -81,7 +81,7 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @next_term/e2e-bench exec playwright install chromium --with-deps
       - name: Run xterm benchmarks
-        run: pnpm --filter @next_term/e2e-bench bench -- --grep "e2e benchmark" 2>&1 | tee e2e-bench-output.txt
+        run: cd packages/e2e-bench && npx playwright test --grep "e2e benchmark" 2>&1 | tee ../../e2e-bench-output.txt
         env:
           BENCH_TERMINAL: xterm
       - name: Upload results
@@ -110,7 +110,7 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @next_term/e2e-bench exec playwright install chromium --with-deps
       - name: Run multi-pane benchmarks
-        run: pnpm --filter @next_term/e2e-bench bench -- --grep "multi-pane" 2>&1 | tee e2e-bench-output.txt
+        run: cd packages/e2e-bench && npx playwright test --grep "multi-pane" 2>&1 | tee ../../e2e-bench-output.txt
       - name: Upload results
         uses: actions/upload-artifact@v7
         if: always()
@@ -330,63 +330,50 @@ jobs:
                 return '█'.repeat(len) + '░'.repeat(mpBarLen - len);
               };
 
-              // Aggregate data per config
-              const mpData = [];
+              // Group by pane count for side-by-side comparison
+              const paneCounts = [...new Set(mpResults.map(r => r.paneCount))].sort((a, b) => a - b);
+              const byPane = {};
               for (const [key, runs] of mpGrouped) {
                 const [term, panes] = key.split('|');
-                mpData.push({
-                  label: `${term} (${panes}p)`,
+                if (!byPane[panes]) byPane[panes] = {};
+                byPane[panes][term] = {
                   mbps: mpAvg(runs.map(r => r.metrics.throughputMBps)),
                   fps: mpAvg(runs.map(r => r.metrics.avgFps)),
                   stAvg: mpAvg(runs.map(r => r.responsiveness.avgSetTimeoutDelay)),
                   stMax: mpAvg(runs.map(r => r.responsiveness.maxSetTimeoutDelay)),
                   longTasks: mpAvg(runs.map(r => r.metrics.longTaskCount)),
+                };
+              }
+
+              // Side-by-side bar chart builder
+              function mpTable(title, unit, getter) {
+                let maxVal = 0;
+                const rows = paneCounts.map(p => {
+                  const rt = byPane[p]?.['react-term'] ? getter(byPane[p]['react-term']) : 0;
+                  const xt = byPane[p]?.['xterm'] ? getter(byPane[p]['xterm']) : 0;
+                  maxVal = Math.max(maxVal, rt, xt);
+                  return { panes: p, rt, xt };
                 });
+                let md = `| Panes | react-term | ${unit} | xterm | ${unit} |\n`;
+                md += '|-------|------------|------|-------|------|\n';
+                for (const r of rows) {
+                  md += `| ${r.panes} | \`${mpBar(r.rt, maxVal)}\` | ${r.rt.toFixed(1)} | \`${mpBar(r.xt, maxVal)}\` | ${r.xt.toFixed(1)} |\n`;
+                }
+                return md;
               }
 
-              // Throughput chart (higher is better)
-              const maxMbps = Math.max(...mpData.map(d => d.mbps));
               report += '### Throughput — MB/s (higher is better)\n\n';
-              report += '| Config | Bar | MB/s |\n';
-              report += '|--------|-----|------|\n';
-              for (const d of mpData) {
-                report += `| ${d.label} | \`${mpBar(d.mbps, maxMbps)}\` | ${d.mbps.toFixed(1)} |\n`;
-              }
+              report += mpTable('Throughput', 'MB/s', d => d.mbps) + '\n';
 
-              // FPS chart (higher is better)
-              const maxFps = Math.max(...mpData.map(d => d.fps));
-              report += '\n### Avg FPS (higher is better)\n\n';
-              report += '| Config | Bar | FPS |\n';
-              report += '|--------|-----|-----|\n';
-              for (const d of mpData) {
-                report += `| ${d.label} | \`${mpBar(d.fps, maxFps)}\` | ${d.fps.toFixed(1)} |\n`;
-              }
+              report += '### Avg FPS (higher is better)\n\n';
+              report += mpTable('Avg FPS', 'fps', d => d.fps) + '\n';
 
-              // setTimeout avg chart (lower is better — more responsive)
-              const maxStAvg = Math.max(...mpData.map(d => d.stAvg));
-              report += '\n### Main Thread Responsiveness — setTimeout avg ms (lower is better)\n\n';
-              report += '| Config | Bar | ms |\n';
-              report += '|--------|-----|----|\n';
-              for (const d of mpData) {
-                report += `| ${d.label} | \`${mpBar(d.stAvg, maxStAvg)}\` | ${d.stAvg.toFixed(2)} |\n`;
-              }
+              report += '### Main Thread Responsiveness — setTimeout avg ms (lower is better)\n\n';
+              report += mpTable('Responsiveness', 'ms', d => d.stAvg) + '\n';
 
-              // setTimeout max chart (lower is better)
-              const maxStMax = Math.max(...mpData.map(d => d.stMax));
-              report += '\n### Worst-Case Blocking — setTimeout max ms (lower is better)\n\n';
-              report += '| Config | Bar | ms |\n';
-              report += '|--------|-----|----|\n';
-              for (const d of mpData) {
-                report += `| ${d.label} | \`${mpBar(d.stMax, maxStMax)}\` | ${d.stMax.toFixed(2)} |\n`;
-              }
+              report += '### Worst-Case Blocking — setTimeout max ms (lower is better)\n\n';
+              report += mpTable('Blocking', 'ms', d => d.stMax) + '\n';
 
-              report += `\n<details><summary>Raw multi-pane data</summary>\n\n`;
-              report += '| Terminal | Panes | MB/s | Avg FPS | setTimeout Avg (ms) | setTimeout Max (ms) | Long Tasks |\n';
-              report += '|----------|-------|------|---------|---------------------|---------------------|------------|\n';
-              for (const d of mpData) {
-                report += `| ${d.label} | - | ${d.mbps.toFixed(2)} | ${d.fps.toFixed(1)} | ${d.stAvg.toFixed(2)} | ${d.stMax.toFixed(2)} | ${d.longTasks.toFixed(1)} |\n`;
-              }
-              report += '\n</details>\n';
               report += `\n_${mpResults.length} multi-pane results_\n`;
             }
 
