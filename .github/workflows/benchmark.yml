@@ -94,8 +94,8 @@ jobs:
             e2e-bench-output.txt
 
   e2e-multi-pane:
-    name: E2E — multi-pane
-    runs-on: ubuntu-latest
+    name: E2E — multi-pane (macOS)
+    runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
