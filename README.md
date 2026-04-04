@@ -484,7 +484,9 @@ parser.setKittyFlagsCallback((flags) => {
   const disambiguate = (flags & 1) !== 0;
   const reportEventTypes = (flags & 2) !== 0;
   const reportAlternateKeys = (flags & 4) !== 0;
-  console.log({ disambiguate, reportEventTypes, reportAlternateKeys });
+  const reportAllKeys = (flags & 8) !== 0;
+  const reportAssocText = (flags & 16) !== 0;
+  console.log({ disambiguate, reportEventTypes, reportAlternateKeys, reportAllKeys, reportAssocText });
 });
 
 // App sends: CSI = 3 u  (set bits 0 and 1)
@@ -622,6 +624,87 @@ Functional keys (arrows, F-keys, tilde-style) are unaffected — they use positi
 |-------|-------------------------------|
 | Ctrl+a | `\x1b[97:65;5:1u` |
 | Ctrl+A (Shift+Ctrl+a) | `\x1b[65::97;6:1u` |
+
+### Kitty Keyboard Protocol — Report All Keys as Escape Codes (flag 8)
+
+When bit 3 of the Kitty flags is active (flag value `8`, typically combined with flag 1 as `setKittyFlags(9)`), `InputHandler` encodes **all** key presses as CSI u escape sequences — including unmodified printable characters and functional keys that would otherwise produce literal characters (Enter → `\r`, Tab → `\t`, Backspace → `\x7f`).
+
+```ts
+import { InputHandler } from '@next_term/web';
+
+const input = new InputHandler({ onData: (seq) => socket.send(seq) });
+
+// Enable disambiguate (1) + report all keys (8):
+input.setKittyFlags(9);
+```
+
+**Key encoding with flags 1+8 active:**
+
+| Key | Legacy sequence | Flags 1+8 |
+|-----|-----------------|-----------|
+| `a` (unmodified) | `a` | `\x1b[97;1u` |
+| `z` (unmodified) | `z` | `\x1b[122;1u` |
+| Space (unmodified) | ` ` | `\x1b[32;1u` |
+| Shift+a (key=`A`) | `A` | `\x1b[65;2u` |
+| Enter | `\r` | `\x1b[13;1u` |
+| Tab | `\t` | `\x1b[9;1u` |
+| Backspace | `\x7f` | `\x1b[127;1u` |
+| Ctrl+a | `\x01` | `\x1b[97;5u` (same as flag 1) |
+| Escape | `\x1b` | `\x1b[27u` (same as flag 1) |
+
+Flag 8 is a no-op without flag 1 — legacy encoding is preserved when bit 0 is clear. Modified keys (Ctrl, Alt) are already encoded as CSI u by flag 1 alone, so flag 8 has no additional effect on them.
+
+**Composing flag 8 with flags 2 and 4** works as expected — event types and alternate key sub-parameters apply to all keys including unmodified ones:
+
+| Input | Sequence (flags 1+2+8, press) | Sequence (flags 1+4+8) |
+|-------|-------------------------------|------------------------|
+| `a` press | `\x1b[97;1:1u` | `\x1b[97:65;1u` |
+| `a` release | `\x1b[97;1:3u` | — |
+| Enter press | `\x1b[13;1:1u` | — |
+
+### Kitty Keyboard Protocol — Report Associated Text (flag 16)
+
+When bit 4 of the Kitty flags is active (flag value `16`), all CSI u key sequences include the Unicode codepoint(s) of the **associated text** as a third semicolon-delimited parameter group. The associated text is the character that would be inserted into a text editor by the key press.
+
+```
+CSI codepoint[:shifted[:base]] ; modifiers[:event-type] ; text-codepoints u
+```
+
+```ts
+import { InputHandler } from '@next_term/web';
+
+const input = new InputHandler({ onData: (seq) => socket.send(seq) });
+
+// Enable disambiguate (1) + report all keys (8) + associated text (16):
+input.setKittyFlags(1 | 8 | 16);
+```
+
+**Associated text examples:**
+
+| Key | Flags | Sequence | Notes |
+|-----|-------|----------|-------|
+| `a` (unmodified) | 1+8+16 | `\x1b[97;1;97u` | text = `a` (97) |
+| Ctrl+a | 1+16 | `\x1b[97;5;97u` | text = `a` (97) |
+| Shift+a (key=`A`) | 1+8+16 | `\x1b[65;2;65u` | text = `A` (65) |
+| Enter | 1+8+16 | `\x1b[13;1;13u` | text = CR (13) |
+| Tab | 1+8+16 | `\x1b[9;1;9u` | text = HT (9) |
+| Backspace | 1+8+16 | `\x1b[127;1;127u` | text = DEL (127) |
+| Shift+Tab | 1+16 | `\x1b[9;2;9u` | text = HT (9) |
+| ArrowUp (modified) | 1+8+16 | `\x1b[1;5A` | no text param (positional key) |
+| F1 (modified) | 1+8+16 | `\x1b[1;5P` | no text param (positional key) |
+| Escape | 1+8+16 | `\x1b[27u` | no text param |
+
+Non-text keys (arrow keys, F-keys, Escape) do not receive a third parameter. Flag 16 is a no-op without flag 1.
+
+**Composing flag 16 with flags 2 and 4:**
+
+| Input | Sequence (flags 1+2+8+16, press) | Sequence (flags 1+4+8+16) |
+|-------|-----------------------------------|---------------------------|
+| `a` press | `\x1b[97;1:1;97u` | `\x1b[97:65;1;97u` |
+| `a` release | `\x1b[97;1:3;97u` | — |
+| Enter press | `\x1b[13;1:1;13u` | — |
+
+This completes the full Kitty keyboard protocol stack (flags 1–16). All five flags are independently composable via bitwise OR.
 
 ## Development
 
