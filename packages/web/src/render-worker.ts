@@ -240,7 +240,7 @@ let activeBufferIdx = 0;
 let bgVAO: WebGLVertexArrayObject | null = null;
 let glyphVAO: WebGLVertexArrayObject | null = null;
 
-// Cached uniform locations (Bug 1 fix)
+// Cached uniform locations
 let bgResolutionLoc: WebGLUniformLocation | null = null;
 let bgCellSizeLoc: WebGLUniformLocation | null = null;
 let glyphResolutionLoc: WebGLUniformLocation | null = null;
@@ -249,10 +249,10 @@ let glyphAtlasLoc: WebGLUniformLocation | null = null;
 
 let bgInstances: Float32Array = new Float32Array(0);
 let glyphInstances: Float32Array = new Float32Array(0);
-let bgCount = 0;
+const bgCount = 0;
 let glyphCount = 0;
 
-// Pre-allocated overlay buffers (Bug 5 fix)
+// Pre-allocated overlay buffers
 const cursorDataBuf = new Float32Array(BG_INSTANCE_FLOATS);
 let selBuffer = new Float32Array(256 * BG_INSTANCE_FLOATS);
 
@@ -396,7 +396,7 @@ function initGLResources(): void {
   glyphInstanceVBOs = [gl.createBuffer(), gl.createBuffer()];
   activeBufferIdx = 0;
 
-  // Cache uniform locations (Bug 1 fix)
+  // Cache uniform locations
   bgResolutionLoc = gl.getUniformLocation(bgProgram, "u_resolution");
   bgCellSizeLoc = gl.getUniformLocation(bgProgram, "u_cellSize");
   glyphResolutionLoc = gl.getUniformLocation(glyphProgram, "u_resolution");
@@ -537,9 +537,17 @@ function render(): void {
   }
   if (!anyDirty) return;
 
-  // Bug 2 fix: Only rebuild dirty rows; clean rows retain data from previous frame.
-  // bgCount is always cols*rows (every cell has a bg). glyphCount needs recounting.
-  bgCount = cols * rows;
+  fix: Only;
+  rebuild;
+  dirty;
+  rows;
+  clean;
+  rows;
+  retain;
+  data;
+  from;
+  previous;
+  frame.bgCount = cols * rows; // bgCount is always cols*rows (every cell has a bg). glyphCount needs recounting.
   glyphCount = 0;
 
   for (let row = 0; row < rows; row++) {
@@ -654,7 +662,7 @@ function render(): void {
   const cellW = cellWidth * dpr;
   const cellH = cellHeight * dpr;
 
-  // Bug 3: alternate VBOs each frame
+  // alternate VBOs each frame
   const curBgVBO = bgInstanceVBOs[activeBufferIdx];
   const curGlyphVBO = glyphInstanceVBOs[activeBufferIdx];
   activeBufferIdx ^= 1;
@@ -702,7 +710,7 @@ function render(): void {
     gl.disable(gl.BLEND);
   }
 
-  // Bug 6: enable BLEND once for both overlay passes
+  // enable BLEND once for both overlay passes
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
@@ -766,7 +774,7 @@ function drawSelection(): void {
 
   if (selIdx === 0) return;
 
-  // Bug 6: BLEND already enabled by caller
+  // BLEND already enabled by caller
   gl.useProgram(bgProgram);
   gl.uniform2f(bgResolutionLoc, canvas?.width ?? 0, canvas?.height ?? 0);
   gl.uniform2f(bgCellSizeLoc, cellWidth * dpr, cellHeight * dpr);
@@ -788,12 +796,12 @@ function drawCursor(): void {
 
   const cc = themeCursorFloat;
 
-  // Bug 6: BLEND already enabled by caller
+  // BLEND already enabled by caller
   gl.useProgram(bgProgram);
   gl.uniform2f(bgResolutionLoc, canvas?.width ?? 0, canvas?.height ?? 0);
   gl.uniform2f(bgCellSizeLoc, cellWidth * dpr, cellHeight * dpr);
 
-  // Bug 5: reuse pre-allocated cursorDataBuf
+  // reuse pre-allocated cursorDataBuf
   cursorDataBuf[0] = cursorCol;
   cursorDataBuf[2] = cc[0];
   cursorDataBuf[3] = cc[1];

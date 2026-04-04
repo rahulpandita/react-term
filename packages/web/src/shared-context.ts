@@ -165,14 +165,14 @@ export class SharedWebGLContext {
   private glyphProgram: WebGLProgram | null = null;
   private quadVBO: WebGLBuffer | null = null;
   private quadEBO: WebGLBuffer | null = null;
-  // Bug 3: Double-buffered VBOs — two each for bg and glyph instance data
+  // Double-buffered VBOs — two each for bg and glyph instance data
   private bgInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
   private glyphInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
   private bufferIndex = 0; // toggles 0/1 each frame
   private bgVAOs: [WebGLVertexArrayObject | null, WebGLVertexArrayObject | null] = [null, null];
   private glyphVAOs: [WebGLVertexArrayObject | null, WebGLVertexArrayObject | null] = [null, null];
 
-  // Bug 1: Cached uniform locations
+  // Cached uniform locations
   private bgUniforms: {
     u_resolution: WebGLUniformLocation | null;
     u_cellSize: WebGLUniformLocation | null;
@@ -187,7 +187,7 @@ export class SharedWebGLContext {
   private bgInstances: Float32Array;
   private glyphInstances: Float32Array;
 
-  // Bug 2: Per-terminal dirty tracking state
+  // Per-terminal dirty tracking state
   private terminalBgCounts = new Map<string, number>();
   private terminalGlyphCounts = new Map<string, number>();
   private terminalRowBgOffsets = new Map<string, number[]>(); // bgCount at start of each row
@@ -196,7 +196,7 @@ export class SharedWebGLContext {
   private terminalRowGlyphCounts = new Map<string, number[]>(); // glyph instances per row
   private terminalFullyRendered = new Set<string>(); // tracks if terminal has had initial full render
 
-  // Bug 5: Reusable cursor data buffer
+  // Reusable cursor data buffer
   private cursorData = new Float32Array(6);
 
   // Glyph atlas
@@ -291,6 +291,8 @@ export class SharedWebGLContext {
     if (entry) {
       entry.grid = grid;
       entry.cursor = cursor;
+      // Reset dirty tracking — new grid may have different content
+      this.terminalFullyRendered.delete(id);
     }
   }
 
@@ -320,7 +322,7 @@ export class SharedWebGLContext {
     const canvasWidth = this.canvas.width;
     const canvasHeight = this.canvas.height;
 
-    // Bug 3: Toggle double-buffer index
+    // Toggle double-buffer index
     this.bufferIndex ^= 1;
 
     // Full-canvas clear
@@ -333,7 +335,7 @@ export class SharedWebGLContext {
       this.renderTerminal(id, entry);
     }
 
-    // Bug 6: Enable BLEND once for all cursor passes
+    // Enable BLEND once for all cursor passes
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     for (const [_id, entry] of this.terminals) {
@@ -391,7 +393,7 @@ export class SharedWebGLContext {
       if (this.glyphProgram) gl.deleteProgram(this.glyphProgram);
       if (this.quadVBO) gl.deleteBuffer(this.quadVBO);
       if (this.quadEBO) gl.deleteBuffer(this.quadEBO);
-      // Bug 3: Clean up double-buffered resources
+      // Clean up double-buffered resources
       for (let i = 0; i < 2; i++) {
         if (this.bgInstanceVBOs[i]) gl.deleteBuffer(this.bgInstanceVBOs[i]);
         if (this.glyphInstanceVBOs[i]) gl.deleteBuffer(this.glyphInstanceVBOs[i]);
@@ -445,15 +447,15 @@ export class SharedWebGLContext {
     const totalCells = cols * rows;
     if (this.bgInstances.length < totalCells * BG_INSTANCE_FLOATS) {
       this.bgInstances = new Float32Array(totalCells * BG_INSTANCE_FLOATS);
-      // Force full re-render when buffers reallocated
-      this.terminalFullyRendered.delete(id);
+      // All terminals must re-render since shared buffer was reallocated
+      this.terminalFullyRendered.clear();
     }
     if (this.glyphInstances.length < totalCells * GLYPH_INSTANCE_FLOATS) {
       this.glyphInstances = new Float32Array(totalCells * GLYPH_INSTANCE_FLOATS);
-      this.terminalFullyRendered.delete(id);
+      this.terminalFullyRendered.clear();
     }
 
-    // Bug 2: Check if any rows are dirty; if not, use cached counts and skip cell iteration
+    // Check if any rows are dirty; if not, use cached counts and skip cell iteration
     const isFirstRender = !this.terminalFullyRendered.has(id);
     let anyDirty = isFirstRender;
     if (!anyDirty) {
@@ -615,7 +617,7 @@ export class SharedWebGLContext {
     const cellW = this.cellWidth * this.dpr;
     const cellH = this.cellHeight * this.dpr;
 
-    // --- Background pass --- (Bug 1: cached uniforms, Bug 3: double-buffered VBO, Bug 4: STREAM_DRAW)
+    // --- Background pass ---
     if (bgCount > 0 && this.bgProgram && activeBgVAO && activeBgVBO) {
       gl.useProgram(this.bgProgram);
       gl.uniform2f(this.bgUniforms.u_resolution, vpW, vpH);
@@ -661,7 +663,7 @@ export class SharedWebGLContext {
     gl.bindVertexArray(null);
   }
 
-  // Bug 6: Cursor drawing extracted to separate method for batched BLEND state
+  // Cursor drawing extracted to separate method for batched BLEND state
   private drawCursor(entry: TerminalEntry): void {
     if (!this.gl) return;
     const gl = this.gl;
@@ -692,7 +694,7 @@ export class SharedWebGLContext {
     gl.uniform2f(this.bgUniforms.u_resolution, vpW, vpH);
     gl.uniform2f(this.bgUniforms.u_cellSize, cellW, cellH);
 
-    // Bug 5: Reuse pre-allocated cursorData buffer instead of allocating per frame
+    // Reuse pre-allocated cursorData buffer instead of allocating per frame
     this.cursorData[0] = cursor.col;
     this.cursorData[1] = cursor.row;
     this.cursorData[2] = cc[0];
@@ -720,7 +722,7 @@ export class SharedWebGLContext {
     this.bgProgram = createProgram(gl, BG_VERTEX_SHADER, BG_FRAGMENT_SHADER);
     this.glyphProgram = createProgram(gl, GLYPH_VERTEX_SHADER, GLYPH_FRAGMENT_SHADER);
 
-    // Bug 1: Cache all uniform locations after program creation
+    // Cache all uniform locations after program creation
     this.bgUniforms.u_resolution = gl.getUniformLocation(this.bgProgram, "u_resolution");
     this.bgUniforms.u_cellSize = gl.getUniformLocation(this.bgProgram, "u_cellSize");
     this.glyphUniforms.u_resolution = gl.getUniformLocation(this.glyphProgram, "u_resolution");
@@ -738,7 +740,7 @@ export class SharedWebGLContext {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.quadEBO);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, quadIndices, gl.STATIC_DRAW);
 
-    // Bug 3: Create double-buffered VBOs and VAOs
+    // Create double-buffered VBOs and VAOs
     for (let i = 0; i < 2; i++) {
       this.bgInstanceVBOs[i] = gl.createBuffer();
       this.glyphInstanceVBOs[i] = gl.createBuffer();
@@ -827,10 +829,8 @@ export class SharedWebGLContext {
     this.theme = { ...DEFAULT_THEME, ...theme };
     this.palette = build256Palette(this.theme);
     this.buildPaletteFloat();
-    // Mark all terminals fully dirty so they re-render with new colors
-    for (const id of this.terminalFullyRendered.keys()) {
-      this.terminalFullyRendered.set(id, false);
-    }
+    // Mark all terminals for full re-render with new colors
+    this.terminalFullyRendered.clear();
   }
 
   private buildPaletteFloat(): void {
