@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BenchmarkRunner } from "./components/BenchmarkRunner.js";
 import { MultiPaneBenchmarkRunner } from "./components/MultiPaneBenchmarkRunner.js";
 import { ResultsTable } from "./components/ResultsTable.js";
+import { RenderTestPage } from "./RenderTestPage.js";
 import type {
   BenchmarkConfig,
   BenchmarkResult,
@@ -27,7 +28,14 @@ declare global {
   }
 }
 
+const PAGE_PARAM = new URLSearchParams(window.location.search).get("page");
+
 export function App() {
+  if (PAGE_PARAM === "render-test") return <RenderTestPage />;
+  return <BenchmarkApp />;
+}
+
+function BenchmarkApp() {
   const [mode, setMode] = useState<BenchMode>(() => {
     const urlMode = new URLSearchParams(window.location.search).get("mode");
     return urlMode === "multi-pane" ? "multi-pane" : "single";
