@@ -269,12 +269,12 @@ jobs:
               for (const r of jsonResults) {
                 if (!byScenario.has(r.scenario)) byScenario.set(r.scenario, {});
                 const entry = byScenario.get(r.scenario);
-                if (!entry[r.terminal]) entry[r.terminal] = { time: [], fps: [], mbps: [], count: 0 };
+                if (!entry[r.terminal]) entry[r.terminal] = { mbps: [], frameP50: [], frameP99: [], idle: [] };
                 const t = entry[r.terminal];
-                t.time.push(r.metrics.totalTimeMs);
-                t.fps.push(r.metrics.avgFps);
                 t.mbps.push(r.metrics.throughputMBps);
-                t.count++;
+                t.frameP50.push(r.metrics.frameTimeP50);
+                t.frameP99.push(r.metrics.frameTimeP99);
+                t.idle.push(r.metrics.timeToIdleMs);
               }
               const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
               const scenarios = [...byScenario.keys()];
@@ -303,14 +303,17 @@ jobs:
                 return md;
               }
 
-              report += '### Avg Time — ms (lower is better)\n\n';
-              report += buildTable('Avg Time', 'ms', t => avg(t.time)) + '\n';
-
-              report += '### Avg FPS — fps (higher is better)\n\n';
-              report += buildTable('Avg FPS', 'fps', t => avg(t.fps)) + '\n';
-
               report += '### Throughput — MB/s (higher is better)\n\n';
               report += buildTable('Throughput', 'MB/s', t => avg(t.mbps)) + '\n';
+
+              report += '### Frame Time p50 — ms (lower is smoother)\n\n';
+              report += buildTable('Frame p50', 'ms', t => avg(t.frameP50)) + '\n';
+
+              report += '### Frame Time p99 — ms (lower = less jank)\n\n';
+              report += buildTable('Frame p99', 'ms', t => avg(t.frameP99)) + '\n';
+
+              report += '### Time to Idle — ms (lower is better)\n\n';
+              report += buildTable('Idle', 'ms', t => avg(t.idle)) + '\n';
 
               // Keep a summary table for quick reference
               report += '<details><summary>Detailed results table</summary>\n\n';
@@ -363,7 +366,9 @@ jobs:
                 if (!byPane[panes]) byPane[panes] = {};
                 byPane[panes][term] = {
                   mbps: mpAvg(runs.map(r => r.metrics.throughputMBps)),
-                  fps: mpAvg(runs.map(r => r.metrics.avgFps)),
+                  frameP50: mpAvg(runs.map(r => r.metrics.frameTimeP50)),
+                  frameP99: mpAvg(runs.map(r => r.metrics.frameTimeP99)),
+                  idle: mpAvg(runs.map(r => r.metrics.timeToIdleMs)),
                   stAvg: mpAvg(runs.map(r => r.responsiveness.avgSetTimeoutDelay)),
                   stMax: mpAvg(runs.map(r => r.responsiveness.maxSetTimeoutDelay)),
                 };
@@ -387,8 +392,12 @@ jobs:
 
               report += '**Throughput — MB/s (higher is better)**\n\n';
               report += mpTable('MB/s', d => d.mbps) + '\n';
-              report += '**Avg FPS (higher is better)**\n\n';
-              report += mpTable('fps', d => d.fps) + '\n';
+              report += '**Frame Time p50 — ms (lower is smoother)**\n\n';
+              report += mpTable('ms', d => d.frameP50) + '\n';
+              report += '**Frame Time p99 — ms (lower = less jank)**\n\n';
+              report += mpTable('ms', d => d.frameP99) + '\n';
+              report += '**Time to Idle — ms (lower is better)**\n\n';
+              report += mpTable('ms', d => d.idle) + '\n';
               report += '**Main Thread Responsiveness — setTimeout avg ms (lower is better)**\n\n';
               report += mpTable('ms', d => d.stAvg) + '\n';
               report += '**Worst-Case Blocking — setTimeout max ms (lower is better)**\n\n';

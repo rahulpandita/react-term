@@ -76,8 +76,9 @@ export const ResultsTable = memo(function ResultsTable({ results }: Props) {
             {th("Scenario", "scenario")}
             {th("Run", "run")}
             {th("Time (ms)", "totalTimeMs")}
-            {th("Avg FPS", "avgFps")}
-            {th("Dropped", "droppedFrames")}
+            {th("Frame p50", "frameTimeP50")}
+            {th("Frame p99", "frameTimeP99")}
+            {th("Idle (ms)", "timeToIdleMs")}
             {th("Long Tasks", "longTaskCount")}
             {th("LT Duration", "longTaskDurationMs")}
             {th("MB/s", "throughputMBps")}
@@ -95,8 +96,9 @@ export const ResultsTable = memo(function ResultsTable({ results }: Props) {
               <td style={tdStyle}>{r.scenario}</td>
               <td style={tdStyle}>{r.run}</td>
               <td style={tdStyle}>{fmt(r.metrics.totalTimeMs)}</td>
-              <td style={tdStyle}>{fmt(r.metrics.avgFps)}</td>
-              <td style={tdStyle}>{r.metrics.droppedFrames}</td>
+              <td style={tdStyle}>{fmt(r.metrics.frameTimeP50)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.frameTimeP99)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.timeToIdleMs)}</td>
               <td style={tdStyle}>{r.metrics.longTaskCount}</td>
               <td style={tdStyle}>{fmt(r.metrics.longTaskDurationMs)}</td>
               <td style={tdStyle}>{fmt(r.metrics.throughputMBps, 2)}</td>

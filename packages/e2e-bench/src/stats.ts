@@ -83,7 +83,7 @@ export function computeStats(values: number[]): StatsResult {
   };
 }
 
-function medianOf(arr: number[]): number {
+export function medianOf(arr: number[]): number {
   if (arr.length === 0) return 0;
   const n = arr.length;
   return n % 2 === 1 ? arr[Math.floor(n / 2)] : (arr[n / 2 - 1] + arr[n / 2]) / 2;
