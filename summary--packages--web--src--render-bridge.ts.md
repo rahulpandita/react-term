@@ -1,1 +1,1 @@
-h:5682
+h:5682 RenderBridge:OffscreenCanvas-worker-manager,start(SAB+cols+rows)/updateCursor/setSelection/setTheme/setFont/resize/dispose. canUseOffscreenCanvas():feature-detect. RenderBridgeOptions:fontSize/fontFamily/theme/dpr/onFps/onError.

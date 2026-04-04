@@ -1,1 +1,1 @@
-h:4835
+h:4835 KeyboardHandler:handleKeyPress(key,modifiers)/handleTextInput(text)/setApplicationCursorKeys(bool). KeyModifiers:{ctrl,alt,shift,meta}. Maps DOM key names to VT sequences. Pure logic, no RN deps.

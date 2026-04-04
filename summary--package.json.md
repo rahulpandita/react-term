@@ -1,1 +1,1 @@
-h:892
+h:892 scripts:test/test:watch/dev/start/build/clean/lint/lint:fix/bench/typecheck/prepare. devDeps:biome/jsdom/lint-staged/typescript/vitest. deps:node-pty. lint-staged:biome-check on ts/tsx.

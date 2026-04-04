@@ -1,1 +1,1 @@
-h:9239
+h:9239 NativeTerminal:forwardRef,NativeTerminalProps(cols/rows/fontSize/fontFamily/theme/scrollback/onData/onResize/onRenderCommands/style),NativeTerminalHandle(write/resize/focus/blur). Uses BufferSet+VTParser+SkiaRenderer+GestureHandler+KeyboardHandler. rAF loop.

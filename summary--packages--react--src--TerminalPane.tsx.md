@@ -1,1 +1,1 @@
-h:6044
+h:6044 TerminalPane:forwardRef,TerminalPaneProps(layout/onData/theme/fontSize/fontFamily/className/style),TerminalPaneHandle(getTerminal/getPaneIds). PaneLeaf+PaneNode recursive rendering. collectPaneIds(). Shares WebGL ctx across panes.

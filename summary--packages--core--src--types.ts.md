@@ -1,1 +1,1 @@
-h:1546
+h:1546 DirtyState:NONE/PARTIAL/FULL. CursorState:{row,col,visible,style,wrapPending}. TerminalOptions:{cols,rows,scrollback,theme?}. Theme:20 colors(fg/bg/cursor/cursorAccent/selection+16ANSI). SelectionState:{anchor,focus}. SelectionRange:{startRow,startCol,endRow,endCol}. DEFAULT_THEME:VS-Code-Dark

@@ -1,1 +1,1 @@
-h:6351
+h:6351 Terminal:forwardRef,TerminalProps(cols/rows/fontSize/fontFamily/theme/scrollback/onData/onResize/onTitleChange/autoFit/className/style/renderMode/renderer/useWorker),TerminalHandle(write/resize/focus/blur/fit). autoFit via ResizeObserver+visualViewport.

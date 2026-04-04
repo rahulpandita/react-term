@@ -1,1 +1,1 @@
-h:9914
+h:9914 SkiaRenderer:declarative-RenderCommand[],types=rect/text/line,build256Palette,ATTR_BOLD/ITALIC/UNDERLINE/STRIKETHROUGH/INVERSE. RenderCommand:{type,x,y,width?,height?,color,text?,fontSize?,fontFamily?,bold?,italic?,opacity?}. getCellSize().
