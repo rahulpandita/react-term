@@ -266,7 +266,7 @@ jobs:
               const mpBarLen = 20;
               const mpBar = (val, maxVal) => {
                 const len = maxVal > 0 ? Math.round((val / maxVal) * mpBarLen) : 0;
-                return '█'.repeat(len) + '░'.repeat(maxBarLen - len);
+                return '█'.repeat(len) + '░'.repeat(mpBarLen - len);
               };
 
               // Aggregate data per config
