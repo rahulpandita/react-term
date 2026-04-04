@@ -2,15 +2,17 @@
  * TerminalPane — a container component that manages multiple terminal
  * instances in a split-pane layout.
  *
- * All panes share rendering resources (e.g. the same WebGL context when
- * using the WebGL backend), which avoids hitting Chrome's 16-context limit.
+ * All panes share rendering resources via a single SharedWebGLContext,
+ * which avoids hitting Chrome's 16-context limit. If WebGL2 initialization
+ * fails, panes fall back to independent per-pane rendering.
  *
  * Layout is described as a recursive tree of horizontal / vertical splits.
  */
 
 import type { Theme } from "@next_term/core";
+import { SharedWebGLContext } from "@next_term/web";
 import type React from "react";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { collectPaneIds, type PaneLayout } from "./pane-layout.js";
 import type { TerminalHandle } from "./Terminal.js";
 import { Terminal } from "./Terminal.js";
@@ -55,10 +57,20 @@ interface PaneLeafProps {
   fontSize?: number;
   fontFamily?: string;
   onRef: (id: string, handle: TerminalHandle | null) => void;
+  sharedContext: SharedWebGLContext | null;
 }
 
-function PaneLeaf({ id, onData, theme, fontSize, fontFamily, onRef }: PaneLeafProps) {
+function PaneLeaf({
+  id,
+  onData,
+  theme,
+  fontSize,
+  fontFamily,
+  onRef,
+  sharedContext,
+}: PaneLeafProps) {
   const termRef = useRef<TerminalHandle>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     onRef(id, termRef.current);
@@ -66,6 +78,27 @@ function PaneLeaf({ id, onData, theme, fontSize, fontFamily, onRef }: PaneLeafPr
       onRef(id, null);
     };
   }, [id, onRef]);
+
+  // Sync viewport position with shared context via ResizeObserver
+  useEffect(() => {
+    if (!sharedContext || !containerRef.current) return;
+    const observer = new ResizeObserver(() => {
+      const el = containerRef.current;
+      const parent = sharedContext.getCanvas().parentElement;
+      if (!el || !parent) return;
+      const parentRect = parent.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      sharedContext.setViewport(
+        id,
+        elRect.left - parentRect.left,
+        elRect.top - parentRect.top,
+        elRect.width,
+        elRect.height,
+      );
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [id, sharedContext]);
 
   const handleData = useCallback(
     (data: Uint8Array) => {
@@ -75,15 +108,19 @@ function PaneLeaf({ id, onData, theme, fontSize, fontFamily, onRef }: PaneLeafPr
   );
 
   return (
-    <Terminal
-      ref={termRef}
-      autoFit
-      theme={theme}
-      fontSize={fontSize}
-      fontFamily={fontFamily}
-      onData={handleData}
-      style={{ width: "100%", height: "100%" }}
-    />
+    <div ref={containerRef} style={{ width: "100%", height: "100%" }}>
+      <Terminal
+        ref={termRef}
+        autoFit
+        theme={theme}
+        fontSize={fontSize}
+        fontFamily={fontFamily}
+        onData={handleData}
+        sharedContext={sharedContext ?? undefined}
+        paneId={sharedContext ? id : undefined}
+        style={{ width: "100%", height: "100%" }}
+      />
+    </div>
   );
 }
 
@@ -98,9 +135,18 @@ interface PaneNodeProps {
   fontSize?: number;
   fontFamily?: string;
   onRef: (id: string, handle: TerminalHandle | null) => void;
+  sharedContext: SharedWebGLContext | null;
 }
 
-function PaneNode({ layout, onData, theme, fontSize, fontFamily, onRef }: PaneNodeProps) {
+function PaneNode({
+  layout,
+  onData,
+  theme,
+  fontSize,
+  fontFamily,
+  onRef,
+  sharedContext,
+}: PaneNodeProps) {
   if (layout.type === "single") {
     return (
       <PaneLeaf
@@ -110,6 +156,7 @@ function PaneNode({ layout, onData, theme, fontSize, fontFamily, onRef }: PaneNo
         fontSize={fontSize}
         fontFamily={fontFamily}
         onRef={onRef}
+        sharedContext={sharedContext}
       />
     );
   }
@@ -153,6 +200,7 @@ function PaneNode({ layout, onData, theme, fontSize, fontFamily, onRef }: PaneNo
               fontSize={fontSize}
               fontFamily={fontFamily}
               onRef={onRef}
+              sharedContext={sharedContext}
             />
           </div>
         );
@@ -168,7 +216,10 @@ function PaneNode({ layout, onData, theme, fontSize, fontFamily, onRef }: PaneNo
 export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   function TerminalPane(props, ref) {
     const { layout, onData, theme, fontSize, fontFamily, className, style } = props;
+    const containerRef = useRef<HTMLDivElement>(null);
     const terminalsRef = useRef<Map<string, TerminalHandle>>(new Map());
+    const sharedContextRef = useRef<SharedWebGLContext | null>(null);
+    const [sharedContext, setSharedContext] = useState<SharedWebGLContext | null>(null);
 
     const handleRef = useCallback((id: string, handle: TerminalHandle | null) => {
       if (handle) {
@@ -177,6 +228,70 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         terminalsRef.current.delete(id);
       }
     }, []);
+
+    // Create and manage the shared WebGL context
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      let ctx: SharedWebGLContext | null = null;
+      try {
+        ctx = new SharedWebGLContext({
+          fontSize,
+          fontFamily,
+          theme,
+        });
+
+        const canvas = ctx.getCanvas();
+        canvas.style.position = "absolute";
+        canvas.style.top = "0";
+        canvas.style.left = "0";
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        canvas.style.pointerEvents = "none";
+        canvas.style.zIndex = "1";
+        container.appendChild(canvas);
+
+        ctx.init();
+
+        // Sync canvas size with container
+        const activeCtx = ctx;
+        const ro = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            const { width, height } = entry.contentRect;
+            activeCtx.syncCanvasSize(width, height);
+          }
+        });
+        ro.observe(container);
+
+        ctx.startRenderLoop();
+        sharedContextRef.current = ctx;
+        setSharedContext(ctx);
+
+        return () => {
+          activeCtx.stopRenderLoop();
+          activeCtx.dispose();
+          ro.disconnect();
+          sharedContextRef.current = null;
+          setSharedContext(null);
+        };
+      } catch {
+        // WebGL2 init failed — fall back to independent per-pane rendering
+        console.warn(
+          "[TerminalPane] SharedWebGLContext init failed, falling back to per-pane rendering",
+        );
+        if (ctx) {
+          try {
+            ctx.dispose();
+          } catch {
+            // ignore
+          }
+        }
+        sharedContextRef.current = null;
+        setSharedContext(null);
+        return;
+      }
+    }, [fontSize, fontFamily, theme]);
 
     useImperativeHandle(
       ref,
@@ -193,6 +308,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
 
     return (
       <div
+        ref={containerRef}
         className={className}
         style={{
           position: "relative",
@@ -207,6 +323,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           fontSize={fontSize}
           fontFamily={fontFamily}
           onRef={handleRef}
+          sharedContext={sharedContext}
         />
       </div>
     );
