@@ -93,7 +93,34 @@ jobs:
             packages/e2e-bench/results/*.json
             e2e-bench-output.txt
 
-  e2e-multi-pane:
+  e2e-multi-pane-linux:
+    name: E2E — multi-pane (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm --filter @next_term/e2e-bench exec playwright install chromium --with-deps
+      - name: Run multi-pane benchmarks
+        run: cd packages/e2e-bench && npx playwright test --grep "multi-pane" 2>&1 | tee ../../e2e-bench-output.txt
+      - name: Upload results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-multi-pane-linux-results
+          path: |
+            packages/e2e-bench/results/*.json
+            e2e-bench-output.txt
+
+  e2e-multi-pane-macos:
     name: E2E — multi-pane (macOS)
     runs-on: macos-latest
     timeout-minutes: 15
@@ -115,7 +142,7 @@ jobs:
         uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: e2e-multi-pane-results
+          name: e2e-multi-pane-macos-results
           path: |
             packages/e2e-bench/results/*.json
             e2e-bench-output.txt
@@ -123,7 +150,7 @@ jobs:
   report:
     name: Benchmark Report
     runs-on: ubuntu-latest
-    needs: [parser-bench, e2e-react-term, e2e-xterm, e2e-multi-pane]
+    needs: [parser-bench, e2e-react-term, e2e-xterm, e2e-multi-pane-linux, e2e-multi-pane-macos]
     if: always()
     steps:
       - uses: actions/download-artifact@v8
@@ -303,37 +330,35 @@ jobs:
               report += `\n_Total results: ${jsonResults.length}_\n`;
             }
 
-            // --- Multi-pane benchmarks ---
-            const mpDir = path.join('artifacts', 'e2e-multi-pane-results');
-            const mpJsonFiles = findJsonFiles(mpDir).filter(f => f.includes('multi-pane'));
-            let mpResults = null;
-            if (mpJsonFiles.length > 0) {
-              try {
-                mpResults = JSON.parse(fs.readFileSync(mpJsonFiles[mpJsonFiles.length - 1], 'utf-8'));
-              } catch {}
+            // --- Multi-pane benchmarks (Linux + macOS) ---
+            const mpBarLen = 20;
+            const mpBar = (val, maxVal) => {
+              const len = maxVal > 0 ? Math.round((val / maxVal) * mpBarLen) : 0;
+              return '█'.repeat(len) + '░'.repeat(mpBarLen - len);
+            };
+            const mpAvg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+
+            function loadMpResults(artifactName) {
+              const dir = path.join('artifacts', artifactName);
+              const files = findJsonFiles(dir).filter(f => f.includes('multi-pane'));
+              if (files.length === 0) return null;
+              try { return JSON.parse(fs.readFileSync(files[files.length - 1], 'utf-8')); } catch { return null; }
             }
 
-            if (mpResults && mpResults.length > 0) {
-              report += '\n## Multi-Pane Benchmark\n\n';
-              report += 'Measures main thread responsiveness under parallel terminal load.\n\n';
+            function renderMpSection(label, results) {
+              if (!results || results.length === 0) return;
+              report += `\n### ${label}\n\n`;
 
-              const mpGrouped = new Map();
-              for (const r of mpResults) {
+              const grouped = new Map();
+              for (const r of results) {
                 const key = `${r.terminal}|${r.paneCount}`;
-                if (!mpGrouped.has(key)) mpGrouped.set(key, []);
-                mpGrouped.get(key).push(r);
+                if (!grouped.has(key)) grouped.set(key, []);
+                grouped.get(key).push(r);
               }
-              const mpAvg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
-              const mpBarLen = 20;
-              const mpBar = (val, maxVal) => {
-                const len = maxVal > 0 ? Math.round((val / maxVal) * mpBarLen) : 0;
-                return '█'.repeat(len) + '░'.repeat(mpBarLen - len);
-              };
 
-              // Group by pane count for side-by-side comparison
-              const paneCounts = [...new Set(mpResults.map(r => r.paneCount))].sort((a, b) => a - b);
+              const paneCounts = [...new Set(results.map(r => r.paneCount))].sort((a, b) => a - b);
               const byPane = {};
-              for (const [key, runs] of mpGrouped) {
+              for (const [key, runs] of grouped) {
                 const [term, panes] = key.split('|');
                 if (!byPane[panes]) byPane[panes] = {};
                 byPane[panes][term] = {
@@ -341,12 +366,10 @@ jobs:
                   fps: mpAvg(runs.map(r => r.metrics.avgFps)),
                   stAvg: mpAvg(runs.map(r => r.responsiveness.avgSetTimeoutDelay)),
                   stMax: mpAvg(runs.map(r => r.responsiveness.maxSetTimeoutDelay)),
-                  longTasks: mpAvg(runs.map(r => r.metrics.longTaskCount)),
                 };
               }
 
-              // Side-by-side bar chart builder
-              function mpTable(title, unit, getter) {
+              function mpTable(unit, getter) {
                 let maxVal = 0;
                 const rows = paneCounts.map(p => {
                   const rt = byPane[p]?.['react-term'] ? getter(byPane[p]['react-term']) : 0;
@@ -362,19 +385,26 @@ jobs:
                 return md;
               }
 
-              report += '### Throughput — MB/s (higher is better)\n\n';
-              report += mpTable('Throughput', 'MB/s', d => d.mbps) + '\n';
+              report += '**Throughput — MB/s (higher is better)**\n\n';
+              report += mpTable('MB/s', d => d.mbps) + '\n';
+              report += '**Avg FPS (higher is better)**\n\n';
+              report += mpTable('fps', d => d.fps) + '\n';
+              report += '**Main Thread Responsiveness — setTimeout avg ms (lower is better)**\n\n';
+              report += mpTable('ms', d => d.stAvg) + '\n';
+              report += '**Worst-Case Blocking — setTimeout max ms (lower is better)**\n\n';
+              report += mpTable('ms', d => d.stMax) + '\n';
+              report += `_${results.length} results_\n`;
+            }
 
-              report += '### Avg FPS (higher is better)\n\n';
-              report += mpTable('Avg FPS', 'fps', d => d.fps) + '\n';
+            const mpLinux = loadMpResults('e2e-multi-pane-linux-results');
+            const mpMacos = loadMpResults('e2e-multi-pane-macos-results');
+            const mpResults = mpLinux || mpMacos;
 
-              report += '### Main Thread Responsiveness — setTimeout avg ms (lower is better)\n\n';
-              report += mpTable('Responsiveness', 'ms', d => d.stAvg) + '\n';
-
-              report += '### Worst-Case Blocking — setTimeout max ms (lower is better)\n\n';
-              report += mpTable('Blocking', 'ms', d => d.stMax) + '\n';
-
-              report += `\n_${mpResults.length} multi-pane results_\n`;
+            if (mpLinux || mpMacos) {
+              report += '\n## Multi-Pane Benchmark\n\n';
+              report += 'Measures main thread responsiveness under parallel terminal load.\n\n';
+              renderMpSection('Linux (software rendering)', mpLinux);
+              renderMpSection('macOS (GPU accelerated)', mpMacos);
             }
 
             if (!jsonResults && !mpResults) {
