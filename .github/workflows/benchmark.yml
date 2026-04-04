@@ -263,8 +263,9 @@ jobs:
                 mpGrouped.get(key).push(r);
               }
               const mpAvg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+              const mpBarLen = 20;
               const mpBar = (val, maxVal) => {
-                const len = maxVal > 0 ? Math.round((val / maxVal) * maxBarLen) : 0;
+                const len = maxVal > 0 ? Math.round((val / maxVal) * mpBarLen) : 0;
                 return '█'.repeat(len) + '░'.repeat(maxBarLen - len);
               };
 
