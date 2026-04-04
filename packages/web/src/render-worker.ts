@@ -250,7 +250,7 @@ let glyphAtlasLoc: WebGLUniformLocation | null = null;
 
 let bgInstances: Float32Array = new Float32Array(0);
 let glyphInstances: Float32Array = new Float32Array(0);
-const bgCount = 0;
+let bgCount = 0;
 let glyphCount = 0;
 
 // Pre-allocated overlay buffers
@@ -514,17 +514,8 @@ function render(): void {
   }
   if (!anyDirty) return;
 
-  fix: Only;
-  rebuild;
-  dirty;
-  rows;
-  clean;
-  rows;
-  retain;
-  data;
-  from;
-  previous;
-  frame.bgCount = cols * rows; // bgCount is always cols*rows (every cell has a bg). glyphCount needs recounting.
+  // Only rebuild dirty rows — clean rows retain data from previous frame
+  bgCount = cols * rows;
   glyphCount = 0;
 
   for (let row = 0; row < rows; row++) {
