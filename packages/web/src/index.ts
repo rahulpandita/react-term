@@ -28,4 +28,5 @@ export type { WebTerminalOptions } from "./web-terminal.js";
 export { WebTerminal } from "./web-terminal.js";
 export type { GlyphInfo } from "./webgl-renderer.js";
 export { createRenderer, GlyphAtlas, hexToFloat4, WebGLRenderer } from "./webgl-renderer.js";
+export { type ColorFloat4, resolveColorFloat } from "./webgl-utils.js";
 export { WorkerBridge } from "./worker-bridge.js";

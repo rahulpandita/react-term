@@ -22,6 +22,7 @@ import {
   packBgInstance,
   packGlyphInstance,
 } from "./webgl-renderer.js";
+import { type ColorFloat4, resolveColorFloat } from "./webgl-utils.js";
 
 // ---------------------------------------------------------------------------
 // Attribute bit positions
@@ -205,10 +206,10 @@ export class SharedWebGLContext {
   // Theme / palette
   private theme: Theme;
   private palette: string[];
-  private paletteFloat: Array<[number, number, number, number]> = [];
-  private themeFgFloat: [number, number, number, number] = [0, 0, 0, 1];
-  private themeBgFloat: [number, number, number, number] = [0, 0, 0, 1];
-  private themeCursorFloat: [number, number, number, number] = [0, 0, 0, 1];
+  private paletteFloat: ColorFloat4[] = [];
+  private themeFgFloat: ColorFloat4 = [0, 0, 0, 1];
+  private themeBgFloat: ColorFloat4 = [0, 0, 0, 1];
+  private themeCursorFloat: ColorFloat4 = [0, 0, 0, 1];
 
   private fontSize: number;
   private fontFamily: string;
@@ -550,8 +551,26 @@ export class SharedWebGLContext {
             const fgIsRGB = grid.isFgRGB(row, col);
             const bgIsRGB = grid.isBgRGB(row, col);
 
-            let fg = this.resolveColorFloat(fgIdx, fgIsRGB, grid, col, true);
-            let bg = this.resolveColorFloat(bgIdx, bgIsRGB, grid, col, false);
+            let fg = resolveColorFloat(
+              fgIdx,
+              fgIsRGB,
+              grid,
+              col,
+              true,
+              this.paletteFloat,
+              this.themeFgFloat,
+              this.themeBgFloat,
+            );
+            let bg = resolveColorFloat(
+              bgIdx,
+              bgIsRGB,
+              grid,
+              col,
+              false,
+              this.paletteFloat,
+              this.themeFgFloat,
+              this.themeBgFloat,
+            );
 
             if (attrs & ATTR_INVERSE) {
               const tmp = fg;
@@ -838,32 +857,6 @@ export class SharedWebGLContext {
     this.themeFgFloat = hexToFloat4(this.theme.foreground);
     this.themeBgFloat = hexToFloat4(this.theme.background);
     this.themeCursorFloat = hexToFloat4(this.theme.cursor);
-  }
-
-  private resolveColorFloat(
-    colorIdx: number,
-    isRGB: boolean,
-    grid: CellGrid,
-    col: number,
-    isForeground: boolean,
-  ): [number, number, number, number] {
-    if (isRGB) {
-      const offset = isForeground ? col : 256 + col;
-      const rgb = grid.rgbColors[offset];
-      const r = ((rgb >> 16) & 0xff) / 255;
-      const g = ((rgb >> 8) & 0xff) / 255;
-      const b = (rgb & 0xff) / 255;
-      return [r, g, b, 1.0];
-    }
-
-    if (isForeground && colorIdx === 7) return this.themeFgFloat;
-    if (!isForeground && colorIdx === 0) return this.themeBgFloat;
-
-    if (colorIdx >= 0 && colorIdx < 256) {
-      return this.paletteFloat[colorIdx];
-    }
-
-    return isForeground ? this.themeFgFloat : this.themeBgFloat;
   }
 
   // -----------------------------------------------------------------------

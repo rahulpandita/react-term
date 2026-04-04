@@ -13,6 +13,7 @@
 import type { Theme } from "@next_term/core";
 import { CellGrid, DEFAULT_THEME } from "@next_term/core";
 import { build256Palette } from "./renderer.js";
+import { type ColorFloat4, resolveColorFloat } from "./webgl-utils.js";
 
 // Type declaration for Web Worker global scope (not included in DOM lib)
 declare type DedicatedWorkerGlobalScope = typeof globalThis & {
@@ -212,10 +213,10 @@ let fontSize = 14;
 let fontFamily = "monospace";
 let theme: Theme = DEFAULT_THEME;
 let palette: string[] = [];
-let paletteFloat: Array<[number, number, number, number]> = [];
-let themeFgFloat: [number, number, number, number] = [0, 0, 0, 1];
-let themeBgFloat: [number, number, number, number] = [0, 0, 0, 1];
-let themeCursorFloat: [number, number, number, number] = [0, 0, 0, 1];
+let paletteFloat: ColorFloat4[] = [];
+let themeFgFloat: ColorFloat4 = [0, 0, 0, 1];
+let themeBgFloat: ColorFloat4 = [0, 0, 0, 1];
+let themeCursorFloat: ColorFloat4 = [0, 0, 0, 1];
 
 let cellWidth = 0;
 let cellHeight = 0;
@@ -237,8 +238,8 @@ let quadEBO: WebGLBuffer | null = null;
 let bgInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
 let glyphInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
 let activeBufferIdx = 0;
-let bgVAO: WebGLVertexArrayObject | null = null;
-let glyphVAO: WebGLVertexArrayObject | null = null;
+const bgVAOs: [WebGLVertexArrayObject | null, WebGLVertexArrayObject | null] = [null, null];
+const glyphVAOs: [WebGLVertexArrayObject | null, WebGLVertexArrayObject | null] = [null, null];
 
 // Cached uniform locations
 let bgResolutionLoc: WebGLUniformLocation | null = null;
@@ -301,32 +302,6 @@ function measureCellSize(): void {
 
   if (cellWidth <= 0) cellWidth = Math.ceil(fontSize * 0.6);
   if (cellHeight <= 0) cellHeight = Math.ceil(fontSize * 1.2);
-}
-
-function resolveColorFloat(
-  colorIdx: number,
-  isRGB: boolean,
-  g: CellGrid,
-  col: number,
-  isForeground: boolean,
-): [number, number, number, number] {
-  if (isRGB) {
-    const offset = isForeground ? col : 256 + col;
-    const rgb = g.rgbColors[offset];
-    const r = ((rgb >> 16) & 0xff) / 255;
-    const green = ((rgb >> 8) & 0xff) / 255;
-    const b = (rgb & 0xff) / 255;
-    return [r, green, b, 1.0];
-  }
-
-  if (isForeground && colorIdx === 7) return themeFgFloat;
-  if (!isForeground && colorIdx === 0) return themeBgFloat;
-
-  if (colorIdx >= 0 && colorIdx < 256) {
-    return paletteFloat[colorIdx];
-  }
-
-  return isForeground ? themeFgFloat : themeBgFloat;
 }
 
 function createGridFromSAB(buffer: SharedArrayBuffer, c: number, r: number): CellGrid {
@@ -403,20 +378,22 @@ function initGLResources(): void {
   glyphCellSizeLoc = gl.getUniformLocation(glyphProgram, "u_cellSize");
   glyphAtlasLoc = gl.getUniformLocation(glyphProgram, "u_atlas");
 
-  bgVAO = gl.createVertexArray();
-  gl.bindVertexArray(bgVAO);
-  setupBgVAO(gl);
-  gl.bindVertexArray(null);
+  for (let i = 0; i < 2; i++) {
+    bgVAOs[i] = gl.createVertexArray();
+    gl.bindVertexArray(bgVAOs[i]);
+    setupBgVAO(gl, i);
+    gl.bindVertexArray(null);
 
-  glyphVAO = gl.createVertexArray();
-  gl.bindVertexArray(glyphVAO);
-  setupGlyphVAO(gl);
-  gl.bindVertexArray(null);
+    glyphVAOs[i] = gl.createVertexArray();
+    gl.bindVertexArray(glyphVAOs[i]);
+    setupGlyphVAO(gl, i);
+    gl.bindVertexArray(null);
+  }
 
   if (atlas) atlas.recreateTexture();
 }
 
-function setupBgVAO(g: WebGL2RenderingContext): void {
+function setupBgVAO(g: WebGL2RenderingContext, bufIdx: number): void {
   const FLOAT = 4;
   if (!bgProgram) return;
   const program = bgProgram;
@@ -428,7 +405,7 @@ function setupBgVAO(g: WebGL2RenderingContext): void {
 
   g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, quadEBO);
 
-  g.bindBuffer(g.ARRAY_BUFFER, bgInstanceVBOs[0]);
+  g.bindBuffer(g.ARRAY_BUFFER, bgInstanceVBOs[bufIdx]);
   const stride = BG_INSTANCE_FLOATS * FLOAT;
 
   const aCellPos = g.getAttribLocation(program, "a_cellPos");
@@ -442,7 +419,7 @@ function setupBgVAO(g: WebGL2RenderingContext): void {
   g.vertexAttribDivisor(aColor, 1);
 }
 
-function setupGlyphVAO(g: WebGL2RenderingContext): void {
+function setupGlyphVAO(g: WebGL2RenderingContext, bufIdx: number): void {
   const FLOAT = 4;
   if (!glyphProgram) return;
   const program = glyphProgram;
@@ -454,7 +431,7 @@ function setupGlyphVAO(g: WebGL2RenderingContext): void {
 
   g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, quadEBO);
 
-  g.bindBuffer(g.ARRAY_BUFFER, glyphInstanceVBOs[0]);
+  g.bindBuffer(g.ARRAY_BUFFER, glyphInstanceVBOs[bufIdx]);
   const stride = GLYPH_INSTANCE_FLOATS * FLOAT;
 
   const aCellPos = g.getAttribLocation(program, "a_cellPos");
@@ -572,8 +549,26 @@ function render(): void {
       const fgIsRGB = grid.isFgRGB(row, col);
       const bgIsRGB = grid.isBgRGB(row, col);
 
-      let fg = resolveColorFloat(fgIdx, fgIsRGB, grid, col, true);
-      let bg = resolveColorFloat(bgIdx, bgIsRGB, grid, col, false);
+      let fg = resolveColorFloat(
+        fgIdx,
+        fgIsRGB,
+        grid,
+        col,
+        true,
+        paletteFloat,
+        themeFgFloat,
+        themeBgFloat,
+      );
+      let bg = resolveColorFloat(
+        bgIdx,
+        bgIsRGB,
+        grid,
+        col,
+        false,
+        paletteFloat,
+        themeFgFloat,
+        themeBgFloat,
+      );
 
       if (attrs & ATTR_INVERSE) {
         const tmp = fg;
@@ -617,8 +612,26 @@ function render(): void {
       const fgIsRGB = grid.isFgRGB(row, col);
       const bgIsRGB = grid.isBgRGB(row, col);
       const bgIdx = grid.getBgIndex(row, col);
-      let fg = resolveColorFloat(fgIdx, fgIsRGB, grid, col, true);
-      let bg = resolveColorFloat(bgIdx, bgIsRGB, grid, col, false);
+      let fg = resolveColorFloat(
+        fgIdx,
+        fgIsRGB,
+        grid,
+        col,
+        true,
+        paletteFloat,
+        themeFgFloat,
+        themeBgFloat,
+      );
+      let bg = resolveColorFloat(
+        bgIdx,
+        bgIsRGB,
+        grid,
+        col,
+        false,
+        paletteFloat,
+        themeFgFloat,
+        themeBgFloat,
+      );
       if (attrs & ATTR_INVERSE) {
         const tmp = fg;
         fg = bg;
@@ -668,7 +681,9 @@ function render(): void {
   activeBufferIdx ^= 1;
 
   // Background pass
-  if (bgCount > 0 && bgProgram && bgVAO && curBgVBO) {
+  const curBgVAO = bgVAOs[activeBufferIdx ^ 1];
+  const curGlyphVAO = glyphVAOs[activeBufferIdx ^ 1];
+  if (bgCount > 0 && bgProgram && curBgVAO && curBgVBO) {
     gl.useProgram(bgProgram);
     gl.uniform2f(bgResolutionLoc, canvasWidth, canvasHeight);
     gl.uniform2f(bgCellSizeLoc, cellW, cellH);
@@ -680,12 +695,12 @@ function render(): void {
       gl.STREAM_DRAW,
     );
 
-    gl.bindVertexArray(bgVAO);
+    gl.bindVertexArray(curBgVAO);
     gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, bgCount);
   }
 
   // Glyph pass
-  if (glyphCount > 0 && glyphProgram && glyphVAO && curGlyphVBO) {
+  if (glyphCount > 0 && glyphProgram && curGlyphVAO && curGlyphVBO) {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
@@ -704,7 +719,7 @@ function render(): void {
       gl.STREAM_DRAW,
     );
 
-    gl.bindVertexArray(glyphVAO);
+    gl.bindVertexArray(curGlyphVAO);
     gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, glyphCount);
 
     gl.disable(gl.BLEND);
@@ -727,7 +742,7 @@ function render(): void {
 
 function drawSelection(): void {
   if (!gl || !grid || !selection) return;
-  if (!bgProgram || !bgVAO || !bgInstanceVBOs[0]) return;
+  if (!bgProgram || !bgVAOs[0] || !bgInstanceVBOs[0]) return;
 
   const sr = Math.max(0, selection.startRow);
   const er = Math.min(rows - 1, selection.endRow);
@@ -786,13 +801,13 @@ function drawSelection(): void {
     gl.STREAM_DRAW,
   );
 
-  gl.bindVertexArray(bgVAO);
+  gl.bindVertexArray(bgVAOs[0]);
   gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, selIdx);
 }
 
 function drawCursor(): void {
   if (!gl || !cursorVisible) return;
-  if (!bgProgram || !bgVAO || !bgInstanceVBOs[0]) return;
+  if (!bgProgram || !bgVAOs[0] || !bgInstanceVBOs[0]) return;
 
   const cc = themeCursorFloat;
 
@@ -830,7 +845,7 @@ function drawCursor(): void {
   gl.bindBuffer(gl.ARRAY_BUFFER, bgInstanceVBOs[0]);
   gl.bufferData(gl.ARRAY_BUFFER, cursorDataBuf, gl.STREAM_DRAW);
 
-  gl.bindVertexArray(bgVAO);
+  gl.bindVertexArray(bgVAOs[0]);
   gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, 1);
 }
 
@@ -892,8 +907,10 @@ function disposeResources(): void {
     if (bgInstanceVBOs[1]) gl.deleteBuffer(bgInstanceVBOs[1]);
     if (glyphInstanceVBOs[0]) gl.deleteBuffer(glyphInstanceVBOs[0]);
     if (glyphInstanceVBOs[1]) gl.deleteBuffer(glyphInstanceVBOs[1]);
-    if (bgVAO) gl.deleteVertexArray(bgVAO);
-    if (glyphVAO) gl.deleteVertexArray(glyphVAO);
+    if (bgVAOs[0]) gl.deleteVertexArray(bgVAOs[0]);
+    if (bgVAOs[1]) gl.deleteVertexArray(bgVAOs[1]);
+    if (glyphVAOs[0]) gl.deleteVertexArray(glyphVAOs[0]);
+    if (glyphVAOs[1]) gl.deleteVertexArray(glyphVAOs[1]);
   }
 
   canvas = null;

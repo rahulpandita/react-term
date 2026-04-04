@@ -529,6 +529,10 @@ export class WebTerminal {
     if (this.disposed) return;
     // Guard against bad values
     if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 1) return;
+    const MAX_COLS = 500;
+    const MAX_ROWS = 500;
+    cols = Math.min(cols, MAX_COLS);
+    rows = Math.min(rows, MAX_ROWS);
 
     const scrollback = this.bufferSet.maxScrollback;
     const oldBufferSet = this.bufferSet;
