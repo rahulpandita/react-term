@@ -206,7 +206,7 @@ export function vteScrollingFullscreen(): Scenario {
 
   for (let charIdx = 0; charIdx < 26; charIdx++) {
     const char = String.fromCharCode(65 + charIdx);
-    const line = encoder.encode(char.repeat(COLS) + "\n");
+    const line = encoder.encode(`${char.repeat(COLS)}\n`);
     chunks.push(line);
     total += line.length;
   }

@@ -76,8 +76,6 @@ export class WebLinksAddon implements ITerminalAddon {
   private terminal: WebTerminal | null = null;
   private handler: (url: string) => void;
   private links: LinkMatch[] = [];
-  private currentHoverLink: LinkMatch | null = null;
-
   private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
   private clickHandler: ((e: MouseEvent) => void) | null = null;
 
@@ -122,7 +120,6 @@ export class WebLinksAddon implements ITerminalAddon {
 
     this.terminal = null;
     this.links = [];
-    this.currentHoverLink = null;
     this.mouseMoveHandler = null;
     this.clickHandler = null;
   }
@@ -180,10 +177,8 @@ export class WebLinksAddon implements ITerminalAddon {
 
     if (link) {
       if (container) container.style.cursor = "pointer";
-      this.currentHoverLink = link;
     } else {
       if (container) container.style.cursor = "";
-      this.currentHoverLink = null;
     }
   }
 

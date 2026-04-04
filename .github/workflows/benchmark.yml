@@ -241,7 +241,94 @@ jobs:
               report += '\n</details>\n';
 
               report += `\n_Total results: ${jsonResults.length}_\n`;
-            } else {
+            }
+
+            // --- Multi-pane benchmarks ---
+            const mpJsonFiles = findJsonFiles(e2eDir).filter(f => f.includes('multi-pane'));
+            let mpResults = null;
+            if (mpJsonFiles.length > 0) {
+              try {
+                mpResults = JSON.parse(fs.readFileSync(mpJsonFiles[mpJsonFiles.length - 1], 'utf-8'));
+              } catch {}
+            }
+
+            if (mpResults && mpResults.length > 0) {
+              report += '\n## Multi-Pane Benchmark\n\n';
+              report += 'Measures main thread responsiveness under parallel terminal load.\n\n';
+
+              const mpGrouped = new Map();
+              for (const r of mpResults) {
+                const key = `${r.terminal}|${r.paneCount}`;
+                if (!mpGrouped.has(key)) mpGrouped.set(key, []);
+                mpGrouped.get(key).push(r);
+              }
+              const mpAvg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+              const mpBar = (val, maxVal) => {
+                const len = maxVal > 0 ? Math.round((val / maxVal) * maxBarLen) : 0;
+                return '█'.repeat(len) + '░'.repeat(maxBarLen - len);
+              };
+
+              // Aggregate data per config
+              const mpData = [];
+              for (const [key, runs] of mpGrouped) {
+                const [term, panes] = key.split('|');
+                mpData.push({
+                  label: `${term} (${panes}p)`,
+                  mbps: mpAvg(runs.map(r => r.metrics.throughputMBps)),
+                  fps: mpAvg(runs.map(r => r.metrics.avgFps)),
+                  stAvg: mpAvg(runs.map(r => r.responsiveness.avgSetTimeoutDelay)),
+                  stMax: mpAvg(runs.map(r => r.responsiveness.maxSetTimeoutDelay)),
+                  longTasks: mpAvg(runs.map(r => r.metrics.longTaskCount)),
+                });
+              }
+
+              // Throughput chart (higher is better)
+              const maxMbps = Math.max(...mpData.map(d => d.mbps));
+              report += '### Throughput — MB/s (higher is better)\n\n';
+              report += '| Config | Bar | MB/s |\n';
+              report += '|--------|-----|------|\n';
+              for (const d of mpData) {
+                report += `| ${d.label} | \`${mpBar(d.mbps, maxMbps)}\` | ${d.mbps.toFixed(1)} |\n`;
+              }
+
+              // FPS chart (higher is better)
+              const maxFps = Math.max(...mpData.map(d => d.fps));
+              report += '\n### Avg FPS (higher is better)\n\n';
+              report += '| Config | Bar | FPS |\n';
+              report += '|--------|-----|-----|\n';
+              for (const d of mpData) {
+                report += `| ${d.label} | \`${mpBar(d.fps, maxFps)}\` | ${d.fps.toFixed(1)} |\n`;
+              }
+
+              // setTimeout avg chart (lower is better — more responsive)
+              const maxStAvg = Math.max(...mpData.map(d => d.stAvg));
+              report += '\n### Main Thread Responsiveness — setTimeout avg ms (lower is better)\n\n';
+              report += '| Config | Bar | ms |\n';
+              report += '|--------|-----|----|\n';
+              for (const d of mpData) {
+                report += `| ${d.label} | \`${mpBar(d.stAvg, maxStAvg)}\` | ${d.stAvg.toFixed(2)} |\n`;
+              }
+
+              // setTimeout max chart (lower is better)
+              const maxStMax = Math.max(...mpData.map(d => d.stMax));
+              report += '\n### Worst-Case Blocking — setTimeout max ms (lower is better)\n\n';
+              report += '| Config | Bar | ms |\n';
+              report += '|--------|-----|----|\n';
+              for (const d of mpData) {
+                report += `| ${d.label} | \`${mpBar(d.stMax, maxStMax)}\` | ${d.stMax.toFixed(2)} |\n`;
+              }
+
+              report += `\n<details><summary>Raw multi-pane data</summary>\n\n`;
+              report += '| Terminal | Panes | MB/s | Avg FPS | setTimeout Avg (ms) | setTimeout Max (ms) | Long Tasks |\n';
+              report += '|----------|-------|------|---------|---------------------|---------------------|------------|\n';
+              for (const d of mpData) {
+                report += `| ${d.label} | - | ${d.mbps.toFixed(2)} | ${d.fps.toFixed(1)} | ${d.stAvg.toFixed(2)} | ${d.stMax.toFixed(2)} | ${d.longTasks.toFixed(1)} |\n`;
+              }
+              report += '\n</details>\n';
+              report += `\n_${mpResults.length} multi-pane results_\n`;
+            }
+
+            if (!jsonResults && !mpResults) {
               // Fall back to text output
               const e2eFile = path.join(e2eDir || '', 'e2e-bench-output.txt');
               if (fs.existsSync(e2eFile)) {

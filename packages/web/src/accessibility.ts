@@ -38,8 +38,6 @@ export class AccessibilityManager {
   private rowElements: HTMLElement[];
   private grid: CellGrid;
   private rows: number;
-  private cols: number;
-  private container: HTMLElement;
   private disposed = false;
 
   /** Throttle interval in milliseconds (10 Hz). */
@@ -48,11 +46,9 @@ export class AccessibilityManager {
   private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   private updateScheduled = false;
 
-  constructor(container: HTMLElement, grid: CellGrid, rows: number, cols: number) {
+  constructor(container: HTMLElement, grid: CellGrid, rows: number, _cols: number) {
     this.grid = grid;
     this.rows = rows;
-    this.cols = cols;
-    this.container = container;
 
     // Create the off-screen accessibility tree container.
     // It is positioned absolutely, transparent, and ignores pointer events
@@ -157,10 +153,9 @@ export class AccessibilityManager {
   /**
    * Replace the grid reference (e.g. after resize).
    */
-  setGrid(grid: CellGrid, rows: number, cols: number): void {
+  setGrid(grid: CellGrid, rows: number, _cols: number): void {
     this.grid = grid;
     this.rows = rows;
-    this.cols = cols;
 
     // Rebuild row elements if the count changed
     while (this.rowElements.length > rows) {

@@ -19,6 +19,7 @@ export interface BenchmarkMetrics {
   throughputMBps: number;
   serverSendMs: number;
   totalBytes: number;
+  estimatedRefreshHz: number;
 }
 
 export interface BenchmarkResult {
@@ -26,6 +27,29 @@ export interface BenchmarkResult {
   scenario: string;
   run: number;
   metrics: BenchmarkMetrics;
+  timestamp: number;
+}
+
+export interface MultiPaneConfig {
+  terminal: TerminalType;
+  scenario: string;
+  paneCount: number;
+  runs: number;
+}
+
+export interface MultiPaneResponsiveness {
+  avgSetTimeoutDelay: number;
+  maxSetTimeoutDelay: number;
+  samples: number;
+}
+
+export interface MultiPaneResult {
+  terminal: TerminalType;
+  scenario: string;
+  paneCount: number;
+  run: number;
+  metrics: BenchmarkMetrics;
+  responsiveness: MultiPaneResponsiveness;
   timestamp: number;
 }
 

@@ -1,28 +1,50 @@
+import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BenchmarkRunner } from "./components/BenchmarkRunner.js";
+import { MultiPaneBenchmarkRunner } from "./components/MultiPaneBenchmarkRunner.js";
 import { ResultsTable } from "./components/ResultsTable.js";
-import type { BenchmarkConfig, BenchmarkResult, TerminalType } from "./types.js";
+import type {
+  BenchmarkConfig,
+  BenchmarkResult,
+  MultiPaneConfig,
+  MultiPaneResult,
+  TerminalType,
+} from "./types.js";
 import { WS_URL } from "./types.js";
 
 const ALL_TERMINALS: TerminalType[] = ["react-term", "xterm", "ghostty"];
+
+type BenchMode = "single" | "multi-pane";
+
+const PANE_COUNTS = [2, 4, 6] as const;
 
 declare global {
   interface Window {
     __lastBenchmarkResult?: BenchmarkResult;
     __allBenchmarkResults?: BenchmarkResult[];
+    __lastMultiPaneResult?: MultiPaneResult;
+    __allMultiPaneResults?: MultiPaneResult[];
   }
 }
 
 export function App() {
+  const [mode, setMode] = useState<BenchMode>(() => {
+    const urlMode = new URLSearchParams(window.location.search).get("mode");
+    return urlMode === "multi-pane" ? "multi-pane" : "single";
+  });
   const [scenarios, setScenarios] = useState<string[]>([]);
   const [selectedTerminal, setSelectedTerminal] = useState<TerminalType | "all">("react-term");
   const [selectedScenario, setSelectedScenario] = useState<string | "all">("");
   const [runs, setRuns] = useState(5);
+  const [paneCount, setPaneCount] = useState<number>(2);
   const [status, setStatus] = useState<"idle" | "running" | "complete">("idle");
   const [progress, setProgress] = useState("");
   const [results, setResults] = useState<BenchmarkResult[]>([]);
+  const [multiPaneResults, setMultiPaneResults] = useState<MultiPaneResult[]>([]);
   const [config, setConfig] = useState<BenchmarkConfig | null>(null);
+  const [multiPaneConfig, setMultiPaneConfig] = useState<MultiPaneConfig | null>(null);
   const queueRef = useRef<BenchmarkConfig[]>([]);
+  const multiPaneQueueRef = useRef<MultiPaneConfig[]>([]);
   const queueIndexRef = useRef(0);
 
   // Fetch scenario list from server
@@ -55,6 +77,15 @@ export function App() {
     });
   }, []);
 
+  const handleMultiPaneResult = useCallback((result: MultiPaneResult) => {
+    window.__lastMultiPaneResult = result;
+    setMultiPaneResults((prev) => {
+      const next = [...prev, result];
+      window.__allMultiPaneResults = next;
+      return next;
+    });
+  }, []);
+
   const handleRunComplete = useCallback(() => {
     // Advance to next config in queue
     queueIndexRef.current++;
@@ -64,6 +95,17 @@ export function App() {
       setStatus("complete");
       setProgress("");
       setConfig(null);
+    }
+  }, []);
+
+  const handleMultiPaneRunComplete = useCallback(() => {
+    queueIndexRef.current++;
+    if (queueIndexRef.current < multiPaneQueueRef.current.length) {
+      setMultiPaneConfig(multiPaneQueueRef.current[queueIndexRef.current]);
+    } else {
+      setStatus("complete");
+      setProgress("");
+      setMultiPaneConfig(null);
     }
   }, []);
 
@@ -86,19 +128,83 @@ export function App() {
     setConfig(queue[0]);
   };
 
+  const startMultiPaneBenchmark = () => {
+    const terminals: TerminalType[] =
+      selectedTerminal === "all"
+        ? (["react-term", "xterm"] as TerminalType[])
+        : [selectedTerminal as TerminalType];
+    const scenarioNames = selectedScenario === "all" ? scenarios : [selectedScenario];
+
+    const queue: MultiPaneConfig[] = [];
+    for (const terminal of terminals) {
+      for (const scenario of scenarioNames) {
+        queue.push({ terminal, scenario, paneCount, runs });
+      }
+    }
+
+    multiPaneQueueRef.current = queue;
+    queueIndexRef.current = 0;
+    setMultiPaneResults([]);
+    setStatus("running");
+    setMultiPaneConfig(queue[0]);
+  };
+
   const exportJson = () => {
-    const blob = new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
+    const data = mode === "single" ? results : multiPaneResults;
+    const prefix = mode === "single" ? "benchmark" : "multi-pane-benchmark";
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `benchmark-${Date.now()}.json`;
+    a.download = `${prefix}-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
+  const currentResults = mode === "single" ? results : multiPaneResults;
+  const resultCount = currentResults.length;
+
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: 24 }}>
       <h1 style={{ fontSize: 24, marginBottom: 24 }}>E2E Terminal Benchmark</h1>
+
+      {/* Mode toggle */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <button
+          type="button"
+          onClick={() => setMode("single")}
+          disabled={status === "running"}
+          data-testid="mode-single"
+          style={{
+            padding: "6px 16px",
+            background: mode === "single" ? "#4CAF50" : "#2a2a3e",
+            color: "white",
+            border: "1px solid #444",
+            borderRadius: 4,
+            cursor: status === "running" ? "not-allowed" : "pointer",
+            fontSize: 13,
+          }}
+        >
+          Single Pane
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("multi-pane")}
+          disabled={status === "running"}
+          data-testid="mode-multi-pane"
+          style={{
+            padding: "6px 16px",
+            background: mode === "multi-pane" ? "#4CAF50" : "#2a2a3e",
+            color: "white",
+            border: "1px solid #444",
+            borderRadius: 4,
+            cursor: status === "running" ? "not-allowed" : "pointer",
+            fontSize: 13,
+          }}
+        >
+          Multi-Pane
+        </button>
+      </div>
 
       <div
         style={{
@@ -119,7 +225,7 @@ export function App() {
           >
             <option value="react-term">react-term</option>
             <option value="xterm">xterm</option>
-            <option value="ghostty">ghostty</option>
+            {mode === "single" && <option value="ghostty">ghostty</option>}
             <option value="all">All</option>
           </select>
         </label>
@@ -141,6 +247,25 @@ export function App() {
           </select>
         </label>
 
+        {mode === "multi-pane" && (
+          <label style={labelStyle}>
+            Panes
+            <select
+              value={paneCount}
+              onChange={(e) => setPaneCount(parseInt(e.target.value, 10))}
+              disabled={status === "running"}
+              style={selectStyle}
+              data-testid="pane-count"
+            >
+              {PANE_COUNTS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
         <label style={labelStyle}>
           Runs
           <input
@@ -156,7 +281,7 @@ export function App() {
 
         <button
           type="button"
-          onClick={startBenchmark}
+          onClick={mode === "single" ? startBenchmark : startMultiPaneBenchmark}
           disabled={status === "running" || scenarios.length === 0}
           style={{
             padding: "8px 20px",
@@ -171,7 +296,7 @@ export function App() {
           {status === "running" ? "Running..." : "Start Benchmark"}
         </button>
 
-        {results.length > 0 && (
+        {resultCount > 0 && (
           <button
             type="button"
             onClick={exportJson}
@@ -218,20 +343,100 @@ export function App() {
             fontSize: 14,
           }}
         >
-          Benchmark complete — {results.length} results
+          Benchmark complete — {resultCount} results
         </div>
       )}
 
       <div style={{ marginBottom: 24 }}>
-        <BenchmarkRunner
-          config={config}
-          onResult={handleResult}
-          onProgress={setProgress}
-          onComplete={handleRunComplete}
-        />
+        {mode === "single" ? (
+          <BenchmarkRunner
+            config={config}
+            onResult={handleResult}
+            onProgress={setProgress}
+            onComplete={handleRunComplete}
+          />
+        ) : (
+          <MultiPaneBenchmarkRunner
+            config={multiPaneConfig}
+            onResult={handleMultiPaneResult}
+            onProgress={setProgress}
+            onComplete={handleMultiPaneRunComplete}
+          />
+        )}
       </div>
 
-      <ResultsTable results={results} />
+      {mode === "single" && <ResultsTable results={results} />}
+      {mode === "multi-pane" && <MultiPaneResultsTable results={multiPaneResults} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MultiPaneResultsTable
+// ---------------------------------------------------------------------------
+
+function MultiPaneResultsTable({ results }: { results: MultiPaneResult[] }) {
+  if (results.length === 0) {
+    return <div style={{ color: "#666", padding: 16 }}>No multi-pane results yet.</div>;
+  }
+
+  const fmt = (n: number, d = 1) => n.toFixed(d);
+
+  const tdStyle: React.CSSProperties = {
+    padding: "6px 12px",
+    borderBottom: "1px solid #333",
+  };
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr style={{ background: "#2a2a3e" }}>
+            {[
+              "Terminal",
+              "Scenario",
+              "Panes",
+              "Run",
+              "Time (ms)",
+              "Avg FPS",
+              "MB/s",
+              "Long Tasks",
+              "LT Dur (ms)",
+              "setTimeout Avg",
+              "setTimeout Max",
+              "Samples",
+            ].map((h) => (
+              <th
+                key={h}
+                style={{ padding: "8px 12px", textAlign: "left", borderBottom: "1px solid #444" }}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {results.map((r, i) => (
+            <tr
+              key={`${r.terminal}-${r.scenario}-${r.paneCount}-${r.run}`}
+              style={{ background: i % 2 === 0 ? "#1e1e30" : "#22223a" }}
+            >
+              <td style={tdStyle}>{r.terminal}</td>
+              <td style={tdStyle}>{r.scenario}</td>
+              <td style={tdStyle}>{r.paneCount}</td>
+              <td style={tdStyle}>{r.run}</td>
+              <td style={tdStyle}>{fmt(r.metrics.totalTimeMs)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.avgFps)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.throughputMBps, 2)}</td>
+              <td style={tdStyle}>{r.metrics.longTaskCount}</td>
+              <td style={tdStyle}>{fmt(r.metrics.longTaskDurationMs)}</td>
+              <td style={tdStyle}>{fmt(r.responsiveness.avgSetTimeoutDelay, 2)}</td>
+              <td style={tdStyle}>{fmt(r.responsiveness.maxSetTimeoutDelay, 2)}</td>
+              <td style={tdStyle}>{r.responsiveness.samples}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

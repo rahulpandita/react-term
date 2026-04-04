@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { BenchmarkResult } from '../src/types.js';
+import { computeStats } from '../src/stats.js';
+import { groupBy, printTable } from './test-utils.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -15,7 +17,8 @@ const SCENARIOS = [
   'vte-dense-cells', 'vte-light-cells', 'vte-medium-cells', 'vte-cursor-motion',
   'vte-scrolling', 'vte-scrolling-fullscreen', 'vte-unicode',
 ] as const;
-const RUNS_PER_CONFIG = 3;
+const WARMUP_RUNS = 2;
+const MEASURED_RUNS = 10;
 
 test('e2e benchmark matrix', async ({ page }) => {
   const allResults: BenchmarkResult[] = [];
@@ -40,7 +43,7 @@ test('e2e benchmark matrix', async ({ page }) => {
       await page.selectOption('select >> nth=1', scenario);
 
       // Set runs
-      await page.fill('input[type="number"]', String(RUNS_PER_CONFIG));
+      await page.fill('input[type="number"]', String(WARMUP_RUNS + MEASURED_RUNS));
 
       // Click start
       await page.click('button:has-text("Start Benchmark")');
@@ -65,73 +68,71 @@ test('e2e benchmark matrix', async ({ page }) => {
   fs.writeFileSync(outPath, JSON.stringify(allResults, null, 2));
 
   // Group results by terminal+scenario
-  const grouped = new Map<string, BenchmarkResult[]>();
-  for (const r of allResults) {
-    const key = `${r.terminal}|${r.scenario}`;
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key)!.push(r);
+  const grouped = groupBy(allResults, r => `${r.terminal}|${r.scenario}`);
+
+  // Discard warmup runs per terminal+scenario group
+  for (const [key, runs] of grouped) {
+    if (runs.length > WARMUP_RUNS) {
+      grouped.set(key, runs.slice(WARMUP_RUNS));
+    }
   }
 
-  // Compute averages per terminal+scenario
-  const avg = (runs: BenchmarkResult[], fn: (r: BenchmarkResult) => number) =>
-    runs.reduce((s, r) => s + fn(r), 0) / runs.length;
-
   // --- Detailed results table ---
-  const detailCols = ['Terminal', 'Scenario', 'Avg Time (ms)', 'Avg FPS', 'MB/s', 'Runs'];
+  const detailCols = ['Terminal', 'Scenario', 'Median (ms)', 'Mean (ms)', 'Stddev', 'CV%', 'MB/s (med)', 'Stable', 'Runs'];
   const detailRows: string[][] = [];
+  let stableCount = 0;
+  let totalConfigs = 0;
+
   for (const [key, runs] of grouped) {
     const [term, scen] = key.split('|');
+    const timeStats = computeStats(runs.map(r => r.metrics.totalTimeMs));
+    const throughputStats = computeStats(runs.map(r => r.metrics.throughputMBps));
+    totalConfigs++;
+    if (timeStats.stable) stableCount++;
+
     detailRows.push([
       term,
       scen,
-      avg(runs, r => r.metrics.totalTimeMs).toFixed(1),
-      avg(runs, r => r.metrics.avgFps).toFixed(1),
-      avg(runs, r => r.metrics.throughputMBps).toFixed(2),
-      String(runs.length),
+      timeStats.median.toFixed(1),
+      timeStats.mean.toFixed(1),
+      timeStats.stddev.toFixed(1),
+      (timeStats.cv * 100).toFixed(1) + '%',
+      throughputStats.median.toFixed(2),
+      timeStats.stable ? '✓' : '✗',
+      `${timeStats.filtered.length}/${runs.length}`,
     ]);
   }
 
   // --- Comparison table ---
-  const byScenario = new Map<string, { rt: number; xt: number }>();
+  const byScenario = new Map<string, { rt: number; xt: number; rtStable: boolean; xtStable: boolean }>();
   for (const [key, runs] of grouped) {
     const [terminal, scenario] = key.split('|');
-    const mbps = avg(runs, r => r.metrics.throughputMBps);
-    if (!byScenario.has(scenario)) byScenario.set(scenario, { rt: 0, xt: 0 });
+    const throughputStats = computeStats(runs.map(r => r.metrics.throughputMBps));
+    const timeStats = computeStats(runs.map(r => r.metrics.totalTimeMs));
+    const medianMbps = throughputStats.median;
+    if (!byScenario.has(scenario)) byScenario.set(scenario, { rt: 0, xt: 0, rtStable: false, xtStable: false });
     const entry = byScenario.get(scenario)!;
-    if (terminal === 'react-term') entry.rt = mbps;
-    else entry.xt = mbps;
-  }
-
-  const compCols = ['Scenario', 'react-term (MB/s)', 'xterm (MB/s)', 'Speedup'];
-  const compRows: string[][] = [];
-  for (const [scenario, { rt, xt }] of byScenario) {
-    const speedup = xt > 0 ? `${(rt / xt).toFixed(1)}x` : '-';
-    compRows.push([scenario, rt.toFixed(2), xt.toFixed(2), speedup]);
-  }
-
-  // --- Box-drawing table printer ---
-  function printTable(title: string, cols: string[], rows: string[][]) {
-    const widths = cols.map((c, i) =>
-      Math.max(c.length, ...rows.map(r => r[i].length))
-    );
-    const pad = (s: string, w: number) => s + ' '.repeat(w - s.length);
-    const line = (left: string, mid: string, right: string, fill: string) =>
-      left + widths.map(w => fill.repeat(w + 2)).join(mid) + right;
-
-    console.log(`\n${title}`);
-    console.log(line('┌', '┬', '┐', '─'));
-    console.log('│ ' + cols.map((c, i) => pad(c, widths[i])).join(' │ ') + ' │');
-    console.log(line('├', '┼', '┤', '─'));
-    for (let r = 0; r < rows.length; r++) {
-      console.log('│ ' + rows[r].map((c, i) => pad(c, widths[i])).join(' │ ') + ' │');
-      if (r < rows.length - 1) console.log(line('├', '┼', '┤', '─'));
+    if (terminal === 'react-term') {
+      entry.rt = medianMbps;
+      entry.rtStable = timeStats.stable;
+    } else {
+      entry.xt = medianMbps;
+      entry.xtStable = timeStats.stable;
     }
-    console.log(line('└', '┴', '┘', '─'));
+  }
+
+  const compCols = ['Scenario', 'react-term (MB/s)', 'xterm (MB/s)', 'Speedup', 'Stable'];
+  const compRows: string[][] = [];
+  for (const [scenario, { rt, xt, rtStable, xtStable }] of byScenario) {
+    const speedup = xt > 0 ? `${(rt / xt).toFixed(1)}x` : '-';
+    const stable = rtStable && xtStable ? '✓' : '✗';
+    compRows.push([scenario, rt.toFixed(2), xt.toFixed(2), speedup, stable]);
   }
 
   printTable('=== Benchmark Results ===', detailCols, detailRows);
   printTable('=== Throughput Comparison ===', compCols, compRows);
 
+  console.log(`\n${stableCount} of ${totalConfigs} configs had stable results (CV < 10%)`);
   console.log(`\nWrote ${allResults.length} results to ${outPath}`);
   expect(allResults.length).toBeGreaterThan(0);
 });

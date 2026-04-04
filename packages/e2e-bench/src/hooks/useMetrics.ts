@@ -16,6 +16,8 @@ interface MetricsState {
   totalBytes: number;
   serverSendMs: number;
   resolveIdle: ((metrics: BenchmarkMetrics) => void) | null;
+  frameTimestamps: number[]; // for refresh rate detection
+  estimatedRefreshHz: number;
 }
 
 const IDLE_FRAME_THRESHOLD = 3; // 3 frames with no write activity = idle
@@ -53,6 +55,8 @@ export function useMetrics() {
     totalBytes: 0,
     serverSendMs: 0,
     resolveIdle: null,
+    frameTimestamps: [],
+    estimatedRefreshHz: 60,
   });
 
   const startTracking = useCallback(async (): Promise<void> => {
@@ -69,6 +73,8 @@ export function useMetrics() {
     s.totalBytes = 0;
     s.serverSendMs = 0;
     s.resolveIdle = null;
+    s.frameTimestamps = [];
+    s.estimatedRefreshHz = 60;
 
     // Long task observer
     try {
@@ -94,8 +100,24 @@ export function useMetrics() {
         if (!s.active) return;
         s.frameCount++;
 
+        // Track frame timestamps for refresh rate estimation
+        const now = performance.now();
+        if (s.frameTimestamps.length < 10) {
+          s.frameTimestamps.push(now);
+          if (s.frameTimestamps.length === 10) {
+            const intervals: number[] = [];
+            for (let i = 1; i < s.frameTimestamps.length; i++) {
+              intervals.push(s.frameTimestamps[i] - s.frameTimestamps[i - 1]);
+            }
+            const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+            if (avgInterval > 0) {
+              s.estimatedRefreshHz = 1000 / avgInterval;
+            }
+          }
+        }
+
         // Check for idle: if enough time since last write and we've received done signal
-        const timeSinceWrite = performance.now() - s.lastWriteTime;
+        const timeSinceWrite = now - s.lastWriteTime;
         if (s.serverSendMs > 0 && timeSinceWrite > IDLE_WRITE_GAP_MS) {
           s.idleFrameCount++;
           if (s.idleFrameCount >= IDLE_FRAME_THRESHOLD && s.resolveIdle) {
@@ -177,7 +199,7 @@ async function settle(s: MetricsState): Promise<BenchmarkMetrics> {
 function buildMetrics(s: MetricsState, memoryAfter: number | null): BenchmarkMetrics {
   const totalTimeMs = performance.now() - s.startTime;
   const elapsedSec = totalTimeMs / 1000;
-  const expectedFrames = Math.floor(elapsedSec * 60);
+  const expectedFrames = Math.floor(elapsedSec * s.estimatedRefreshHz);
 
   return {
     totalTimeMs,
@@ -190,5 +212,6 @@ function buildMetrics(s: MetricsState, memoryAfter: number | null): BenchmarkMet
     throughputMBps: totalTimeMs > 0 ? ((s.totalBytes / totalTimeMs) * 1000) / 1e6 : 0,
     serverSendMs: s.serverSendMs,
     totalBytes: s.totalBytes,
+    estimatedRefreshHz: s.estimatedRefreshHz,
   };
 }

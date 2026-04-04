@@ -106,6 +106,7 @@ export class Canvas2DRenderer implements IRenderer {
 
   private cellWidth = 0;
   private cellHeight = 0;
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: read via destructuring in render()
   private baselineOffset = 0;
 
   private fontSize: number;
