@@ -181,9 +181,13 @@ async function settle(s: MetricsState): Promise<BenchmarkMetrics> {
   return metrics;
 }
 
-function computeFrameTimeStats(frameTimes: number[]): { p50: number; p99: number } {
+function computeFrameTimeStats(frameTimes: number[]): {
+  p50: number;
+  p90: number;
+  p99: number;
+} {
   if (frameTimes.length < 2) {
-    return { p50: 0, p99: 0 };
+    return { p50: 0, p90: 0, p99: 0 };
   }
 
   const deltas: number[] = [];
@@ -192,9 +196,10 @@ function computeFrameTimeStats(frameTimes: number[]): { p50: number; p99: number
   }
 
   const sorted = [...deltas].sort((a, b) => a - b);
+  const p90 = sorted[Math.min(Math.floor(sorted.length * 0.9), sorted.length - 1)];
   const p99 = sorted[Math.min(Math.floor(sorted.length * 0.99), sorted.length - 1)];
 
-  return { p50: medianOf(sorted), p99 };
+  return { p50: medianOf(sorted), p90, p99 };
 }
 
 function buildMetrics(s: MetricsState, memoryAfter: number | null): BenchmarkMetrics {
@@ -206,6 +211,7 @@ function buildMetrics(s: MetricsState, memoryAfter: number | null): BenchmarkMet
   return {
     totalTimeMs,
     frameTimeP50: frameStats.p50,
+    frameTimeP90: frameStats.p90,
     frameTimeP99: frameStats.p99,
     timeToIdleMs,
     longTaskCount: s.longTaskCount,

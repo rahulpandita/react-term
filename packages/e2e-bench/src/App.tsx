@@ -400,6 +400,7 @@ function MultiPaneResultsTable({ results }: { results: MultiPaneResult[] }) {
               "Time (ms)",
               "MB/s",
               "Frame p50",
+              "Frame p90",
               "Frame p99",
               "Idle (ms)",
               "setTimeout Avg",
@@ -427,6 +428,7 @@ function MultiPaneResultsTable({ results }: { results: MultiPaneResult[] }) {
               <td style={tdStyle}>{fmt(r.metrics.totalTimeMs)}</td>
               <td style={tdStyle}>{fmt(r.metrics.throughputMBps, 2)}</td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP50)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.frameTimeP90)}</td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP99)}</td>
               <td style={tdStyle}>{fmt(r.metrics.timeToIdleMs)}</td>
               <td style={tdStyle}>{fmt(r.responsiveness.avgSetTimeoutDelay, 2)}</td>

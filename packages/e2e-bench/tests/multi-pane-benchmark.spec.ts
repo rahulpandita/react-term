@@ -62,7 +62,7 @@ test('multi-pane benchmark matrix', async ({ page }) => {
 
   // --- Comparison table (using median from computeStats) ---
   const compCols = [
-    'Terminal', 'Panes', 'MB/s', 'Frame p50 (ms)', 'Frame p99 (ms)',
+    'Terminal', 'Panes', 'MB/s', 'Frame p50 (ms)', 'Frame p90 (ms)', 'Frame p99 (ms)',
     'Idle (ms)', 'setTimeout Avg', 'setTimeout Max',
   ];
   const compRows: string[][] = [];
@@ -73,6 +73,7 @@ test('multi-pane benchmark matrix', async ({ page }) => {
       panes,
       computeStats(runs.map(r => r.metrics.throughputMBps)).median.toFixed(2),
       computeStats(runs.map(r => r.metrics.frameTimeP50)).median.toFixed(1),
+      computeStats(runs.map(r => r.metrics.frameTimeP90)).median.toFixed(1),
       computeStats(runs.map(r => r.metrics.frameTimeP99)).median.toFixed(1),
       computeStats(runs.map(r => r.metrics.timeToIdleMs)).median.toFixed(1),
       computeStats(runs.map(r => r.responsiveness.avgSetTimeoutDelay)).median.toFixed(2),
@@ -85,7 +86,7 @@ test('multi-pane benchmark matrix', async ({ page }) => {
   // --- Detailed per-run table ---
   const detailCols = [
     'Terminal', 'Panes', 'Run', 'Time (ms)', 'MB/s',
-    'Frame p50', 'Frame p99', 'Idle (ms)', 'setTimeout Avg', 'setTimeout Max',
+    'Frame p50', 'Frame p90', 'Frame p99', 'Idle (ms)', 'setTimeout Avg', 'setTimeout Max',
   ];
   const detailRows: string[][] = [];
   for (const r of allResults) {
@@ -96,6 +97,7 @@ test('multi-pane benchmark matrix', async ({ page }) => {
       r.metrics.totalTimeMs.toFixed(1),
       r.metrics.throughputMBps.toFixed(2),
       r.metrics.frameTimeP50.toFixed(1),
+      r.metrics.frameTimeP90.toFixed(1),
       r.metrics.frameTimeP99.toFixed(1),
       r.metrics.timeToIdleMs.toFixed(1),
       r.responsiveness.avgSetTimeoutDelay.toFixed(2),

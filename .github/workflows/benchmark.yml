@@ -269,10 +269,11 @@ jobs:
               for (const r of jsonResults) {
                 if (!byScenario.has(r.scenario)) byScenario.set(r.scenario, {});
                 const entry = byScenario.get(r.scenario);
-                if (!entry[r.terminal]) entry[r.terminal] = { mbps: [], frameP50: [], frameP99: [], idle: [] };
+                if (!entry[r.terminal]) entry[r.terminal] = { mbps: [], frameP50: [], frameP90: [], frameP99: [], idle: [] };
                 const t = entry[r.terminal];
                 t.mbps.push(r.metrics.throughputMBps);
                 t.frameP50.push(r.metrics.frameTimeP50);
+                t.frameP90.push(r.metrics.frameTimeP90);
                 t.frameP99.push(r.metrics.frameTimeP99);
                 t.idle.push(r.metrics.timeToIdleMs);
               }
@@ -308,6 +309,9 @@ jobs:
 
               report += '### Frame Time p50 — ms (lower is smoother)\n\n';
               report += buildTable('Frame p50', 'ms', t => avg(t.frameP50)) + '\n';
+
+              report += '### Frame Time p90 — ms (lower = less jank)\n\n';
+              report += buildTable('Frame p90', 'ms', t => avg(t.frameP90)) + '\n';
 
               report += '### Frame Time p99 — ms (lower = less jank)\n\n';
               report += buildTable('Frame p99', 'ms', t => avg(t.frameP99)) + '\n';
@@ -367,6 +371,7 @@ jobs:
                 byPane[panes][term] = {
                   mbps: mpAvg(runs.map(r => r.metrics.throughputMBps)),
                   frameP50: mpAvg(runs.map(r => r.metrics.frameTimeP50)),
+                  frameP90: mpAvg(runs.map(r => r.metrics.frameTimeP90)),
                   frameP99: mpAvg(runs.map(r => r.metrics.frameTimeP99)),
                   idle: mpAvg(runs.map(r => r.metrics.timeToIdleMs)),
                   stAvg: mpAvg(runs.map(r => r.responsiveness.avgSetTimeoutDelay)),
@@ -394,6 +399,8 @@ jobs:
               report += mpTable('MB/s', d => d.mbps) + '\n';
               report += '**Frame Time p50 — ms (lower is smoother)**\n\n';
               report += mpTable('ms', d => d.frameP50) + '\n';
+              report += '**Frame Time p90 — ms (lower = less jank)**\n\n';
+              report += mpTable('ms', d => d.frameP90) + '\n';
               report += '**Frame Time p99 — ms (lower = less jank)**\n\n';
               report += mpTable('ms', d => d.frameP99) + '\n';
               report += '**Time to Idle — ms (lower is better)**\n\n';

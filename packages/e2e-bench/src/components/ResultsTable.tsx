@@ -77,6 +77,7 @@ export const ResultsTable = memo(function ResultsTable({ results }: Props) {
             {th("Run", "run")}
             {th("Time (ms)", "totalTimeMs")}
             {th("Frame p50", "frameTimeP50")}
+            {th("Frame p90", "frameTimeP90")}
             {th("Frame p99", "frameTimeP99")}
             {th("Idle (ms)", "timeToIdleMs")}
             {th("Long Tasks", "longTaskCount")}
@@ -97,6 +98,7 @@ export const ResultsTable = memo(function ResultsTable({ results }: Props) {
               <td style={tdStyle}>{r.run}</td>
               <td style={tdStyle}>{fmt(r.metrics.totalTimeMs)}</td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP50)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.frameTimeP90)}</td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP99)}</td>
               <td style={tdStyle}>{fmt(r.metrics.timeToIdleMs)}</td>
               <td style={tdStyle}>{r.metrics.longTaskCount}</td>
