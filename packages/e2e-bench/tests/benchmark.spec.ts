@@ -8,17 +8,20 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const TERMINALS = ['react-term', 'xterm'] as const;
-// Subset of scenarios for automated benchmarks (the heavy-hitters)
+const ALL_TERMINALS = ['react-term', 'xterm'] as const;
+// Allow CI to run a single terminal via env var for parallel jobs
+const TERMINAL_FILTER = process.env.BENCH_TERMINAL;
+const TERMINALS = TERMINAL_FILTER
+  ? ALL_TERMINALS.filter(t => t === TERMINAL_FILTER)
+  : ALL_TERMINALS;
+
 const SCENARIOS = [
-  // Original scenarios
   'ascii', 'real-world', 'sgr-color', 'scrolling', 'cursor-motion', 'unicode',
-  // vtebench scenarios (alacritty/vtebench standard)
   'vte-dense-cells', 'vte-light-cells', 'vte-medium-cells', 'vte-cursor-motion',
   'vte-scrolling', 'vte-scrolling-fullscreen', 'vte-unicode',
 ] as const;
 const WARMUP_RUNS = 2;
-const MEASURED_RUNS = 10;
+const MEASURED_RUNS = 15;
 
 test('e2e benchmark matrix', async ({ page }) => {
   const allResults: BenchmarkResult[] = [];

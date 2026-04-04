@@ -35,9 +35,10 @@ jobs:
           name: parser-bench-results
           path: parser-bench-output.txt
 
-  e2e-bench:
-    name: E2E Benchmark
+  e2e-react-term:
+    name: E2E — react-term
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v5
@@ -50,13 +51,71 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install Playwright Chromium
         run: pnpm --filter @next_term/e2e-bench exec playwright install chromium --with-deps
-      - name: Run E2E benchmarks
-        run: pnpm --filter @next_term/e2e-bench bench 2>&1 | tee e2e-bench-output.txt
-      - name: Upload E2E results JSON
+      - name: Run react-term benchmarks
+        run: pnpm --filter @next_term/e2e-bench bench -- --grep "e2e benchmark" 2>&1 | tee e2e-bench-output.txt
+        env:
+          BENCH_TERMINAL: react-term
+      - name: Upload results
         uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: e2e-bench-results
+          name: e2e-react-term-results
+          path: |
+            packages/e2e-bench/results/*.json
+            e2e-bench-output.txt
+
+  e2e-xterm:
+    name: E2E — xterm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm --filter @next_term/e2e-bench exec playwright install chromium --with-deps
+      - name: Run xterm benchmarks
+        run: pnpm --filter @next_term/e2e-bench bench -- --grep "e2e benchmark" 2>&1 | tee e2e-bench-output.txt
+        env:
+          BENCH_TERMINAL: xterm
+      - name: Upload results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-xterm-results
+          path: |
+            packages/e2e-bench/results/*.json
+            e2e-bench-output.txt
+
+  e2e-multi-pane:
+    name: E2E — multi-pane
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm --filter @next_term/e2e-bench exec playwright install chromium --with-deps
+      - name: Run multi-pane benchmarks
+        run: pnpm --filter @next_term/e2e-bench bench -- --grep "multi-pane" 2>&1 | tee e2e-bench-output.txt
+      - name: Upload results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-multi-pane-results
           path: |
             packages/e2e-bench/results/*.json
             e2e-bench-output.txt
@@ -64,7 +123,7 @@ jobs:
   report:
     name: Benchmark Report
     runs-on: ubuntu-latest
-    needs: [parser-bench, e2e-bench]
+    needs: [parser-bench, e2e-react-term, e2e-xterm, e2e-multi-pane]
     if: always()
     steps:
       - uses: actions/download-artifact@v8
@@ -156,9 +215,6 @@ jobs:
             // --- E2E benchmarks ---
             report += '## E2E Benchmarks (Playwright)\n\n';
 
-            // Try to find and parse the JSON results (artifact preserves directory structure)
-            const e2eDir = path.join('artifacts', 'e2e-bench-results');
-            let jsonResults = null;
             function findJsonFiles(dir) {
               let results = [];
               if (!fs.existsSync(dir)) return results;
@@ -169,12 +225,16 @@ jobs:
               }
               return results;
             }
-            const jsonFiles = findJsonFiles(e2eDir);
-            if (jsonFiles.length > 0) {
-              try {
-                jsonResults = JSON.parse(fs.readFileSync(jsonFiles[jsonFiles.length - 1], 'utf-8'));
-              } catch {}
+
+            // Merge single-pane results from both terminal jobs
+            let jsonResults = [];
+            for (const artifactName of ['e2e-react-term-results', 'e2e-xterm-results']) {
+              const dir = path.join('artifacts', artifactName);
+              for (const f of findJsonFiles(dir).filter(f => !f.includes('multi-pane'))) {
+                try { jsonResults.push(...JSON.parse(fs.readFileSync(f, 'utf-8'))); } catch {}
+              }
             }
+            if (jsonResults.length === 0) jsonResults = null;
 
             if (jsonResults && jsonResults.length > 0) {
               // Aggregate per scenario
@@ -244,7 +304,8 @@ jobs:
             }
 
             // --- Multi-pane benchmarks ---
-            const mpJsonFiles = findJsonFiles(e2eDir).filter(f => f.includes('multi-pane'));
+            const mpDir = path.join('artifacts', 'e2e-multi-pane-results');
+            const mpJsonFiles = findJsonFiles(mpDir).filter(f => f.includes('multi-pane'));
             let mpResults = null;
             if (mpJsonFiles.length > 0) {
               try {
@@ -330,14 +391,7 @@ jobs:
             }
 
             if (!jsonResults && !mpResults) {
-              // Fall back to text output
-              const e2eFile = path.join(e2eDir || '', 'e2e-bench-output.txt');
-              if (fs.existsSync(e2eFile)) {
-                const e2eOutput = fs.readFileSync(e2eFile, 'utf-8');
-                report += '```\n' + e2eOutput.slice(-3000) + '\n```\n';
-              } else {
-                report += '_E2E benchmark results not available._\n';
-              }
+              report += '_E2E benchmark results not available._\n';
             }
 
             report += '\n---\n_Generated by benchmark workflow on ' + new Date().toISOString().split('T')[0] + '_\n';
