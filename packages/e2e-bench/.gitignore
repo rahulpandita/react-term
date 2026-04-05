@@ -1,4 +1,7 @@
 dist/
 results/*.json
+results/*.svg
+results/*.png
+results/*.pdf
 test-results/
 playwright-report/
