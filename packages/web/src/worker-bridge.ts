@@ -165,10 +165,14 @@ export class WorkerBridge {
     // (common case: WebSocket ArrayBuffer or freshly-encoded data).
     // Otherwise copy into a new buffer to avoid detaching shared memory.
     let buf: ArrayBuffer;
-    if (data.byteOffset === 0 && data.byteLength === data.buffer.byteLength) {
+    if (
+      data.byteOffset === 0 &&
+      data.byteLength === data.buffer.byteLength &&
+      data.buffer instanceof ArrayBuffer
+    ) {
       buf = data.buffer;
     } else {
-      buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
     }
 
     this.pendingBytes += data.byteLength;
