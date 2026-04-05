@@ -16,7 +16,9 @@ export function RenderTestPage() {
   const termRef = useRef<TerminalHandle>(null);
   const paneRef = useRef<TerminalPaneHandle>(null);
 
-  // Expose refs for Playwright after React renders
+  // Expose refs for Playwright after React renders.
+  // Re-run when mode changes so refs point to the newly mounted terminal.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refs update when mode changes the rendered tree
   useEffect(() => {
     window.__termRef = termRef.current;
     window.__paneRef = paneRef.current;
@@ -26,7 +28,7 @@ export function RenderTestPage() {
       window.__paneRef = null;
       window.__renderTestReady = false;
     };
-  });
+  }, [mode]);
 
   return (
     <div style={{ padding: 16 }}>

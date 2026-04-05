@@ -82,7 +82,7 @@ function PaneLeaf({
   // Sync viewport position with shared context via ResizeObserver
   useEffect(() => {
     if (!sharedContext || !containerRef.current) return;
-    const observer = new ResizeObserver(() => {
+    const syncViewport = () => {
       const el = containerRef.current;
       const parent = sharedContext.getCanvas().parentElement;
       if (!el || !parent) return;
@@ -95,7 +95,10 @@ function PaneLeaf({
         elRect.width,
         elRect.height,
       );
-    });
+    };
+    // Measure once on mount so panes that are already laid out get a viewport
+    syncViewport();
+    const observer = new ResizeObserver(syncViewport);
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, [id, sharedContext]);

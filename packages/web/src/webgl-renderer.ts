@@ -479,6 +479,9 @@ export class WebGLRenderer implements IRenderer {
   private bgInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
   private glyphInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
   private activeBufferIdx = 0;
+  // Dedicated overlay VBO for cursor/selection/highlights so we don't
+  // overwrite the active bg VBO and neutralize double-buffering.
+  private overlayVBO: WebGLBuffer | null = null;
   private bgVAO: WebGLVertexArrayObject | null = null;
   private glyphVAO: WebGLVertexArrayObject | null = null;
 
@@ -747,15 +750,9 @@ export class WebGLRenderer implements IRenderer {
 
     this.hasRenderedOnce = true;
 
-    // Recompute total glyph count (sum of all row glyph counts)
-    let _totalGlyphs = 0;
-    for (let r = 0; r < rows; r++) {
-      _totalGlyphs += this.rowGlyphCounts[r];
-    }
-    // The total bg count is always rows * cols
+    // Both bg and glyph instance arrays are sized for rows * cols slots;
+    // data is packed per-row at fixed offsets so we always upload the full region.
     this.bgCount = rows * cols;
-    // For glyphs, we upload the full pre-allocated region (rows * cols slots)
-    // since data is packed per-row at fixed offsets
     this.glyphCount = rows * cols;
 
     // Upload atlas if dirty
@@ -922,6 +919,7 @@ export class WebGLRenderer implements IRenderer {
       if (this.bgInstanceVBOs[1]) gl.deleteBuffer(this.bgInstanceVBOs[1]);
       if (this.glyphInstanceVBOs[0]) gl.deleteBuffer(this.glyphInstanceVBOs[0]);
       if (this.glyphInstanceVBOs[1]) gl.deleteBuffer(this.glyphInstanceVBOs[1]);
+      if (this.overlayVBO) gl.deleteBuffer(this.overlayVBO);
       if (this.bgVAO) gl.deleteVertexArray(this.bgVAO);
       if (this.glyphVAO) gl.deleteVertexArray(this.glyphVAO);
     }
@@ -989,6 +987,8 @@ export class WebGLRenderer implements IRenderer {
     // Double-buffered instance VBOs
     this.bgInstanceVBOs = [gl.createBuffer(), gl.createBuffer()];
     this.glyphInstanceVBOs = [gl.createBuffer(), gl.createBuffer()];
+    // Dedicated overlay VBO for cursor/selection/highlights
+    this.overlayVBO = gl.createBuffer();
 
     // Set up background VAO (quad + EBO only; instance buffer bound per-frame)
     this.bgVAO = gl.createVertexArray();
@@ -1135,8 +1135,7 @@ export class WebGLRenderer implements IRenderer {
     if (!this.gl || !this.highlights.length) return;
 
     const gl = this.gl;
-    const activeBgVBO = this.bgInstanceVBOs[this.activeBufferIdx];
-    if (!this.bgProgram || !this.bgVAO || !activeBgVBO) return;
+    if (!this.bgProgram || !this.bgVAO || !this.overlayVBO) return;
 
     // Pack into pre-allocated hlBuffer, growing only if needed
     let hlIdx = 0;
@@ -1172,7 +1171,7 @@ export class WebGLRenderer implements IRenderer {
     gl.uniform2f(this.bgResolutionLoc, this.canvas?.width ?? 0, this.canvas?.height ?? 0);
     gl.uniform2f(this.bgCellSizeLoc, this.cellWidth * this.dpr, this.cellHeight * this.dpr);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, activeBgVBO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.overlayVBO);
     gl.bufferData(
       gl.ARRAY_BUFFER,
       this.hlBuffer.subarray(0, hlIdx * BG_INSTANCE_FLOATS),
@@ -1180,7 +1179,7 @@ export class WebGLRenderer implements IRenderer {
     );
 
     gl.bindVertexArray(this.bgVAO);
-    this.rebindBgInstanceAttribs(gl, activeBgVBO);
+    this.rebindBgInstanceAttribs(gl, this.overlayVBO);
     gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, hlIdx);
   }
 
@@ -1197,8 +1196,7 @@ export class WebGLRenderer implements IRenderer {
     // Skip if selection is empty (same cell)
     if (sr === er && sel.startCol === sel.endCol) return;
 
-    const activeBgVBO = this.bgInstanceVBOs[this.activeBufferIdx];
-    if (!this.bgProgram || !this.bgVAO || !activeBgVBO) return;
+    if (!this.bgProgram || !this.bgVAO || !this.overlayVBO) return;
 
     // Parse the selection background color
     const selColor = hexToFloat4(this.theme.selectionBackground);
@@ -1250,7 +1248,7 @@ export class WebGLRenderer implements IRenderer {
     gl.uniform2f(this.bgResolutionLoc, this.canvas?.width ?? 0, this.canvas?.height ?? 0);
     gl.uniform2f(this.bgCellSizeLoc, this.cellWidth * this.dpr, this.cellHeight * this.dpr);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, activeBgVBO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.overlayVBO);
     gl.bufferData(
       gl.ARRAY_BUFFER,
       this.selBuffer.subarray(0, selIdx * BG_INSTANCE_FLOATS),
@@ -1258,7 +1256,7 @@ export class WebGLRenderer implements IRenderer {
     );
 
     gl.bindVertexArray(this.bgVAO);
-    this.rebindBgInstanceAttribs(gl, activeBgVBO);
+    this.rebindBgInstanceAttribs(gl, this.overlayVBO);
     gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, selIdx);
   }
 
@@ -1272,8 +1270,7 @@ export class WebGLRenderer implements IRenderer {
     const cc = this.themeCursorFloat;
 
     // Use the bg program to draw a simple colored rect for the cursor
-    const activeBgVBO = this.bgInstanceVBOs[this.activeBufferIdx];
-    if (!this.bgProgram || !this.bgVAO || !activeBgVBO) return;
+    if (!this.bgProgram || !this.bgVAO || !this.overlayVBO) return;
 
     // BLEND already enabled by caller
     gl.useProgram(this.bgProgram);
@@ -1326,11 +1323,11 @@ export class WebGLRenderer implements IRenderer {
         this.cursorData[5] = 0.5;
     }
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, activeBgVBO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.overlayVBO);
     gl.bufferData(gl.ARRAY_BUFFER, this.cursorData, gl.STREAM_DRAW);
 
     gl.bindVertexArray(this.bgVAO);
-    this.rebindBgInstanceAttribs(gl, activeBgVBO);
+    this.rebindBgInstanceAttribs(gl, this.overlayVBO);
     gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, 1);
   }
 
