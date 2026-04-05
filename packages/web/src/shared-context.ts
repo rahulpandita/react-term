@@ -3,8 +3,9 @@
  * multiple terminal panes.
  *
  * Chrome limits WebGL contexts to 16 per page. This class allows any number
- * of terminal panes to render through one context by using `gl.viewport` and
- * `gl.scissor` to partition the canvas into regions.
+ * of terminal panes to render through one context using **batched rendering**:
+ * all terminals' instance data is packed into a single buffer with per-instance
+ * viewport offsets, then uploaded and drawn in one call per pass.
  *
  * The shared canvas is positioned as an overlay by the consumer (typically
  * TerminalPane). Each registered terminal provides its CellGrid, CursorState,
@@ -14,14 +15,8 @@
 import type { CellGrid, CursorState, SelectionRange, Theme } from "@next_term/core";
 import { DEFAULT_THEME } from "@next_term/core";
 import { build256Palette } from "./renderer.js";
-import {
-  BG_INSTANCE_FLOATS,
-  GLYPH_INSTANCE_FLOATS,
-  GlyphAtlas,
-  hexToFloat4,
-  packBgInstance,
-  packGlyphInstance,
-} from "./webgl-renderer.js";
+import { GlyphAtlas, hexToFloat4 } from "./webgl-renderer.js";
+import { type ColorFloat4, resolveColorFloat } from "./webgl-utils.js";
 
 // ---------------------------------------------------------------------------
 // Attribute bit positions
@@ -35,10 +30,15 @@ const ATTR_INVERSE = 0x40;
 // Shader sources (same as webgl-renderer.ts)
 // ---------------------------------------------------------------------------
 
+// Instance floats for shared-context batched rendering (include viewport offset)
+const SC_BG_INSTANCE_FLOATS = 8; // cellCol, cellRow, r, g, b, a, offsetX, offsetY
+const SC_GLYPH_INSTANCE_FLOATS = 14; // cellCol, cellRow, r, g, b, a, u, v, tw, th, pw, ph, offsetX, offsetY
+
 const BG_VERTEX_SHADER = `#version 300 es
 in vec2 a_position;
 in vec2 a_cellPos;
 in vec4 a_color;
+in vec2 a_offset;
 
 uniform vec2 u_resolution;
 uniform vec2 u_cellSize;
@@ -46,7 +46,7 @@ uniform vec2 u_cellSize;
 out vec4 v_color;
 
 void main() {
-  vec2 cellPixelPos = a_cellPos * u_cellSize;
+  vec2 cellPixelPos = a_cellPos * u_cellSize + a_offset;
   vec2 pos = cellPixelPos + a_position * u_cellSize;
   vec2 clipPos = (pos / u_resolution) * 2.0 - 1.0;
   clipPos.y = -clipPos.y;
@@ -70,6 +70,7 @@ in vec2 a_cellPos;
 in vec4 a_color;
 in vec4 a_texCoord;
 in vec2 a_glyphSize;
+in vec2 a_offset;
 
 uniform vec2 u_resolution;
 uniform vec2 u_cellSize;
@@ -78,7 +79,7 @@ out vec4 v_color;
 out vec2 v_texCoord;
 
 void main() {
-  vec2 cellPixelPos = a_cellPos * u_cellSize;
+  vec2 cellPixelPos = a_cellPos * u_cellSize + a_offset;
   vec2 size = (a_glyphSize.x > 0.0) ? a_glyphSize : u_cellSize;
   vec2 pos = cellPixelPos + a_position * size;
   vec2 clipPos = (pos / u_resolution) * 2.0 - 1.0;
@@ -165,14 +166,67 @@ export class SharedWebGLContext {
   private glyphProgram: WebGLProgram | null = null;
   private quadVBO: WebGLBuffer | null = null;
   private quadEBO: WebGLBuffer | null = null;
-  private bgInstanceVBO: WebGLBuffer | null = null;
-  private glyphInstanceVBO: WebGLBuffer | null = null;
-  private bgVAO: WebGLVertexArrayObject | null = null;
-  private glyphVAO: WebGLVertexArrayObject | null = null;
+  // Double-buffered VBOs — two each for bg and glyph instance data
+  private bgInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
+  private glyphInstanceVBOs: [WebGLBuffer | null, WebGLBuffer | null] = [null, null];
+  private bufferIndex = 0; // toggles 0/1 each frame
+  private bgVAOs: [WebGLVertexArrayObject | null, WebGLVertexArrayObject | null] = [null, null];
+  private glyphVAOs: [WebGLVertexArrayObject | null, WebGLVertexArrayObject | null] = [null, null];
 
-  // Instance data (CPU side)
+  // Cached uniform locations
+  private bgUniforms: {
+    u_resolution: WebGLUniformLocation | null;
+    u_cellSize: WebGLUniformLocation | null;
+  } = { u_resolution: null, u_cellSize: null };
+  private glyphUniforms: {
+    u_resolution: WebGLUniformLocation | null;
+    u_cellSize: WebGLUniformLocation | null;
+    u_atlas: WebGLUniformLocation | null;
+  } = { u_resolution: null, u_cellSize: null, u_atlas: null };
+
+  // Cached attribute locations (looked up once in initGLResources)
+  private bgAttribLocs: {
+    a_position: number;
+    a_cellPos: number;
+    a_color: number;
+    a_offset: number;
+  } = { a_position: -1, a_cellPos: -1, a_color: -1, a_offset: -1 };
+  private glyphAttribLocs: {
+    a_position: number;
+    a_cellPos: number;
+    a_color: number;
+    a_texCoord: number;
+    a_glyphSize: number;
+    a_offset: number;
+  } = {
+    a_position: -1,
+    a_cellPos: -1,
+    a_color: -1,
+    a_texCoord: -1,
+    a_glyphSize: -1,
+    a_offset: -1,
+  };
+
+  // Instance data (CPU side) — persistent across frames for dirty-row optimization
+  // Sized for ALL terminals combined (not per-terminal)
   private bgInstances: Float32Array;
   private glyphInstances: Float32Array;
+
+  // Per-terminal dirty tracking state
+  private terminalBgCounts = new Map<string, number>();
+  private terminalGlyphCounts = new Map<string, number>();
+  private terminalRowBgOffsets = new Map<string, number[]>(); // bgCount at start of each row
+  private terminalRowGlyphOffsets = new Map<string, number[]>(); // glyphCount at start of each row
+  private terminalRowBgCounts = new Map<string, number[]>(); // bg instances per row
+  private terminalRowGlyphCounts = new Map<string, number[]>(); // glyph instances per row
+  private terminalFullyRendered = new Set<string>(); // tracks if terminal has had initial full render
+
+  // Per-terminal cached instance data (for reuse when terminal is clean)
+  private terminalBgData = new Map<string, Float32Array>();
+  private terminalGlyphData = new Map<string, Float32Array>();
+
+  // Reusable cursor data buffer — grows as needed, never shrinks
+  private cursorBuffer = new Float32Array(4 * SC_BG_INSTANCE_FLOATS);
 
   // Glyph atlas
   private atlas: GlyphAtlas;
@@ -180,10 +234,10 @@ export class SharedWebGLContext {
   // Theme / palette
   private theme: Theme;
   private palette: string[];
-  private paletteFloat: Array<[number, number, number, number]> = [];
-  private themeFgFloat: [number, number, number, number] = [0, 0, 0, 1];
-  private themeBgFloat: [number, number, number, number] = [0, 0, 0, 1];
-  private themeCursorFloat: [number, number, number, number] = [0, 0, 0, 1];
+  private paletteFloat: ColorFloat4[] = [];
+  private themeFgFloat: ColorFloat4 = [0, 0, 0, 1];
+  private themeBgFloat: ColorFloat4 = [0, 0, 0, 1];
+  private themeCursorFloat: ColorFloat4 = [0, 0, 0, 1];
 
   private fontSize: number;
   private fontFamily: string;
@@ -208,10 +262,10 @@ export class SharedWebGLContext {
 
     this.atlas = new GlyphAtlas(Math.round(this.fontSize * this.dpr), this.fontFamily);
 
-    // Pre-allocate instance buffers
-    const maxCells = 80 * 24;
-    this.bgInstances = new Float32Array(maxCells * BG_INSTANCE_FLOATS);
-    this.glyphInstances = new Float32Array(maxCells * GLYPH_INSTANCE_FLOATS);
+    // Pre-allocate instance buffers for batched rendering (all terminals combined)
+    const maxCells = 80 * 24 * 4; // start with 4 terminals worth
+    this.bgInstances = new Float32Array(maxCells * SC_BG_INSTANCE_FLOATS);
+    this.glyphInstances = new Float32Array(maxCells * SC_GLYPH_INSTANCE_FLOATS);
 
     // Create the shared canvas
     this.canvas = document.createElement("canvas");
@@ -236,6 +290,18 @@ export class SharedWebGLContext {
 
     if (!this.gl) {
       throw new Error("WebGL2 is not available");
+    }
+
+    // Detect software rendering (SwiftShader) — shared context is a net loss
+    // on software renderers because it concentrates all panes on one slow context.
+    // Fall back to independent per-pane rendering in that case.
+    const debugInfo = this.gl.getExtension("WEBGL_debug_renderer_info");
+    if (debugInfo) {
+      const renderer = this.gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
+      if (/swiftshader|llvmpipe|software/i.test(renderer)) {
+        this.gl = null;
+        throw new Error(`Software renderer detected (${renderer}), skipping shared context`);
+      }
     }
 
     this.initGLResources();
@@ -266,11 +332,23 @@ export class SharedWebGLContext {
     if (entry) {
       entry.grid = grid;
       entry.cursor = cursor;
+      // Reset dirty tracking — new grid may have different content
+      this.terminalFullyRendered.delete(id);
     }
   }
 
   removeTerminal(id: string): void {
     this.terminals.delete(id);
+    // Clean up per-terminal dirty tracking state
+    this.terminalBgCounts.delete(id);
+    this.terminalGlyphCounts.delete(id);
+    this.terminalRowBgOffsets.delete(id);
+    this.terminalRowGlyphOffsets.delete(id);
+    this.terminalRowBgCounts.delete(id);
+    this.terminalRowGlyphCounts.delete(id);
+    this.terminalFullyRendered.delete(id);
+    this.terminalBgData.delete(id);
+    this.terminalGlyphData.delete(id);
   }
 
   getTerminalIds(): string[] {
@@ -278,7 +356,11 @@ export class SharedWebGLContext {
   }
 
   /**
-   * Render all terminals in one frame.
+   * Render all terminals in one frame using batched rendering.
+   *
+   * All terminals' instance data is packed into combined buffers with
+   * per-instance viewport offsets, then uploaded and drawn in single calls.
+   * This reduces GL state changes from O(N) to O(1) per pass.
    */
   render(): void {
     if (this.disposed || !this.gl) return;
@@ -287,17 +369,174 @@ export class SharedWebGLContext {
     const canvasWidth = this.canvas.width;
     const canvasHeight = this.canvas.height;
 
+    // Toggle double-buffer index
+    this.bufferIndex ^= 1;
+    const bi = this.bufferIndex;
+
     // Full-canvas clear
     gl.viewport(0, 0, canvasWidth, canvasHeight);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    // Render each terminal in its viewport
-    for (const [_id, entry] of this.terminals) {
-      this.renderTerminal(entry);
+    // --- Phase 1: Clear each terminal's viewport with theme bg color ---
+    gl.enable(gl.SCISSOR_TEST);
+    const bgR = this.themeBgFloat[0];
+    const bgG = this.themeBgFloat[1];
+    const bgB = this.themeBgFloat[2];
+    gl.clearColor(bgR, bgG, bgB, 1.0);
+    for (const [, entry] of this.terminals) {
+      const { viewport } = entry;
+      const vpX = Math.round(viewport.x * this.dpr);
+      const vpY = Math.round(viewport.y * this.dpr);
+      const vpW = Math.round(viewport.width * this.dpr);
+      const vpH = Math.round(viewport.height * this.dpr);
+      const glY = canvasHeight - vpY - vpH;
+      gl.viewport(vpX, glY, vpW, vpH);
+      gl.scissor(vpX, glY, vpW, vpH);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    gl.disable(gl.SCISSOR_TEST);
+
+    // --- Phase 2: Build combined instance data for all terminals ---
+    const cellW = this.cellWidth * this.dpr;
+    const cellH = this.cellHeight * this.dpr;
+    let totalBgCount = 0;
+    let totalGlyphCount = 0;
+
+    for (const [id, entry] of this.terminals) {
+      const { bgCount, glyphCount } = this.buildTerminalInstances(id, entry);
+      const bgData = this.terminalBgData.get(id);
+      const glyphData = this.terminalGlyphData.get(id);
+
+      // Ensure combined buffers are large enough
+      const neededBg = (totalBgCount + bgCount) * SC_BG_INSTANCE_FLOATS;
+      if (neededBg > this.bgInstances.length) {
+        const newBuf = new Float32Array(neededBg * 2);
+        newBuf.set(this.bgInstances.subarray(0, totalBgCount * SC_BG_INSTANCE_FLOATS));
+        this.bgInstances = newBuf;
+      }
+      const neededGlyph = (totalGlyphCount + glyphCount) * SC_GLYPH_INSTANCE_FLOATS;
+      if (neededGlyph > this.glyphInstances.length) {
+        const newBuf = new Float32Array(neededGlyph * 2);
+        newBuf.set(this.glyphInstances.subarray(0, totalGlyphCount * SC_GLYPH_INSTANCE_FLOATS));
+        this.glyphInstances = newBuf;
+      }
+
+      // Copy per-terminal data into combined buffer
+      if (bgData && bgCount > 0) {
+        this.bgInstances.set(
+          bgData.subarray(0, bgCount * SC_BG_INSTANCE_FLOATS),
+          totalBgCount * SC_BG_INSTANCE_FLOATS,
+        );
+      }
+      if (glyphData && glyphCount > 0) {
+        this.glyphInstances.set(
+          glyphData.subarray(0, glyphCount * SC_GLYPH_INSTANCE_FLOATS),
+          totalGlyphCount * SC_GLYPH_INSTANCE_FLOATS,
+        );
+      }
+
+      totalBgCount += bgCount;
+      totalGlyphCount += glyphCount;
     }
 
-    gl.disable(gl.SCISSOR_TEST);
+    // Upload atlas if dirty
+    this.atlas.upload(gl);
+
+    // --- Phase 3: Single viewport for all draws (full canvas) ---
+    gl.viewport(0, 0, canvasWidth, canvasHeight);
+
+    // --- Background pass: single upload + single draw ---
+    const activeBgVBO = this.bgInstanceVBOs[bi];
+    const activeBgVAO = this.bgVAOs[bi];
+    if (totalBgCount > 0 && this.bgProgram && activeBgVAO && activeBgVBO) {
+      gl.useProgram(this.bgProgram);
+      gl.uniform2f(this.bgUniforms.u_resolution, canvasWidth, canvasHeight);
+      gl.uniform2f(this.bgUniforms.u_cellSize, cellW, cellH);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, activeBgVBO);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        this.bgInstances.subarray(0, totalBgCount * SC_BG_INSTANCE_FLOATS),
+        gl.STREAM_DRAW,
+      );
+
+      gl.bindVertexArray(activeBgVAO);
+      gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, totalBgCount);
+    }
+
+    // --- Glyph pass: single upload + single draw ---
+    const activeGlyphVBO = this.glyphInstanceVBOs[bi];
+    const activeGlyphVAO = this.glyphVAOs[bi];
+    if (totalGlyphCount > 0 && this.glyphProgram && activeGlyphVAO && activeGlyphVBO) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+      gl.useProgram(this.glyphProgram);
+      gl.uniform2f(this.glyphUniforms.u_resolution, canvasWidth, canvasHeight);
+      gl.uniform2f(this.glyphUniforms.u_cellSize, cellW, cellH);
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.atlas.getTexture());
+      gl.uniform1i(this.glyphUniforms.u_atlas, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, activeGlyphVBO);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        this.glyphInstances.subarray(0, totalGlyphCount * SC_GLYPH_INSTANCE_FLOATS),
+        gl.STREAM_DRAW,
+      );
+
+      gl.bindVertexArray(activeGlyphVAO);
+      gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, totalGlyphCount);
+
+      gl.disable(gl.BLEND);
+    }
+
+    // --- Cursor pass: batch all cursors into one draw ---
+    let cursorCount = 0;
+    const neededCursor = this.terminals.size * SC_BG_INSTANCE_FLOATS;
+    if (neededCursor > this.cursorBuffer.length) {
+      this.cursorBuffer = new Float32Array(neededCursor);
+    }
+    const cc = this.themeCursorFloat;
+    for (const [, entry] of this.terminals) {
+      const { cursor, viewport } = entry;
+      if (!cursor.visible) continue;
+      const off = cursorCount * SC_BG_INSTANCE_FLOATS;
+      this.cursorBuffer[off] = cursor.col;
+      this.cursorBuffer[off + 1] = cursor.row;
+      this.cursorBuffer[off + 2] = cc[0];
+      this.cursorBuffer[off + 3] = cc[1];
+      this.cursorBuffer[off + 4] = cc[2];
+      this.cursorBuffer[off + 5] = 0.5;
+      this.cursorBuffer[off + 6] = Math.round(viewport.x * this.dpr);
+      this.cursorBuffer[off + 7] = Math.round(viewport.y * this.dpr);
+      cursorCount++;
+    }
+
+    if (cursorCount > 0 && this.bgProgram && activeBgVAO && activeBgVBO) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+      gl.useProgram(this.bgProgram);
+      gl.uniform2f(this.bgUniforms.u_resolution, canvasWidth, canvasHeight);
+      gl.uniform2f(this.bgUniforms.u_cellSize, cellW, cellH);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, activeBgVBO);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        this.cursorBuffer.subarray(0, cursorCount * SC_BG_INSTANCE_FLOATS),
+        gl.STREAM_DRAW,
+      );
+
+      gl.bindVertexArray(activeBgVAO);
+      gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, cursorCount);
+
+      gl.disable(gl.BLEND);
+    }
+
+    gl.bindVertexArray(null);
   }
 
   /**
@@ -347,10 +586,13 @@ export class SharedWebGLContext {
       if (this.glyphProgram) gl.deleteProgram(this.glyphProgram);
       if (this.quadVBO) gl.deleteBuffer(this.quadVBO);
       if (this.quadEBO) gl.deleteBuffer(this.quadEBO);
-      if (this.bgInstanceVBO) gl.deleteBuffer(this.bgInstanceVBO);
-      if (this.glyphInstanceVBO) gl.deleteBuffer(this.glyphInstanceVBO);
-      if (this.bgVAO) gl.deleteVertexArray(this.bgVAO);
-      if (this.glyphVAO) gl.deleteVertexArray(this.glyphVAO);
+      // Clean up double-buffered resources
+      for (let i = 0; i < 2; i++) {
+        if (this.bgInstanceVBOs[i]) gl.deleteBuffer(this.bgInstanceVBOs[i]);
+        if (this.glyphInstanceVBOs[i]) gl.deleteBuffer(this.glyphInstanceVBOs[i]);
+        if (this.bgVAOs[i]) gl.deleteVertexArray(this.bgVAOs[i]);
+        if (this.glyphVAOs[i]) gl.deleteVertexArray(this.glyphVAOs[i]);
+      }
     }
 
     this.terminals.clear();
@@ -361,177 +603,208 @@ export class SharedWebGLContext {
   }
 
   // -----------------------------------------------------------------------
-  // Per-terminal rendering
+  // Per-terminal instance data building (CPU-side only, no GL calls)
   // -----------------------------------------------------------------------
 
-  private renderTerminal(entry: TerminalEntry): void {
-    if (!this.gl) return;
-    const gl = this.gl;
-    const { grid, cursor, viewport } = entry;
+  /**
+   * Build instance data for a single terminal into its per-terminal cache.
+   * Returns the bg and glyph instance counts. The caller assembles all
+   * terminals' data into the combined buffer before issuing GL draws.
+   */
+  private buildTerminalInstances(
+    id: string,
+    entry: TerminalEntry,
+  ): { bgCount: number; glyphCount: number } {
+    const { grid, viewport } = entry;
     const cols = grid.cols;
     const rows = grid.rows;
 
-    // Convert CSS viewport to device pixels
+    // Viewport offset in device pixels for canvas-space coordinates
     const vpX = Math.round(viewport.x * this.dpr);
     const vpY = Math.round(viewport.y * this.dpr);
-    const vpW = Math.round(viewport.width * this.dpr);
-    const vpH = Math.round(viewport.height * this.dpr);
 
-    // WebGL viewport Y is from bottom; canvas Y is from top
-    const canvasHeight = this.canvas.height;
-    const glY = canvasHeight - vpY - vpH;
+    // Check if any rows are dirty; if not, use cached counts
+    const isFirstRender = !this.terminalFullyRendered.has(id);
+    let anyDirty = isFirstRender;
+    if (!anyDirty) {
+      for (let row = 0; row < rows; row++) {
+        if (grid.isDirty(row)) {
+          anyDirty = true;
+          break;
+        }
+      }
+    }
 
-    gl.viewport(vpX, glY, vpW, vpH);
-    gl.enable(gl.SCISSOR_TEST);
-    gl.scissor(vpX, glY, vpW, vpH);
+    if (!anyDirty) {
+      // No dirty rows — reuse cached instance data and counts
+      return {
+        bgCount: this.terminalBgCounts.get(id) ?? 0,
+        glyphCount: this.terminalGlyphCounts.get(id) ?? 0,
+      };
+    }
 
-    // Clear this region with background color
-    gl.clearColor(this.themeBgFloat[0], this.themeBgFloat[1], this.themeBgFloat[2], 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    // Ensure instance buffers are large enough
+    // Ensure per-terminal data buffers are large enough
     const totalCells = cols * rows;
-    if (this.bgInstances.length < totalCells * BG_INSTANCE_FLOATS) {
-      this.bgInstances = new Float32Array(totalCells * BG_INSTANCE_FLOATS);
+    let bgData = this.terminalBgData.get(id);
+    if (!bgData || bgData.length < totalCells * SC_BG_INSTANCE_FLOATS) {
+      bgData = new Float32Array(totalCells * SC_BG_INSTANCE_FLOATS);
+      this.terminalBgData.set(id, bgData);
     }
-    if (this.glyphInstances.length < totalCells * GLYPH_INSTANCE_FLOATS) {
-      this.glyphInstances = new Float32Array(totalCells * GLYPH_INSTANCE_FLOATS);
+    let glyphData = this.terminalGlyphData.get(id);
+    if (!glyphData || glyphData.length < totalCells * SC_GLYPH_INSTANCE_FLOATS) {
+      glyphData = new Float32Array(totalCells * SC_GLYPH_INSTANCE_FLOATS);
+      this.terminalGlyphData.set(id, glyphData);
     }
 
-    // Build instance data
+    // Initialize or retrieve per-row offset tracking
+    let rowBgOffsets = this.terminalRowBgOffsets.get(id);
+    let rowGlyphOffsets = this.terminalRowGlyphOffsets.get(id);
+    let rowBgCounts = this.terminalRowBgCounts.get(id);
+    let rowGlyphCounts = this.terminalRowGlyphCounts.get(id);
+
+    if (!rowBgOffsets || rowBgOffsets.length !== rows) {
+      rowBgOffsets = new Array(rows).fill(0);
+      this.terminalRowBgOffsets.set(id, rowBgOffsets);
+    }
+    if (!rowGlyphOffsets || rowGlyphOffsets.length !== rows) {
+      rowGlyphOffsets = new Array(rows).fill(0);
+      this.terminalRowGlyphOffsets.set(id, rowGlyphOffsets);
+    }
+    if (!rowBgCounts || rowBgCounts.length !== rows) {
+      rowBgCounts = new Array(rows).fill(0);
+      this.terminalRowBgCounts.set(id, rowBgCounts);
+    }
+    if (!rowGlyphCounts || rowGlyphCounts.length !== rows) {
+      rowGlyphCounts = new Array(rows).fill(0);
+      this.terminalRowGlyphCounts.set(id, rowGlyphCounts);
+    }
+
     let bgCount = 0;
     let glyphCount = 0;
 
     for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const codepoint = grid.getCodepoint(row, col);
-        const fgIdx = grid.getFgIndex(row, col);
-        const bgIdx = grid.getBgIndex(row, col);
-        const attrs = grid.getAttrs(row, col);
-        const fgIsRGB = grid.isFgRGB(row, col);
-        const bgIsRGB = grid.isBgRGB(row, col);
+      const rowDirty = isFirstRender || grid.isDirty(row);
 
-        let fg = this.resolveColorFloat(fgIdx, fgIsRGB, grid, col, true);
-        let bg = this.resolveColorFloat(bgIdx, bgIsRGB, grid, col, false);
+      if (!rowDirty) {
+        // Row is clean — copy previous data to new offsets if they shifted
+        const prevBgOffset = rowBgOffsets[row];
+        const prevBgCount = rowBgCounts[row];
+        const prevGlyphOffset = rowGlyphOffsets[row];
+        const prevGlyphCount = rowGlyphCounts[row];
 
-        if (attrs & ATTR_INVERSE) {
-          const tmp = fg;
-          fg = bg;
-          bg = tmp;
+        if (bgCount !== prevBgOffset && prevBgCount > 0) {
+          bgData.copyWithin(
+            bgCount * SC_BG_INSTANCE_FLOATS,
+            prevBgOffset * SC_BG_INSTANCE_FLOATS,
+            (prevBgOffset + prevBgCount) * SC_BG_INSTANCE_FLOATS,
+          );
+        }
+        if (glyphCount !== prevGlyphOffset && prevGlyphCount > 0) {
+          glyphData.copyWithin(
+            glyphCount * SC_GLYPH_INSTANCE_FLOATS,
+            prevGlyphOffset * SC_GLYPH_INSTANCE_FLOATS,
+            (prevGlyphOffset + prevGlyphCount) * SC_GLYPH_INSTANCE_FLOATS,
+          );
         }
 
-        packBgInstance(
-          this.bgInstances,
-          bgCount * BG_INSTANCE_FLOATS,
-          col,
-          row,
-          bg[0],
-          bg[1],
-          bg[2],
-          bg[3],
-        );
-        bgCount++;
+        rowBgOffsets[row] = bgCount;
+        rowGlyphOffsets[row] = glyphCount;
+        bgCount += prevBgCount;
+        glyphCount += prevGlyphCount;
+      } else {
+        // Row is dirty — re-pack cell data with viewport offsets
+        rowBgOffsets[row] = bgCount;
+        rowGlyphOffsets[row] = glyphCount;
+        let rowBg = 0;
+        let rowGlyph = 0;
 
-        if (codepoint > 0x20) {
-          const bold = !!(attrs & ATTR_BOLD);
-          const italic = !!(attrs & ATTR_ITALIC);
-          const glyph = this.atlas.getGlyph(codepoint, bold, italic);
+        for (let col = 0; col < cols; col++) {
+          const codepoint = grid.getCodepoint(row, col);
+          const fgIdx = grid.getFgIndex(row, col);
+          const bgIdx = grid.getBgIndex(row, col);
+          const attrs = grid.getAttrs(row, col);
+          const fgIsRGB = grid.isFgRGB(row, col);
+          const bgIsRGB = grid.isBgRGB(row, col);
 
-          if (glyph) {
-            packGlyphInstance(
-              this.glyphInstances,
-              glyphCount * GLYPH_INSTANCE_FLOATS,
-              col,
-              row,
-              fg[0],
-              fg[1],
-              fg[2],
-              fg[3],
-              glyph.u,
-              glyph.v,
-              glyph.w,
-              glyph.h,
-              glyph.pw,
-              glyph.ph,
-            );
-            glyphCount++;
+          let fg = resolveColorFloat(
+            fgIdx,
+            fgIsRGB,
+            grid,
+            col,
+            true,
+            this.paletteFloat,
+            this.themeFgFloat,
+            this.themeBgFloat,
+          );
+          let bg = resolveColorFloat(
+            bgIdx,
+            bgIsRGB,
+            grid,
+            col,
+            false,
+            this.paletteFloat,
+            this.themeFgFloat,
+            this.themeBgFloat,
+          );
+
+          if (attrs & ATTR_INVERSE) {
+            const tmp = fg;
+            fg = bg;
+            bg = tmp;
+          }
+
+          // Pack bg instance with viewport offset
+          const bOff = bgCount * SC_BG_INSTANCE_FLOATS;
+          bgData[bOff] = col;
+          bgData[bOff + 1] = row;
+          bgData[bOff + 2] = bg[0];
+          bgData[bOff + 3] = bg[1];
+          bgData[bOff + 4] = bg[2];
+          bgData[bOff + 5] = bg[3];
+          bgData[bOff + 6] = vpX;
+          bgData[bOff + 7] = vpY;
+          bgCount++;
+          rowBg++;
+
+          if (codepoint > 0x20) {
+            const bold = !!(attrs & ATTR_BOLD);
+            const italic = !!(attrs & ATTR_ITALIC);
+            const glyph = this.atlas.getGlyph(codepoint, bold, italic);
+
+            if (glyph) {
+              // Pack glyph instance with viewport offset
+              const gOff = glyphCount * SC_GLYPH_INSTANCE_FLOATS;
+              glyphData[gOff] = col;
+              glyphData[gOff + 1] = row;
+              glyphData[gOff + 2] = fg[0];
+              glyphData[gOff + 3] = fg[1];
+              glyphData[gOff + 4] = fg[2];
+              glyphData[gOff + 5] = fg[3];
+              glyphData[gOff + 6] = glyph.u;
+              glyphData[gOff + 7] = glyph.v;
+              glyphData[gOff + 8] = glyph.w;
+              glyphData[gOff + 9] = glyph.h;
+              glyphData[gOff + 10] = glyph.pw;
+              glyphData[gOff + 11] = glyph.ph;
+              glyphData[gOff + 12] = vpX;
+              glyphData[gOff + 13] = vpY;
+              glyphCount++;
+              rowGlyph++;
+            }
           }
         }
+
+        rowBgCounts[row] = rowBg;
+        rowGlyphCounts[row] = rowGlyph;
+        grid.clearDirty(row);
       }
-      grid.clearDirty(row);
     }
 
-    // Upload atlas if dirty
-    this.atlas.upload(gl);
+    this.terminalBgCounts.set(id, bgCount);
+    this.terminalGlyphCounts.set(id, glyphCount);
+    this.terminalFullyRendered.add(id);
 
-    const cellW = this.cellWidth * this.dpr;
-    const cellH = this.cellHeight * this.dpr;
-
-    // --- Background pass ---
-    if (bgCount > 0 && this.bgProgram && this.bgVAO && this.bgInstanceVBO) {
-      gl.useProgram(this.bgProgram);
-      gl.uniform2f(gl.getUniformLocation(this.bgProgram, "u_resolution"), vpW, vpH);
-      gl.uniform2f(gl.getUniformLocation(this.bgProgram, "u_cellSize"), cellW, cellH);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.bgInstanceVBO);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        this.bgInstances.subarray(0, bgCount * BG_INSTANCE_FLOATS),
-        gl.DYNAMIC_DRAW,
-      );
-
-      gl.bindVertexArray(this.bgVAO);
-      gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, bgCount);
-    }
-
-    // --- Glyph pass ---
-    if (glyphCount > 0 && this.glyphProgram && this.glyphVAO && this.glyphInstanceVBO) {
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-      gl.useProgram(this.glyphProgram);
-      gl.uniform2f(gl.getUniformLocation(this.glyphProgram, "u_resolution"), vpW, vpH);
-      gl.uniform2f(gl.getUniformLocation(this.glyphProgram, "u_cellSize"), cellW, cellH);
-
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this.atlas.getTexture());
-      gl.uniform1i(gl.getUniformLocation(this.glyphProgram, "u_atlas"), 0);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.glyphInstanceVBO);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        this.glyphInstances.subarray(0, glyphCount * GLYPH_INSTANCE_FLOATS),
-        gl.DYNAMIC_DRAW,
-      );
-
-      gl.bindVertexArray(this.glyphVAO);
-      gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, glyphCount);
-
-      gl.disable(gl.BLEND);
-    }
-
-    // --- Cursor ---
-    if (cursor.visible && this.bgProgram && this.bgVAO && this.bgInstanceVBO) {
-      const cc = this.themeCursorFloat;
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-      gl.useProgram(this.bgProgram);
-      gl.uniform2f(gl.getUniformLocation(this.bgProgram, "u_resolution"), vpW, vpH);
-      gl.uniform2f(gl.getUniformLocation(this.bgProgram, "u_cellSize"), cellW, cellH);
-
-      const cursorData = new Float32Array([cursor.col, cursor.row, cc[0], cc[1], cc[2], 0.5]);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.bgInstanceVBO);
-      gl.bufferData(gl.ARRAY_BUFFER, cursorData, gl.DYNAMIC_DRAW);
-
-      gl.bindVertexArray(this.bgVAO);
-      gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, 1);
-
-      gl.disable(gl.BLEND);
-    }
-
-    gl.bindVertexArray(null);
+    return { bgCount, glyphCount };
   }
 
   // -----------------------------------------------------------------------
@@ -545,6 +818,29 @@ export class SharedWebGLContext {
     this.bgProgram = createProgram(gl, BG_VERTEX_SHADER, BG_FRAGMENT_SHADER);
     this.glyphProgram = createProgram(gl, GLYPH_VERTEX_SHADER, GLYPH_FRAGMENT_SHADER);
 
+    // Cache all uniform locations after program creation
+    this.bgUniforms.u_resolution = gl.getUniformLocation(this.bgProgram, "u_resolution");
+    this.bgUniforms.u_cellSize = gl.getUniformLocation(this.bgProgram, "u_cellSize");
+    this.glyphUniforms.u_resolution = gl.getUniformLocation(this.glyphProgram, "u_resolution");
+    this.glyphUniforms.u_cellSize = gl.getUniformLocation(this.glyphProgram, "u_cellSize");
+    this.glyphUniforms.u_atlas = gl.getUniformLocation(this.glyphProgram, "u_atlas");
+
+    // Cache all attribute locations after program creation
+    this.bgAttribLocs = {
+      a_position: gl.getAttribLocation(this.bgProgram, "a_position"),
+      a_cellPos: gl.getAttribLocation(this.bgProgram, "a_cellPos"),
+      a_color: gl.getAttribLocation(this.bgProgram, "a_color"),
+      a_offset: gl.getAttribLocation(this.bgProgram, "a_offset"),
+    };
+    this.glyphAttribLocs = {
+      a_position: gl.getAttribLocation(this.glyphProgram, "a_position"),
+      a_cellPos: gl.getAttribLocation(this.glyphProgram, "a_cellPos"),
+      a_color: gl.getAttribLocation(this.glyphProgram, "a_color"),
+      a_texCoord: gl.getAttribLocation(this.glyphProgram, "a_texCoord"),
+      a_glyphSize: gl.getAttribLocation(this.glyphProgram, "a_glyphSize"),
+      a_offset: gl.getAttribLocation(this.glyphProgram, "a_offset"),
+    };
+
     const quadVerts = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
     const quadIndices = new Uint16Array([0, 1, 2, 2, 1, 3]);
 
@@ -556,117 +852,108 @@ export class SharedWebGLContext {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.quadEBO);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, quadIndices, gl.STATIC_DRAW);
 
-    this.bgInstanceVBO = gl.createBuffer();
-    this.glyphInstanceVBO = gl.createBuffer();
+    // Create double-buffered VBOs and VAOs
+    for (let i = 0; i < 2; i++) {
+      this.bgInstanceVBOs[i] = gl.createBuffer();
+      this.glyphInstanceVBOs[i] = gl.createBuffer();
 
-    this.bgVAO = gl.createVertexArray();
-    gl.bindVertexArray(this.bgVAO);
-    this.setupBgVAO(gl);
-    gl.bindVertexArray(null);
+      this.bgVAOs[i] = gl.createVertexArray();
+      gl.bindVertexArray(this.bgVAOs[i]);
+      const bgVBO = this.bgInstanceVBOs[i];
+      if (bgVBO) this.setupBgVAO(gl, bgVBO);
+      gl.bindVertexArray(null);
 
-    this.glyphVAO = gl.createVertexArray();
-    gl.bindVertexArray(this.glyphVAO);
-    this.setupGlyphVAO(gl);
-    gl.bindVertexArray(null);
+      this.glyphVAOs[i] = gl.createVertexArray();
+      gl.bindVertexArray(this.glyphVAOs[i]);
+      const glyphVBO = this.glyphInstanceVBOs[i];
+      if (glyphVBO) this.setupGlyphVAO(gl, glyphVBO);
+      gl.bindVertexArray(null);
+    }
   }
 
-  private setupBgVAO(gl: WebGL2RenderingContext): void {
+  private setupBgVAO(gl: WebGL2RenderingContext, instanceVBO: WebGLBuffer): void {
     const FLOAT = 4;
-    if (!this.bgProgram) return;
-    const program = this.bgProgram;
+    const locs = this.bgAttribLocs;
 
-    const aPos = gl.getAttribLocation(program, "a_position");
+    // Quad position (per-vertex, from quadVBO)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVBO);
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(locs.a_position);
+    gl.vertexAttribPointer(locs.a_position, 2, gl.FLOAT, false, 0, 0);
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.quadEBO);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.bgInstanceVBO);
-    const stride = BG_INSTANCE_FLOATS * FLOAT;
+    // Instance attributes (from instanceVBO)
+    gl.bindBuffer(gl.ARRAY_BUFFER, instanceVBO);
+    const stride = SC_BG_INSTANCE_FLOATS * FLOAT;
 
-    const aCellPos = gl.getAttribLocation(program, "a_cellPos");
-    gl.enableVertexAttribArray(aCellPos);
-    gl.vertexAttribPointer(aCellPos, 2, gl.FLOAT, false, stride, 0);
-    gl.vertexAttribDivisor(aCellPos, 1);
+    gl.enableVertexAttribArray(locs.a_cellPos);
+    gl.vertexAttribPointer(locs.a_cellPos, 2, gl.FLOAT, false, stride, 0);
+    gl.vertexAttribDivisor(locs.a_cellPos, 1);
 
-    const aColor = gl.getAttribLocation(program, "a_color");
-    gl.enableVertexAttribArray(aColor);
-    gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, stride, 2 * FLOAT);
-    gl.vertexAttribDivisor(aColor, 1);
+    gl.enableVertexAttribArray(locs.a_color);
+    gl.vertexAttribPointer(locs.a_color, 4, gl.FLOAT, false, stride, 2 * FLOAT);
+    gl.vertexAttribDivisor(locs.a_color, 1);
+
+    gl.enableVertexAttribArray(locs.a_offset);
+    gl.vertexAttribPointer(locs.a_offset, 2, gl.FLOAT, false, stride, 6 * FLOAT);
+    gl.vertexAttribDivisor(locs.a_offset, 1);
   }
 
-  private setupGlyphVAO(gl: WebGL2RenderingContext): void {
+  private setupGlyphVAO(gl: WebGL2RenderingContext, instanceVBO: WebGLBuffer): void {
     const FLOAT = 4;
-    if (!this.glyphProgram) return;
-    const program = this.glyphProgram;
+    const locs = this.glyphAttribLocs;
 
-    const aPos = gl.getAttribLocation(program, "a_position");
+    // Quad position (per-vertex, from quadVBO)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVBO);
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(locs.a_position);
+    gl.vertexAttribPointer(locs.a_position, 2, gl.FLOAT, false, 0, 0);
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.quadEBO);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.glyphInstanceVBO);
-    const stride = GLYPH_INSTANCE_FLOATS * FLOAT;
+    // Instance attributes (from instanceVBO)
+    gl.bindBuffer(gl.ARRAY_BUFFER, instanceVBO);
+    const stride = SC_GLYPH_INSTANCE_FLOATS * FLOAT;
 
-    const aCellPos = gl.getAttribLocation(program, "a_cellPos");
-    gl.enableVertexAttribArray(aCellPos);
-    gl.vertexAttribPointer(aCellPos, 2, gl.FLOAT, false, stride, 0);
-    gl.vertexAttribDivisor(aCellPos, 1);
+    gl.enableVertexAttribArray(locs.a_cellPos);
+    gl.vertexAttribPointer(locs.a_cellPos, 2, gl.FLOAT, false, stride, 0);
+    gl.vertexAttribDivisor(locs.a_cellPos, 1);
 
-    const aColor = gl.getAttribLocation(program, "a_color");
-    gl.enableVertexAttribArray(aColor);
-    gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, stride, 2 * FLOAT);
-    gl.vertexAttribDivisor(aColor, 1);
+    gl.enableVertexAttribArray(locs.a_color);
+    gl.vertexAttribPointer(locs.a_color, 4, gl.FLOAT, false, stride, 2 * FLOAT);
+    gl.vertexAttribDivisor(locs.a_color, 1);
 
-    const aTexCoord = gl.getAttribLocation(program, "a_texCoord");
-    gl.enableVertexAttribArray(aTexCoord);
-    gl.vertexAttribPointer(aTexCoord, 4, gl.FLOAT, false, stride, 6 * FLOAT);
-    gl.vertexAttribDivisor(aTexCoord, 1);
+    gl.enableVertexAttribArray(locs.a_texCoord);
+    gl.vertexAttribPointer(locs.a_texCoord, 4, gl.FLOAT, false, stride, 6 * FLOAT);
+    gl.vertexAttribDivisor(locs.a_texCoord, 1);
 
-    const aGlyphSize = gl.getAttribLocation(program, "a_glyphSize");
-    gl.enableVertexAttribArray(aGlyphSize);
-    gl.vertexAttribPointer(aGlyphSize, 2, gl.FLOAT, false, stride, 10 * FLOAT);
-    gl.vertexAttribDivisor(aGlyphSize, 1);
+    gl.enableVertexAttribArray(locs.a_glyphSize);
+    gl.vertexAttribPointer(locs.a_glyphSize, 2, gl.FLOAT, false, stride, 10 * FLOAT);
+    gl.vertexAttribDivisor(locs.a_glyphSize, 1);
+
+    gl.enableVertexAttribArray(locs.a_offset);
+    gl.vertexAttribPointer(locs.a_offset, 2, gl.FLOAT, false, stride, 12 * FLOAT);
+    gl.vertexAttribDivisor(locs.a_offset, 1);
   }
 
   // -----------------------------------------------------------------------
   // Color resolution
   // -----------------------------------------------------------------------
 
+  setTheme(theme: Partial<Theme>): void {
+    this.theme = { ...DEFAULT_THEME, ...theme };
+    this.palette = build256Palette(this.theme);
+    this.buildPaletteFloat();
+    // Mark all terminals for full re-render with new colors
+    this.terminalFullyRendered.clear();
+    this.terminalBgData.clear();
+    this.terminalGlyphData.clear();
+  }
+
   private buildPaletteFloat(): void {
     this.paletteFloat = this.palette.map((c) => hexToFloat4(c));
     this.themeFgFloat = hexToFloat4(this.theme.foreground);
     this.themeBgFloat = hexToFloat4(this.theme.background);
     this.themeCursorFloat = hexToFloat4(this.theme.cursor);
-  }
-
-  private resolveColorFloat(
-    colorIdx: number,
-    isRGB: boolean,
-    grid: CellGrid,
-    col: number,
-    isForeground: boolean,
-  ): [number, number, number, number] {
-    if (isRGB) {
-      const offset = isForeground ? col : 256 + col;
-      const rgb = grid.rgbColors[offset];
-      const r = ((rgb >> 16) & 0xff) / 255;
-      const g = ((rgb >> 8) & 0xff) / 255;
-      const b = (rgb & 0xff) / 255;
-      return [r, g, b, 1.0];
-    }
-
-    if (isForeground && colorIdx === 7) return this.themeFgFloat;
-    if (!isForeground && colorIdx === 0) return this.themeBgFloat;
-
-    if (colorIdx >= 0 && colorIdx < 256) {
-      return this.paletteFloat[colorIdx];
-    }
-
-    return isForeground ? this.themeFgFloat : this.themeBgFloat;
   }
 
   // -----------------------------------------------------------------------

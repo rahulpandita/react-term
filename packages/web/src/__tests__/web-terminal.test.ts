@@ -679,6 +679,94 @@ describe("WebTerminal", () => {
     });
   });
 
+  // ---- Resize cap ---------------------------------------------------------
+
+  describe("resize cap", () => {
+    it("clamps cols to MAX_COLS (500)", () => {
+      const cb = vi.fn();
+      const t = make(container, { onResize: cb });
+      t.resize(1000, 24);
+      expect(cb).toHaveBeenCalledWith({ cols: 500, rows: 24 });
+      expect(t.cols).toBe(500);
+      t.dispose();
+    });
+
+    it("clamps rows to MAX_ROWS (500)", () => {
+      const cb = vi.fn();
+      const t = make(container, { onResize: cb });
+      t.resize(80, 1000);
+      expect(cb).toHaveBeenCalledWith({ cols: 80, rows: 500 });
+      expect(t.rows).toBe(500);
+      t.dispose();
+    });
+
+    it("constructor clamps initial cols/rows", () => {
+      const t = make(container, { cols: 1000, rows: 1000 });
+      expect(t.cols).toBe(500);
+      expect(t.rows).toBe(500);
+      t.dispose();
+    });
+
+    it("normal resize within limits works", () => {
+      const cb = vi.fn();
+      const t = make(container, { onResize: cb });
+      t.resize(100, 50);
+      expect(cb).toHaveBeenCalledWith({ cols: 100, rows: 50 });
+      expect(t.cols).toBe(100);
+      expect(t.rows).toBe(50);
+      t.dispose();
+    });
+  });
+
+  // ---- Shared context integration -----------------------------------------
+
+  describe("shared context mode", () => {
+    // Lazy import to avoid pulling in WebGL code at top level
+    let SharedWebGLContext: typeof import("../shared-context.js").SharedWebGLContext;
+
+    beforeEach(async () => {
+      const mod = await import("../shared-context.js");
+      SharedWebGLContext = mod.SharedWebGLContext;
+    });
+
+    it("creates terminal with sharedContext option without throwing", () => {
+      const ctx = new SharedWebGLContext();
+      expect(() => {
+        const t = make(container, { sharedContext: ctx, paneId: "pane-1" });
+        t.dispose();
+      }).not.toThrow();
+      ctx.dispose();
+    });
+
+    it("registers with shared context on creation", () => {
+      const ctx = new SharedWebGLContext();
+      const t = make(container, { sharedContext: ctx, paneId: "pane-a" });
+      expect(ctx.getTerminalIds()).toContain("pane-a");
+      t.dispose();
+      ctx.dispose();
+    });
+
+    it("unregisters from shared context on dispose", () => {
+      const ctx = new SharedWebGLContext();
+      const t = make(container, { sharedContext: ctx, paneId: "pane-b" });
+      expect(ctx.getTerminalIds()).toContain("pane-b");
+      t.dispose();
+      expect(ctx.getTerminalIds()).not.toContain("pane-b");
+      ctx.dispose();
+    });
+
+    it("does not create its own WebGL renderer in shared mode", () => {
+      const ctx = new SharedWebGLContext();
+      const t = make(container, { sharedContext: ctx, paneId: "pane-c" });
+      // getCellSize() should still work — it delegates to the shared context
+      const size = t.getCellSize();
+      expect(size.width).toBeGreaterThan(0);
+      expect(size.height).toBeGreaterThan(0);
+      t.dispose();
+      ctx.dispose();
+    });
+  });
+
   // ---- Resize content preservation ---------------------------------------
 
   describe("resize content preservation", () => {

@@ -27,25 +27,25 @@ interface Props {
 // Component
 // ---------------------------------------------------------------------------
 
-export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onComplete }: Props) {
+export function MuxBenchmarkRunner({ config, onResult, onProgress, onComplete }: Props) {
   const [activeTerminal, setActiveTerminal] = useState<MultiPaneConfig | null>(null);
   const [currentRun, setCurrentRun] = useState(0);
   const paneRef = useRef<TerminalPaneHandle>(null);
   const xtermRefs = useRef<Map<number, TerminalApi>>(new Map());
-  const wsRefs = useRef<WebSocket[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
   const runningRef = useRef(false);
   const cancelledRef = useRef(false);
   const { startTracking, recordWrite, recordDone, waitForIdle, stopTracking } = useMetrics();
 
-  const cleanupWebSockets = useCallback(() => {
-    for (const ws of wsRefs.current) {
+  const cleanupWebSocket = useCallback(() => {
+    if (wsRef.current) {
       try {
-        ws.close();
+        wsRef.current.close();
       } catch {
         /* ignore */
       }
+      wsRef.current = null;
     }
-    wsRefs.current = [];
   }, []);
 
   const runSingle = useCallback(
@@ -73,98 +73,98 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
 
       return new Promise<MultiPaneResult>((resolve, reject) => {
         const { terminal, scenario, paneCount } = cfg;
-        let completedPanes = 0;
-        let totalServerMs = 0;
         let settled = false;
 
         const timeout = setTimeout(() => {
           if (settled) return;
           settled = true;
           stillRunning = false;
-          cleanupWebSockets();
-          reject(new Error("Multi-pane benchmark timed out after 180s"));
+          cleanupWebSocket();
+          reject(new Error("Mux benchmark timed out after 180s"));
         }, 180_000);
 
-        for (let i = 0; i < paneCount; i++) {
-          const ws = new WebSocket(WS_URL);
-          ws.binaryType = "arraybuffer";
-          wsRefs.current.push(ws);
+        // Single WebSocket — mux mode
+        const ws = new WebSocket(WS_URL);
+        ws.binaryType = "arraybuffer";
+        wsRef.current = ws;
 
-          ws.onopen = () => {
-            ws.send(JSON.stringify({ type: "start", scenario }));
-          };
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "start-mux", scenario, paneCount }));
+        };
 
-          ws.onmessage = async (event) => {
-            if (settled) return;
-            if (event.data instanceof ArrayBuffer) {
-              const buf = event.data as ArrayBuffer;
-              recordWrite(buf.byteLength);
+        ws.onmessage = async (event) => {
+          if (settled) return;
 
-              const data = new Uint8Array(buf);
-              if (terminal === "react-term") {
-                paneRef.current?.getTerminal(`pane-${i}`)?.write(data);
-              } else {
-                xtermRefs.current.get(i)?.write(data);
-              }
+          if (event.data instanceof ArrayBuffer) {
+            const buf = event.data as ArrayBuffer;
+            if (buf.byteLength < 2) return;
+
+            // First 2 bytes: LE pane index
+            const header = new DataView(buf);
+            const paneIndex = header.getUint16(0, true);
+            const payload = new Uint8Array(buf, 2);
+
+            recordWrite(payload.byteLength);
+
+            if (terminal === "react-term") {
+              paneRef.current?.getTerminal(`pane-${paneIndex}`)?.write(payload);
             } else {
-              let msg: { type?: string; serverElapsedMs?: number; totalBytes?: number };
-              try {
-                msg = JSON.parse(event.data as string);
-              } catch {
-                return;
-              }
-              if (
-                msg?.type === "done" &&
-                typeof msg.serverElapsedMs === "number" &&
-                typeof msg.totalBytes === "number"
-              ) {
-                completedPanes++;
-                totalServerMs = Math.max(totalServerMs, msg.serverElapsedMs);
-
-                if (completedPanes === paneCount) {
-                  settled = true;
-                  recordDone(totalServerMs);
-                  const metrics = await waitForIdle();
-                  stillRunning = false;
-                  clearTimeout(timeout);
-                  cleanupWebSockets();
-                  stopTracking();
-
-                  const maxDelay = delays.reduce((a, b) => Math.max(a, b), 0);
-                  const responsiveness: MultiPaneResponsiveness = {
-                    avgSetTimeoutDelay:
-                      delays.length > 0 ? delays.reduce((a, b) => a + b, 0) / delays.length : 0,
-                    maxSetTimeoutDelay: maxDelay,
-                    samples: delays.length,
-                  };
-
-                  resolve({
-                    terminal,
-                    scenario,
-                    paneCount,
-                    run,
-                    metrics,
-                    responsiveness,
-                    timestamp: Date.now(),
-                  });
-                }
-              }
+              xtermRefs.current.get(paneIndex)?.write(payload);
             }
-          };
+          } else {
+            let msg: { type?: string; serverElapsedMs?: number; totalBytes?: number };
+            try {
+              msg = JSON.parse(event.data as string);
+            } catch {
+              return;
+            }
 
-          ws.onerror = () => {
-            if (settled) return;
-            settled = true;
-            stillRunning = false;
-            clearTimeout(timeout);
-            cleanupWebSockets();
-            stopTracking();
-            reject(new Error(`WebSocket connection failed for pane ${i}`));
-          };
-        }
+            if (
+              msg?.type === "done-mux" &&
+              typeof msg.serverElapsedMs === "number" &&
+              typeof msg.totalBytes === "number"
+            ) {
+              settled = true;
+              recordDone(msg.serverElapsedMs);
+              const metrics = await waitForIdle();
+              stillRunning = false;
+              clearTimeout(timeout);
+              cleanupWebSocket();
+              stopTracking();
+
+              const maxDelay = delays.reduce((a, b) => Math.max(a, b), 0);
+              const responsiveness: MultiPaneResponsiveness = {
+                avgSetTimeoutDelay:
+                  delays.length > 0 ? delays.reduce((a, b) => a + b, 0) / delays.length : 0,
+                maxSetTimeoutDelay: maxDelay,
+                samples: delays.length,
+              };
+
+              resolve({
+                terminal,
+                scenario,
+                paneCount,
+                run,
+                metrics,
+                responsiveness,
+                timestamp: Date.now(),
+              });
+            }
+          }
+        };
+
+        ws.onerror = () => {
+          if (settled) return;
+          settled = true;
+          stillRunning = false;
+          clearTimeout(timeout);
+          cleanupWebSocket();
+          stopTracking();
+          reject(new Error("Mux WebSocket connection failed"));
+        };
       });
     },
-    [startTracking, recordWrite, recordDone, waitForIdle, stopTracking, cleanupWebSockets],
+    [startTracking, recordWrite, recordDone, waitForIdle, stopTracking, cleanupWebSocket],
   );
 
   useEffect(() => {
@@ -178,7 +178,7 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
       for (let i = 1; i <= runs; i++) {
         if (cancelledRef.current) break;
         onProgress(
-          `Running ${config.terminal} / ${config.scenario} (${config.paneCount} panes, run ${i}/${runs})...`,
+          `Mux: ${config.terminal} / ${config.scenario} (${config.paneCount} panes, run ${i}/${runs})...`,
         );
         try {
           const result = await runSingle(config, i);
@@ -201,10 +201,10 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
 
     return () => {
       cancelledRef.current = true;
-      cleanupWebSockets();
+      cleanupWebSocket();
       stopTracking();
     };
-  }, [config, onResult, onProgress, onComplete, runSingle, stopTracking, cleanupWebSockets]);
+  }, [config, onResult, onProgress, onComplete, runSingle, stopTracking, cleanupWebSocket]);
 
   // Render react-term multi-pane
   if (activeTerminal?.terminal === "react-term") {
@@ -277,9 +277,7 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
         color: "#666",
       }}
     >
-      {config
-        ? `Preparing multi-pane run ${currentRun}...`
-        : "Select a multi-pane benchmark to run"}
+      {config ? `Preparing mux run ${currentRun}...` : "Select a mux benchmark to run"}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import type { Theme } from "@next_term/core";
+import type { SharedWebGLContext } from "@next_term/web";
 import { calculateFit, WebTerminal } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -22,6 +23,10 @@ export interface TerminalProps {
   renderer?: "auto" | "webgl" | "canvas2d";
   /** Whether to use a Web Worker for VT parsing. */
   useWorker?: boolean;
+  /** Shared WebGL context for multi-pane rendering. */
+  sharedContext?: SharedWebGLContext;
+  /** Pane ID within the shared context. Required when sharedContext is provided. */
+  paneId?: string;
 }
 
 export interface TerminalHandle {
@@ -49,6 +54,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     renderMode,
     renderer: rendererProp,
     useWorker,
+    sharedContext,
+    paneId,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -117,6 +124,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       renderMode,
       renderer: rendererProp,
       useWorker,
+      sharedContext,
+      paneId,
       onData: (data: Uint8Array) => onDataRef.current?.(data),
       onResize: (size: { cols: number; rows: number }) => onResizeRef.current?.(size),
       onTitleChange: (title: string) => onTitleChangeRef.current?.(title),
@@ -129,7 +138,19 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       termRef.current = null;
       initialized.current = false;
     };
-  }, [cols, fontFamily, fontSize, renderMode, rendererProp, rows, scrollback, theme, useWorker]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    cols,
+    fontFamily,
+    fontSize,
+    paneId,
+    renderMode,
+    rendererProp,
+    rows,
+    scrollback,
+    sharedContext,
+    theme,
+    useWorker,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update theme when it changes
   useEffect(() => {

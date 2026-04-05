@@ -22,6 +22,7 @@ import { InputHandler } from "./input-handler.js";
 import { canUseOffscreenCanvas, RenderBridge } from "./render-bridge.js";
 import type { HighlightRange, IRenderer, RendererOptions } from "./renderer.js";
 import { Canvas2DRenderer } from "./renderer.js";
+import type { SharedWebGLContext } from "./shared-context.js";
 import { WebGLRenderer } from "./webgl-renderer.js";
 import { WorkerBridge } from "./worker-bridge.js";
 
@@ -61,6 +62,16 @@ export interface WebTerminalOptions {
    * - `'canvas2d'`: force Canvas 2D.
    */
   renderer?: "auto" | "webgl" | "canvas2d";
+  /**
+   * When provided, the terminal registers with a SharedWebGLContext instead
+   * of creating its own renderer. Must be used together with `paneId`.
+   */
+  sharedContext?: SharedWebGLContext;
+  /**
+   * Unique identifier for this pane within a SharedWebGLContext.
+   * Required when `sharedContext` is provided.
+   */
+  paneId?: string;
   /**
    * Render mode selection.
    * - `'auto'` (default): use OffscreenCanvas render worker when SAB +
@@ -108,6 +119,10 @@ export class WebTerminal {
   private addons: ITerminalAddon[] = [];
   private accessibilityManager: AccessibilityManager | null = null;
 
+  /** SharedWebGLContext when using shared multi-pane rendering, null otherwise. */
+  private sharedContext: SharedWebGLContext | null = null;
+  /** Pane ID within the SharedWebGLContext. */
+  private paneId: string | null = null;
   /** WorkerBridge when using off-thread parsing, null otherwise. */
   private workerBridge: WorkerBridge | null = null;
   /** RenderBridge when using off-thread rendering, null otherwise. */
@@ -143,8 +158,10 @@ export class WebTerminal {
   constructor(container: HTMLElement, options?: WebTerminalOptions) {
     this.container = container;
 
-    const cols = options?.cols ?? DEFAULT_COLS;
-    const rows = options?.rows ?? DEFAULT_ROWS;
+    const MAX_COLS = 500;
+    const MAX_ROWS = 500;
+    const cols = Math.min(options?.cols ?? DEFAULT_COLS, MAX_COLS);
+    const rows = Math.min(options?.rows ?? DEFAULT_ROWS, MAX_ROWS);
     const fontSize = options?.fontSize ?? DEFAULT_FONT_SIZE;
     const fontFamily = options?.fontFamily ?? DEFAULT_FONT_FAMILY;
     const theme = mergeTheme(options?.theme);
@@ -176,10 +193,6 @@ export class WebTerminal {
     this.canvas.style.display = "block";
     container.style.position = container.style.position || "relative";
     container.style.overflow = "hidden";
-    container.appendChild(this.canvas);
-
-    // Create scrollbar overlay
-    this.createScrollbar(container);
 
     // Create renderer based on selected backend
     const rendererType = options?.renderer ?? "auto";
@@ -190,7 +203,40 @@ export class WebTerminal {
       devicePixelRatio: options?.devicePixelRatio,
     };
 
-    if (this.useOffscreenRender && this.bufferSet.active.grid.isShared) {
+    if (options?.sharedContext && options?.paneId) {
+      // Shared WebGL context mode: register with the shared context
+      // instead of creating our own renderer.
+      this.sharedContext = options.sharedContext;
+      this.paneId = options.paneId;
+
+      const grid = this.bufferSet.active.grid;
+      const cursor = this.bufferSet.active.cursor;
+      this.sharedContext.addTerminal(this.paneId, grid, cursor);
+
+      // The canvas is not appended to the DOM — shared context owns the canvas.
+      // But we still need a container div for input handling.
+      container.appendChild(this.canvas);
+      // Hide the per-pane canvas since the shared context canvas is the overlay.
+      this.canvas.style.display = "none";
+
+      // Create a no-op renderer that delegates getCellSize() to the shared context.
+      const sharedCtx = this.sharedContext;
+      this.renderer = {
+        getCellSize: () => sharedCtx.getCellSize(),
+        attach: () => {},
+        render: () => {},
+        resize: () => {},
+        startRenderLoop: () => {},
+        stopRenderLoop: () => {},
+        dispose: () => {},
+        setTheme: () => {},
+        setFont: () => {},
+        setSelection: () => {},
+        setHighlights: () => {},
+      };
+    } else if (this.useOffscreenRender && this.bufferSet.active.grid.isShared) {
+      container.appendChild(this.canvas);
+
       // Full worker mode: rendering happens in a Web Worker via RenderBridge.
       // We still need a main-thread renderer for getCellSize() measurements.
       this.renderer = new Canvas2DRenderer(rendererOpts);
@@ -214,17 +260,32 @@ export class WebTerminal {
       // Sync cursor into SAB so the render worker can read it
       this.syncCursorToSAB();
     } else {
+      container.appendChild(this.canvas);
+
       if (rendererType === "webgl") {
         this.renderer = new WebGLRenderer(rendererOpts);
       } else if (rendererType === "canvas2d") {
         this.renderer = new Canvas2DRenderer(rendererOpts);
       } else {
-        // 'auto': try WebGL2 first, fall back to Canvas 2D
+        // 'auto': try WebGL2 first, fall back to Canvas 2D.
+        // Exclude software renderers (SwiftShader/llvmpipe) — Canvas2D
+        // is significantly faster than WebGL2 on software rasterizers.
         let useWebGL = false;
         try {
           const testCanvas = document.createElement("canvas");
           const testGl = testCanvas.getContext("webgl2");
-          useWebGL = testGl !== null;
+          if (testGl) {
+            useWebGL = true;
+            const debugInfo = testGl.getExtension("WEBGL_debug_renderer_info");
+            if (debugInfo) {
+              const renderer = testGl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
+              if (/swiftshader|llvmpipe|software/i.test(renderer)) {
+                useWebGL = false;
+              }
+            }
+            // Lose the test context so it doesn't count against Chrome's limit
+            testGl.getExtension("WEBGL_lose_context")?.loseContext();
+          }
         } catch {
           // WebGL2 not available
         }
@@ -234,6 +295,9 @@ export class WebTerminal {
       }
       this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
     }
+
+    // Create scrollbar overlay
+    this.createScrollbar(container);
 
     // Create input handler
     this.inputHandler = new InputHandler({
@@ -307,7 +371,9 @@ export class WebTerminal {
             ? this.bufferSet.alternate.cursor
             : this.bufferSet.normal.cursor;
 
-          if (this.renderBridge) {
+          if (this.sharedContext && this.paneId) {
+            this.sharedContext.updateTerminal(this.paneId, activeGrid, activeCursor);
+          } else if (this.renderBridge) {
             // In offscreen mode, update the render worker's SAB reference
             this.renderBridge.resize(
               activeGrid.cols,
@@ -457,7 +523,9 @@ export class WebTerminal {
       const activeGrid = this.bufferSet.active.grid;
       const activeCursor = this.bufferSet.active.cursor;
 
-      if (this.renderBridge) {
+      if (this.sharedContext && this.paneId) {
+        this.sharedContext.updateTerminal(this.paneId, activeGrid, activeCursor);
+      } else if (this.renderBridge) {
         this.renderBridge.resize(
           activeGrid.cols,
           activeGrid.rows,
@@ -476,12 +544,15 @@ export class WebTerminal {
     if (this.disposed) return;
     // Guard against bad values
     if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 1) return;
+    const MAX_COLS = 500;
+    const MAX_ROWS = 500;
+    cols = Math.min(cols, MAX_COLS);
+    rows = Math.min(rows, MAX_ROWS);
 
     const scrollback = this.bufferSet.maxScrollback;
     const oldBufferSet = this.bufferSet;
     const oldGrid = oldBufferSet.active.grid;
     const oldCursor = oldBufferSet.active.cursor;
-    const oldCols = oldBufferSet.cols;
     const oldRows = oldBufferSet.rows;
 
     // Create new buffer set
@@ -492,7 +563,6 @@ export class WebTerminal {
     // When rows grow, content stays at the top.
     const newGrid = this.bufferSet.active.grid;
     const copyRows = Math.min(oldRows, rows);
-    const _copyCols = Math.min(oldCols, cols);
 
     // Determine source start row: if cursor was below the new row count,
     // shift content up so cursor remains visible.
@@ -533,7 +603,14 @@ export class WebTerminal {
       });
     }
 
-    if (this.renderBridge) {
+    if (this.sharedContext && this.paneId) {
+      // Update the shared context with the new grid/cursor after resize
+      this.sharedContext.updateTerminal(
+        this.paneId,
+        this.bufferSet.active.grid,
+        this.bufferSet.active.cursor,
+      );
+    } else if (this.renderBridge) {
       // Notify render worker of resize with new SAB
       this.renderBridge.resize(
         cols,
@@ -796,6 +873,12 @@ export class WebTerminal {
 
     for (const addon of this.addons) addon.dispose();
     this.addons = [];
+
+    if (this.sharedContext && this.paneId) {
+      this.sharedContext.removeTerminal(this.paneId);
+      this.sharedContext = null;
+      this.paneId = null;
+    }
 
     if (this.workerBridge) {
       this.workerBridge.dispose();

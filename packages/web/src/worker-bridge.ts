@@ -17,10 +17,10 @@ import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 // ---- Flow-control constants ------------------------------------------------
 
 /** Pause sending new writes when pending bytes exceed this threshold. */
-const HIGH_WATERMARK = 500 * 1024; // 500 KB
+const HIGH_WATERMARK = 2 * 1024 * 1024; // 2 MB
 
 /** Resume sending when pending bytes drop below this threshold. */
-const LOW_WATERMARK = 100 * 1024; // 100 KB
+const LOW_WATERMARK = 512 * 1024; // 512 KB
 
 // ---- Feature detection -----------------------------------------------------
 
@@ -92,6 +92,9 @@ export class WorkerBridge {
 
   /**
    * Send raw bytes to the worker for parsing.
+   *
+   * The underlying ArrayBuffer may be transferred (detached) if the view
+   * covers it entirely. Callers must not reuse `data` after this call.
    */
   write(data: Uint8Array): void {
     if (this.disposed || !this.worker) return;
@@ -158,8 +161,19 @@ export class WorkerBridge {
   private sendWrite(data: Uint8Array): void {
     if (!this.worker) return;
 
-    // Copy into a transferable ArrayBuffer.
-    const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    // Transfer the underlying ArrayBuffer if the view covers it entirely
+    // (common case: WebSocket ArrayBuffer or freshly-encoded data).
+    // Otherwise copy into a new buffer to avoid detaching shared memory.
+    let buf: ArrayBuffer;
+    if (
+      data.byteOffset === 0 &&
+      data.byteLength === data.buffer.byteLength &&
+      data.buffer instanceof ArrayBuffer
+    ) {
+      buf = data.buffer;
+    } else {
+      buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    }
 
     this.pendingBytes += data.byteLength;
     if (this.pendingBytes >= HIGH_WATERMARK) {
