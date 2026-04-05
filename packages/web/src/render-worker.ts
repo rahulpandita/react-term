@@ -944,6 +944,21 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
         return;
       }
 
+      // Detect software renderers — Canvas2D is faster on SwiftShader/llvmpipe
+      const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+      if (debugInfo) {
+        const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
+        if (/swiftshader|llvmpipe|software/i.test(renderer)) {
+          gl = null;
+          const err = {
+            type: "error" as const,
+            message: `Software renderer detected (${renderer}), falling back`,
+          };
+          (self as unknown as DedicatedWorkerGlobalScope).postMessage(err);
+          return;
+        }
+      }
+
       // Handle context loss on the OffscreenCanvas
       canvas.addEventListener("webglcontextlost", (e: Event) => {
         e.preventDefault();

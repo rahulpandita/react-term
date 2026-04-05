@@ -267,12 +267,25 @@ export class WebTerminal {
       } else if (rendererType === "canvas2d") {
         this.renderer = new Canvas2DRenderer(rendererOpts);
       } else {
-        // 'auto': try WebGL2 first, fall back to Canvas 2D
+        // 'auto': try WebGL2 first, fall back to Canvas 2D.
+        // Exclude software renderers (SwiftShader/llvmpipe) — Canvas2D
+        // is significantly faster than WebGL2 on software rasterizers.
         let useWebGL = false;
         try {
           const testCanvas = document.createElement("canvas");
           const testGl = testCanvas.getContext("webgl2");
-          useWebGL = testGl !== null;
+          if (testGl) {
+            useWebGL = true;
+            const debugInfo = testGl.getExtension("WEBGL_debug_renderer_info");
+            if (debugInfo) {
+              const renderer = testGl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
+              if (/swiftshader|llvmpipe|software/i.test(renderer)) {
+                useWebGL = false;
+              }
+            }
+            // Lose the test context so it doesn't count against Chrome's limit
+            testGl.getExtension("WEBGL_lose_context")?.loseContext();
+          }
         } catch {
           // WebGL2 not available
         }
