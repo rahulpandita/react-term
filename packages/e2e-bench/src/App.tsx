@@ -2,6 +2,7 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BenchmarkRunner } from "./components/BenchmarkRunner.js";
 import { MultiPaneBenchmarkRunner } from "./components/MultiPaneBenchmarkRunner.js";
+import { MuxBenchmarkRunner } from "./components/MuxBenchmarkRunner.js";
 import { ResultsTable } from "./components/ResultsTable.js";
 import { RenderTestPage } from "./RenderTestPage.js";
 import type {
@@ -15,7 +16,7 @@ import { WS_URL } from "./types.js";
 
 const ALL_TERMINALS: TerminalType[] = ["react-term", "xterm", "ghostty"];
 
-type BenchMode = "single" | "multi-pane";
+type BenchMode = "single" | "multi-pane" | "mux";
 
 const PANE_COUNTS = [2, 4, 8, 16, 32] as const;
 
@@ -38,7 +39,9 @@ export function App() {
 function BenchmarkApp() {
   const [mode, setMode] = useState<BenchMode>(() => {
     const urlMode = new URLSearchParams(window.location.search).get("mode");
-    return urlMode === "multi-pane" ? "multi-pane" : "single";
+    if (urlMode === "multi-pane") return "multi-pane";
+    if (urlMode === "mux") return "mux";
+    return "single";
   });
   const [scenarios, setScenarios] = useState<string[]>([]);
   const [selectedTerminal, setSelectedTerminal] = useState<TerminalType | "all">("react-term");
@@ -212,6 +215,23 @@ function BenchmarkApp() {
         >
           Multi-Pane
         </button>
+        <button
+          type="button"
+          onClick={() => setMode("mux")}
+          disabled={status === "running"}
+          data-testid="mode-mux"
+          style={{
+            padding: "6px 16px",
+            background: mode === "mux" ? "#4CAF50" : "#2a2a3e",
+            color: "white",
+            border: "1px solid #444",
+            borderRadius: 4,
+            cursor: status === "running" ? "not-allowed" : "pointer",
+            fontSize: 13,
+          }}
+        >
+          Mux
+        </button>
       </div>
 
       <div
@@ -255,7 +275,7 @@ function BenchmarkApp() {
           </select>
         </label>
 
-        {mode === "multi-pane" && (
+        {(mode === "multi-pane" || mode === "mux") && (
           <label style={labelStyle}>
             Panes
             <select
@@ -356,15 +376,24 @@ function BenchmarkApp() {
       )}
 
       <div style={{ marginBottom: 24 }}>
-        {mode === "single" ? (
+        {mode === "single" && (
           <BenchmarkRunner
             config={config}
             onResult={handleResult}
             onProgress={setProgress}
             onComplete={handleRunComplete}
           />
-        ) : (
+        )}
+        {mode === "multi-pane" && (
           <MultiPaneBenchmarkRunner
+            config={multiPaneConfig}
+            onResult={handleMultiPaneResult}
+            onProgress={setProgress}
+            onComplete={handleMultiPaneRunComplete}
+          />
+        )}
+        {mode === "mux" && (
+          <MuxBenchmarkRunner
             config={multiPaneConfig}
             onResult={handleMultiPaneResult}
             onProgress={setProgress}
@@ -375,6 +404,7 @@ function BenchmarkApp() {
 
       {mode === "single" && <ResultsTable results={results} />}
       {mode === "multi-pane" && <MultiPaneResultsTable results={multiPaneResults} />}
+      {mode === "mux" && <MultiPaneResultsTable results={multiPaneResults} />}
     </div>
   );
 }
