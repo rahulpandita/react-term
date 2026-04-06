@@ -1,1 +1,1 @@
-h:40475 WebGLRenderer:2-draw-calls(bg-rects+fg-glyphs),GlyphAtlas(alpha-only,OffscreenCanvas,cache-by-codepoint+bold+italic),instance-buffers,hexToFloat4,glyphCacheKey,GlyphInfo:{u,v,w,h,pw,ph}. SharedWebGLContext:scissor-per-pane,viewport-rect,bypasses-16-ctx-limit.
+h:48317 WebGLRenderer:2-draw-calls(bg-rects+fg-glyphs),GlyphAtlas(alpha-only,OffscreenCanvas,cache-by-codepoint+bold+italic),instance-buffers(BG=6floats,Glyph=12floats),hexToFloat4,glyphCacheKey,GlyphInfo:{u,v,w,h,pw,ph}. createRenderer('auto'|'webgl'|'canvas2d').

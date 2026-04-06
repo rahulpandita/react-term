@@ -1,1 +1,1 @@
-h:33726 README:overview,features(kitty:1+2+4+8+16),quickstart,pkgs,arch,render,addons,multipane,OSC,DCS
+h:5806 README:overview,features(kitty:1+2+4+8+16+SAB+WebGL2+a11y+addons+multi-pane+OSC+DCS+bracketed-paste+sync-output),quickstart,pkgs(core/web/react/native),arch(3-strategies),addons,multi-pane,dev,bench(frameTimeP50/frameTimeP99/timeToIdleMs,multi-pane:2-4-8-16-32),design-decisions

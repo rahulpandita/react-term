@@ -1,0 +1,1 @@
+h:35500 SharedWebGLContext:single-WebGL2-ctx-for-multi-pane,bypasses-Chrome-16-ctx-limit. API:constructor({fontSize,fontFamily,theme})/init()/getCanvas()/addTerminal(id,grid,cursor)/setViewport(id,x,y,w,h)/removeTerminal(id)/startRenderLoop()/stopRenderLoop()/syncCanvasSize(w,h)/setTheme(partial)/dispose(). Batched rendering:all-pane-instances-in-one-buffer,gl.scissor-per-pane.

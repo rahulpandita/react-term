@@ -1,1 +1,1 @@
-h:7192 WorkerBridge:parser-worker-lifecycle,start/write/resize/dispose,SAB-init,HIGH_WATERMARK=500KB,LOW_WATERMARK=100KB,writeQueue,pendingBytes,isPaused,pendingByteCount. FlushMessage->onFlush(isAlternate). updateGrid/updateCursor for resize.
+h:7738 WorkerBridge:parser-worker-lifecycle,start/write/resize/dispose,SAB-init,HIGH_WATERMARK=2MB,LOW_WATERMARK=512KB,writeQueue,pendingBytes,isPaused,pendingByteCount. FlushMessage->onFlush(isAlternate). updateGrid/updateCursor for resize.

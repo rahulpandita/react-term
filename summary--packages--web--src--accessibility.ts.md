@@ -1,1 +1,1 @@
-h:6833 AccessibilityManager:parallel-DOM,role=grid,aria-live,throttle-100ms,10Hz,extractRowText. CSS:position-absolute,clip-rect,opacity-0,pointer-events-none. rows=rowElements. schedule()/flush().
+h:6700 AccessibilityManager:parallel-DOM,role=grid,aria-live,throttle-100ms,10Hz,extractRowText. CSS:position-absolute,clip-rect,opacity-0,pointer-events-none. rows=rowElements. schedule()/flush(). liveRegion:role=log,aria-live=polite.

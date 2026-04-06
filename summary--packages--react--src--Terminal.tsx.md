@@ -1,1 +1,1 @@
-h:6351 Terminal:forwardRef,TerminalProps(cols/rows/fontSize/fontFamily/theme/scrollback/onData/onResize/onTitleChange/autoFit/className/style/renderMode/renderer/useWorker),TerminalHandle(write/resize/focus/blur/fit). autoFit via ResizeObserver+visualViewport.
+h:6743 Terminal:forwardRef,TerminalProps(cols/rows/fontSize/fontFamily/theme/scrollback/onData/onResize/onTitleChange/autoFit/className/style/renderMode/renderer/useWorker/sharedContext/paneId),TerminalHandle(write/resize/focus/blur/fit). autoFit:ResizeObserver+visualViewport(iOS). StrictMode-safe(initialized-ref).

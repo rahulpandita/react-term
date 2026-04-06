@@ -1,1 +1,1 @@
-h:28431 WebTerminal:cols,rows,theme,useWorker,renderer,renderMode,onData,syncParserModes
+h:31869 WebTerminal:cols,rows,theme,useWorker,renderer,renderMode,sharedContext+paneId,onData/onResize/onTitleChange. scrollbackViewport+displayGrid+scrollbarOverlay(1.5s-autohide). WorkerBridge+RenderBridge+AccessibilityManager+InputHandler. write/resize/setTheme/setFont/loadAddon/dispose/focus/blur/getCellSize.
