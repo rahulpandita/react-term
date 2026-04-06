@@ -123,12 +123,13 @@ pnpm --filter @next_term/e2e-bench bench   # E2E benchmarks (vs xterm.js)
 
 #### Benchmark Metrics
 
-E2E benchmarks report three frame-timing metrics (all in ms, lower is better):
+E2E benchmarks report four frame-timing metrics (all in ms, lower is better):
 
 | Metric | Field | Meaning |
 |--------|-------|---------|
 | **Frame Time p50** | `frameTimeP50` | Median frame interval — measures smoothness during streaming |
-| **Frame Time p99** | `frameTimeP99` | 99th-percentile frame interval — jank indicator |
+| **Frame Time p90** | `frameTimeP90` | 90th-percentile frame interval — early jank indicator |
+| **Frame Time p99** | `frameTimeP99` | 99th-percentile frame interval — worst-case jank indicator |
 | **Time to Idle** | `timeToIdleMs` | Time from the last data byte to render idle — measures perceived latency |
 
 > **Why not FPS?** rAF-based FPS penalizes terminals for *correctly* batching renders during bulk
@@ -137,6 +138,18 @@ E2E benchmarks report three frame-timing metrics (all in ms, lower is better):
 > without this bias.
 
 The multi-pane stress test runs configurations with **2, 4, 8, 16, and 32 panes** simultaneously.
+
+#### Benchmark Modes
+
+| Mode | URL param | Description |
+|------|-----------|-------------|
+| **Single** | `?mode=single` | One terminal vs xterm.js — throughput, frame time, idle latency |
+| **Multi-pane** | `?mode=multi-pane` | N terminals sharing one WebGL context — scales from 2 to 32 panes |
+| **Mux** | `?mode=mux` | Single WebSocket delivers interleaved data for N panes — simulates a terminal multiplexer (tmux/screen) |
+
+#### Resize Cap
+
+`WebTerminal` silently clamps dimensions to **500 columns × 500 rows** (`MAX_COLS` / `MAX_ROWS`). Requests above this limit are clamped and the `onResize` callback fires with the clamped values.
 
 ## Documentation
 

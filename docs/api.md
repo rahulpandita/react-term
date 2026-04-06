@@ -1,5 +1,43 @@
 # API Reference
 
+## React Component Props
+
+### `Terminal` — `sharedContext` and `paneId`
+
+Two new optional props allow multiple `Terminal` instances to share a single WebGL context, avoiding Chrome's 16-context limit without using the higher-level `TerminalPane` layout component.
+
+```ts
+import { SharedWebGLContext } from '@next_term/web';
+import { Terminal } from '@next_term/react';
+
+const sharedCtx = new SharedWebGLContext();
+
+// Both terminals share one GL context:
+<Terminal sharedContext={sharedCtx} paneId="left" onData={...} />
+<Terminal sharedContext={sharedCtx} paneId="right" onData={...} />
+```
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `sharedContext` | `SharedWebGLContext \| undefined` | Shared WebGL context to use for rendering. When provided, `paneId` must also be set. |
+| `paneId` | `string \| undefined` | Unique identifier for this terminal within the shared context. Required when `sharedContext` is provided. |
+
+`TerminalPane` now automatically creates and manages a `SharedWebGLContext` internally — these props are only needed when composing terminals manually outside of `TerminalPane`.
+
+### Software Renderer Auto-Detection
+
+`WebTerminal` detects software WebGL renderers (e.g. SwiftShader in headless Chromium, virtual machines) and automatically falls back to the **Canvas 2D** renderer. This ensures correct rendering in CI pipelines and VMs that lack a real GPU.
+
+```ts
+import { WebTerminal } from '@next_term/web';
+
+// renderer: 'auto' (default) — Canvas 2D is chosen automatically on software renderers:
+const term = new WebTerminal(container, { renderer: 'auto' });
+
+// Force WebGL2 even on software renderers (not recommended):
+const term = new WebTerminal(container, { renderer: 'webgl' });
+```
+
 ## Utilities
 
 ### `collectPaneIds`
