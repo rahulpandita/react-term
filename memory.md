@@ -1,1 +1,1 @@
-2026-04-05 run 23993607231. Tasks 2+3+7. 1466->1468. PR test-assist/canvas2d-rgb-bg-inverse (2t: Canvas2DRenderer RGB bg + RGB bg+inverse). Previous PR #95 (skia-rgb-bg-inverse) merged. #83 open monthly summary.
+2026-04-06 run 24017790403. Tasks 3+7. 1466->1471. PR test-assist/canvas2d-text-attrs-7d3e4a1 (5t: Canvas2DRenderer bold+italic+bold/italic+underline+strikethrough). DrawOp mock extended with font? field captured at fillText time. PR #99 (canvas2d-rgb-bg-inverse, 2t) still open. #83 open monthly summary.
