@@ -121,6 +121,23 @@ pnpm --filter @next_term/bench bench       # Parser benchmarks
 pnpm --filter @next_term/e2e-bench bench   # E2E benchmarks (vs xterm.js)
 ```
 
+#### Benchmark Metrics
+
+E2E benchmarks report three frame-timing metrics (all in ms, lower is better):
+
+| Metric | Field | Meaning |
+|--------|-------|---------|
+| **Frame Time p50** | `frameTimeP50` | Median frame interval — measures smoothness during streaming |
+| **Frame Time p99** | `frameTimeP99` | 99th-percentile frame interval — jank indicator |
+| **Time to Idle** | `timeToIdleMs` | Time from the last data byte to render idle — measures perceived latency |
+
+> **Why not FPS?** rAF-based FPS penalizes terminals for *correctly* batching renders during bulk
+> streaming. Native terminals (Alacritty, Kitty, Ghostty) all produce fewer frames during high
+> throughput, which is the expected behavior. Frame time percentiles measure smoothness directly
+> without this bias.
+
+The multi-pane stress test runs configurations with **2, 4, 8, 16, and 32 panes** simultaneously.
+
 ## Documentation
 
 - [API Reference](docs/api.md) — VTParser callbacks, Kitty keyboard protocol, DCS handlers
