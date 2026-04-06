@@ -9,6 +9,10 @@ import { Canvas2DRenderer } from "../renderer.js";
 // ---------------------------------------------------------------------------
 // Attribute bit constants (mirror renderer.ts private constants)
 // ---------------------------------------------------------------------------
+const ATTR_BOLD = 0x01;
+const ATTR_ITALIC = 0x02;
+const ATTR_UNDERLINE = 0x04;
+const ATTR_STRIKETHROUGH = 0x08;
 const ATTR_INVERSE = 0x40;
 
 // ---------------------------------------------------------------------------
@@ -23,6 +27,7 @@ interface DrawOp {
   fillStyle: string;
   strokeStyle: string;
   globalAlpha: number;
+  font?: string;
 }
 
 function makeMockCtx() {
@@ -60,6 +65,7 @@ function makeMockCtx() {
         fillStyle: ctx.fillStyle,
         strokeStyle: ctx.strokeStyle,
         globalAlpha: ctx.globalAlpha,
+        font: ctx.font,
       });
     },
     stroke() {
@@ -510,6 +516,89 @@ describe("Canvas2DRenderer — color resolution via render", () => {
     // Text should be drawn with palette[2] = DEFAULT_THEME.green
     const textOp = mockCtx.ops.find((o) => o.type === "fillText");
     expect(textOp?.fillStyle).toBe(DEFAULT_THEME.green);
+    renderer.dispose();
+  });
+});
+
+describe("Canvas2DRenderer — text attribute rendering", () => {
+  let mockCtx: MockCtx;
+  let spy: { mockRestore(): void };
+
+  beforeEach(() => {
+    mockCtx = makeMockCtx();
+    spy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(mockCtx as unknown as CanvasRenderingContext2D);
+  });
+
+  afterEach(() => {
+    spy.mockRestore();
+  });
+
+  it("ATTR_BOLD sets bold font for text", () => {
+    const { renderer, grid } = makeRenderer(10, 5);
+    grid.setCell(0, 0, 0x41, 7, 0, ATTR_BOLD); // 'A' with bold
+    mockCtx.ops.length = 0;
+    renderer.render();
+
+    const textOp = mockCtx.ops.find((o) => o.type === "fillText");
+    expect(textOp).toBeDefined();
+    expect(textOp?.font).toContain("bold");
+    expect(textOp?.font).not.toContain("italic");
+    renderer.dispose();
+  });
+
+  it("ATTR_ITALIC sets italic font for text", () => {
+    const { renderer, grid } = makeRenderer(10, 5);
+    grid.setCell(0, 0, 0x41, 7, 0, ATTR_ITALIC); // 'A' with italic
+    mockCtx.ops.length = 0;
+    renderer.render();
+
+    const textOp = mockCtx.ops.find((o) => o.type === "fillText");
+    expect(textOp).toBeDefined();
+    expect(textOp?.font).toContain("italic");
+    expect(textOp?.font).not.toContain("bold");
+    renderer.dispose();
+  });
+
+  it("ATTR_BOLD | ATTR_ITALIC sets both bold and italic font", () => {
+    const { renderer, grid } = makeRenderer(10, 5);
+    grid.setCell(0, 0, 0x41, 7, 0, ATTR_BOLD | ATTR_ITALIC);
+    mockCtx.ops.length = 0;
+    renderer.render();
+
+    const textOp = mockCtx.ops.find((o) => o.type === "fillText");
+    expect(textOp).toBeDefined();
+    expect(textOp?.font).toContain("bold");
+    expect(textOp?.font).toContain("italic");
+    renderer.dispose();
+  });
+
+  it("ATTR_UNDERLINE draws a stroke with fg color", () => {
+    const { renderer, grid } = makeRenderer(10, 5);
+    // fg=1 (red) so underline stroke should use palette[1] = DEFAULT_THEME.red
+    grid.setCell(0, 0, 0x41, 1, 0, ATTR_UNDERLINE);
+    mockCtx.ops.length = 0;
+    renderer.render();
+
+    const strokeOp = mockCtx.ops.find(
+      (o) => o.type === "stroke" && o.strokeStyle === DEFAULT_THEME.red,
+    );
+    expect(strokeOp).toBeDefined();
+    renderer.dispose();
+  });
+
+  it("ATTR_STRIKETHROUGH draws a stroke with fg color", () => {
+    const { renderer, grid } = makeRenderer(10, 5);
+    // fg=2 (green) so strikethrough stroke should use palette[2] = DEFAULT_THEME.green
+    grid.setCell(0, 0, 0x41, 2, 0, ATTR_STRIKETHROUGH);
+    mockCtx.ops.length = 0;
+    renderer.render();
+
+    const strokeOp = mockCtx.ops.find(
+      (o) => o.type === "stroke" && o.strokeStyle === DEFAULT_THEME.green,
+    );
+    expect(strokeOp).toBeDefined();
     renderer.dispose();
   });
 });
