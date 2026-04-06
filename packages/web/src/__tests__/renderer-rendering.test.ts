@@ -512,4 +512,46 @@ describe("Canvas2DRenderer — color resolution via render", () => {
     expect(textOp?.fillStyle).toBe(DEFAULT_THEME.green);
     renderer.dispose();
   });
+
+  it("RGB background color uses rgb(r,g,b) string for bg fillRect", () => {
+    const { renderer, grid } = makeRenderer(10, 5);
+    // bgIsRGB=true: background is a true-color value stored at rgbColors[256+col]
+    // fg stays as default (index 7 → theme.foreground)
+    grid.setCell(0, 0, 0x43, 7, 0, 0, false, true); // codepoint 'C', fgIsRGB=false, bgIsRGB=true
+    grid.rgbColors[256 + 0] = (200 << 16) | (100 << 8) | 50; // rgb(200,100,50)
+    mockCtx.ops.length = 0;
+    renderer.render();
+
+    // A bg fillRect should be drawn using the RGB string (not theme.background)
+    const bgOp = mockCtx.ops.find(
+      (o) => o.type === "fillRect" && o.fillStyle === "rgb(200,100,50)",
+    );
+    expect(bgOp).toBeDefined();
+
+    // Text (codepoint 0x43='C') should use theme.foreground
+    const textOp = mockCtx.ops.find((o) => o.type === "fillText");
+    expect(textOp?.fillStyle).toBe(DEFAULT_THEME.foreground);
+    renderer.dispose();
+  });
+
+  it("RGB background + ATTR_INVERSE: text uses RGB bg color, bg rect uses original fg", () => {
+    const { renderer, grid } = makeRenderer(10, 5);
+    // fgIsRGB=false (fg=index 1, i.e. red palette), bgIsRGB=true, ATTR_INVERSE
+    // After inversion: effective fg = rgb(200,100,50), effective bg = palette[1] (red)
+    grid.setCell(0, 0, 0x44, 1, 0, ATTR_INVERSE, false, true); // codepoint 'D', bg=RGB, ATTR_INVERSE
+    grid.rgbColors[256 + 0] = (200 << 16) | (100 << 8) | 50; // rgb(200,100,50) as bg
+    mockCtx.ops.length = 0;
+    renderer.render();
+
+    // After inversion: bg rect should be drawn with original fg (palette[1] = DEFAULT_THEME.red)
+    const bgOp = mockCtx.ops.find(
+      (o) => o.type === "fillRect" && o.fillStyle === DEFAULT_THEME.red,
+    );
+    expect(bgOp).toBeDefined();
+
+    // Text should use the original bg color (rgb(200,100,50)) now acting as fg
+    const textOp = mockCtx.ops.find((o) => o.type === "fillText");
+    expect(textOp?.fillStyle).toBe("rgb(200,100,50)");
+    renderer.dispose();
+  });
 });
