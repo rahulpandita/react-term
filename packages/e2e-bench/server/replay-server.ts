@@ -77,6 +77,79 @@ wss.on('connection', (ws: WebSocket) => {
 
       sendNextChunk();
     }
+
+    // Mux mode: single WebSocket streams data for N panes interleaved.
+    // Each binary frame is prefixed with a 2-byte little-endian pane index.
+    // Chunks are sent round-robin across panes, simulating a terminal
+    // multiplexer (tmux/screen) feeding multiple panes from one connection.
+    if (msg.type === 'start-mux') {
+      const { scenario, paneCount } = msg as { type: string; scenario?: string; paneCount?: number };
+      if (typeof scenario !== 'string' || typeof paneCount !== 'number' || paneCount < 1) {
+        ws.send(JSON.stringify({ type: 'error', message: 'start-mux requires scenario and paneCount' }));
+        return;
+      }
+      const data = payloadMap.get(scenario);
+      if (!data) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Unknown scenario' }));
+        return;
+      }
+
+      const totalBytes = data.byteLength;
+      const totalBytesAllPanes = totalBytes * paneCount;
+      ws.send(JSON.stringify({ type: 'started-mux', scenario, paneCount, totalBytes: totalBytesAllPanes }));
+
+      const startTime = performance.now();
+
+      // Per-pane offsets — each pane gets the full payload
+      const offsets = new Array<number>(paneCount).fill(0);
+      let completedPanes = 0;
+      // Reusable frame buffer: 2-byte header + max chunk
+      const frameBuf = Buffer.alloc(2 + CHUNK_SIZE);
+
+      const sendNextMuxChunk = () => {
+        // Round-robin: send one chunk per pane per round
+        while (completedPanes < paneCount) {
+          let sentThisRound = false;
+          for (let pane = 0; pane < paneCount; pane++) {
+            if (offsets[pane] >= totalBytes) continue;
+
+            // Check backpressure
+            if (ws.bufferedAmount > CHUNK_SIZE * 4) {
+              setTimeout(sendNextMuxChunk, 1);
+              return;
+            }
+
+            const end = Math.min(offsets[pane] + CHUNK_SIZE, totalBytes);
+            const chunkLen = end - offsets[pane];
+
+            // Write 2-byte LE pane index + chunk into reusable buffer
+            frameBuf.writeUInt16LE(pane, 0);
+            frameBuf.set(data.subarray(offsets[pane], end), 2);
+            ws.send(frameBuf.subarray(0, 2 + chunkLen));
+            offsets[pane] = end;
+            sentThisRound = true;
+
+            if (offsets[pane] >= totalBytes) {
+              completedPanes++;
+            }
+          }
+          if (!sentThisRound) break;
+        }
+
+        // All panes done
+        const serverElapsedMs = performance.now() - startTime;
+        ws.send(JSON.stringify({
+          type: 'done-mux',
+          scenario,
+          paneCount,
+          totalBytes: totalBytesAllPanes,
+          serverElapsedMs,
+        }));
+        console.log(`  mux ${scenario} (${paneCount} panes): sent ${(totalBytesAllPanes / 1e6).toFixed(2)} MB in ${serverElapsedMs.toFixed(1)}ms`);
+      };
+
+      sendNextMuxChunk();
+    }
   });
 
   ws.on('close', () => {

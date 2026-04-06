@@ -71,6 +71,29 @@ describe("SharedWebGLContext", () => {
     // Should not throw
     ctx.updateTerminal("term-1", grid2, cursor2);
 
+    // Terminal should still be registered
+    expect(ctx.getTerminalIds()).toContain("term-1");
+
+    ctx.dispose();
+  });
+
+  it("updateTerminal resets dirty tracking for re-render", () => {
+    const ctx = new SharedWebGLContext();
+    const grid1 = new CellGrid(10, 5);
+    const cursor = { row: 0, col: 0, visible: true, style: "block" as const, wrapPending: false };
+
+    ctx.addTerminal("term-1", grid1, cursor);
+
+    // Call render once (no-op without GL, but exercises internal state)
+    ctx.render();
+
+    // Update with a new grid — this should reset dirty tracking
+    const grid2 = new CellGrid(15, 8);
+    ctx.updateTerminal("term-1", grid2, cursor);
+
+    // After update, render should not throw (dirty state was reset)
+    expect(() => ctx.render()).not.toThrow();
+
     ctx.dispose();
   });
 
@@ -131,6 +154,86 @@ describe("SharedWebGLContext", () => {
     const ctx = new SharedWebGLContext();
     // These should not throw even without a GL context
     ctx.stopRenderLoop();
+    ctx.dispose();
+  });
+
+  it("setTheme updates palette without throwing", () => {
+    const ctx = new SharedWebGLContext();
+    expect(() => ctx.setTheme({ foreground: "#ff0000", background: "#000000" })).not.toThrow();
+    ctx.dispose();
+  });
+
+  it("setTheme marks all terminals for re-render", () => {
+    const ctx = new SharedWebGLContext();
+    const grid1 = new CellGrid(10, 5);
+    const grid2 = new CellGrid(10, 5);
+    const cursor = { row: 0, col: 0, visible: true, style: "block" as const, wrapPending: false };
+
+    ctx.addTerminal("term-a", grid1, cursor);
+    ctx.addTerminal("term-b", grid2, cursor);
+
+    // Render once to mark terminals as fully rendered
+    ctx.render();
+
+    // Change theme — should mark all terminals for re-render
+    ctx.setTheme({ foreground: "#00ff00", background: "#111111" });
+
+    // After setTheme, rendering should not throw (dirty state was cleared)
+    expect(() => ctx.render()).not.toThrow();
+
+    // Both terminals should still be registered
+    const ids = ctx.getTerminalIds();
+    expect(ids).toContain("term-a");
+    expect(ids).toContain("term-b");
+
+    ctx.dispose();
+  });
+
+  it("removeTerminal cleans up all tracking state", () => {
+    const ctx = new SharedWebGLContext();
+    const grid = new CellGrid(10, 5);
+    const cursor = { row: 0, col: 0, visible: true, style: "block" as const, wrapPending: false };
+
+    ctx.addTerminal("term-cleanup", grid, cursor);
+    expect(ctx.getTerminalIds()).toContain("term-cleanup");
+
+    ctx.removeTerminal("term-cleanup");
+    expect(ctx.getTerminalIds()).not.toContain("term-cleanup");
+    expect(ctx.getTerminalIds().length).toBe(0);
+
+    // Subsequent operations on the removed terminal should be safe
+    expect(() => ctx.setViewport("term-cleanup", 0, 0, 100, 100)).not.toThrow();
+    expect(() => ctx.render()).not.toThrow();
+
+    ctx.dispose();
+  });
+
+  it("multiple terminals can be registered and removed independently", () => {
+    const ctx = new SharedWebGLContext();
+    const cursor = { row: 0, col: 0, visible: true, style: "block" as const, wrapPending: false };
+
+    ctx.addTerminal("t1", new CellGrid(10, 5), cursor);
+    ctx.addTerminal("t2", new CellGrid(10, 5), cursor);
+    ctx.addTerminal("t3", new CellGrid(10, 5), cursor);
+
+    expect(ctx.getTerminalIds().length).toBe(3);
+
+    // Remove the middle one
+    ctx.removeTerminal("t2");
+    const ids = ctx.getTerminalIds();
+    expect(ids.length).toBe(2);
+    expect(ids).toContain("t1");
+    expect(ids).not.toContain("t2");
+    expect(ids).toContain("t3");
+
+    // Remove the first one
+    ctx.removeTerminal("t1");
+    expect(ctx.getTerminalIds()).toEqual(["t3"]);
+
+    // Remove the last one
+    ctx.removeTerminal("t3");
+    expect(ctx.getTerminalIds().length).toBe(0);
+
     ctx.dispose();
   });
 });

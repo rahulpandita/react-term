@@ -14,12 +14,12 @@ const SCENARIO = 'sgr-color';
 const WARMUP_RUNS = 2;
 const MEASURED_RUNS = 5;
 
-test('multi-pane benchmark matrix', async ({ page }) => {
+test('mux benchmark matrix', async ({ page }) => {
   const allResults: MultiPaneResult[] = [];
 
   for (const terminal of TERMINALS) {
     for (const paneCount of PANE_COUNTS) {
-      await page.goto('http://localhost:5174?mode=multi-pane');
+      await page.goto('http://localhost:5174?mode=mux');
       await expect(page.locator('select').nth(1)).not.toBeEmpty({ timeout: 10_000 });
 
       await page.selectOption('select >> nth=0', terminal);
@@ -49,7 +49,7 @@ test('multi-pane benchmark matrix', async ({ page }) => {
   if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const outPath = path.join(resultsDir, `multi-pane-benchmark-${timestamp}.json`);
+  const outPath = path.join(resultsDir, `mux-benchmark-${timestamp}.json`);
   fs.writeFileSync(outPath, JSON.stringify(allResults, null, 2));
 
   const allGrouped = groupBy(allResults, r => `${r.terminal}|${r.paneCount}`);
@@ -60,7 +60,7 @@ test('multi-pane benchmark matrix', async ({ page }) => {
     grouped.set(key, runs.length > WARMUP_RUNS ? runs.slice(WARMUP_RUNS) : runs);
   }
 
-  // --- Comparison table (using median from computeStats) ---
+  // --- Comparison table ---
   const compCols = [
     'Terminal', 'Panes', 'MB/s', 'Frame p50 (ms)', 'Frame p90 (ms)', 'Frame p99 (ms)',
     'Idle (ms)', 'setTimeout Avg', 'setTimeout Max',
@@ -81,7 +81,7 @@ test('multi-pane benchmark matrix', async ({ page }) => {
     ]);
   }
 
-  printTable('=== Multi-Pane Benchmark Results ===', compCols, compRows);
+  printTable('=== Mux Benchmark Results (single WebSocket, interleaved) ===', compCols, compRows);
 
   // --- Detailed per-run table ---
   const detailCols = [

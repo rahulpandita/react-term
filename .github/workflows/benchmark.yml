@@ -120,9 +120,9 @@ jobs:
             packages/e2e-bench/results/*.json
             e2e-bench-output.txt
 
-  e2e-multi-pane-macos:
-    name: E2E — multi-pane (macOS)
-    runs-on: macos-latest
+  e2e-mux-linux:
+    name: E2E — mux (Linux)
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -136,13 +136,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install Playwright Chromium
         run: pnpm --filter @next_term/e2e-bench exec playwright install chromium --with-deps
-      - name: Run multi-pane benchmarks
-        run: cd packages/e2e-bench && npx playwright test --grep "multi-pane" 2>&1 | tee ../../e2e-bench-output.txt
+      - name: Run mux benchmarks
+        run: cd packages/e2e-bench && npx playwright test --grep "mux benchmark" 2>&1 | tee ../../e2e-bench-output.txt
       - name: Upload results
         uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: e2e-multi-pane-macos-results
+          name: e2e-mux-linux-results
           path: |
             packages/e2e-bench/results/*.json
             e2e-bench-output.txt
@@ -150,7 +150,7 @@ jobs:
   report:
     name: Benchmark Report
     runs-on: ubuntu-latest
-    needs: [parser-bench, e2e-react-term, e2e-xterm, e2e-multi-pane-linux, e2e-multi-pane-macos]
+    needs: [parser-bench, e2e-react-term, e2e-xterm, e2e-multi-pane-linux, e2e-mux-linux]
     if: always()
     steps:
       - uses: actions/download-artifact@v8
@@ -269,10 +269,11 @@ jobs:
               for (const r of jsonResults) {
                 if (!byScenario.has(r.scenario)) byScenario.set(r.scenario, {});
                 const entry = byScenario.get(r.scenario);
-                if (!entry[r.terminal]) entry[r.terminal] = { mbps: [], frameP50: [], frameP99: [], idle: [] };
+                if (!entry[r.terminal]) entry[r.terminal] = { mbps: [], frameP50: [], frameP90: [], frameP99: [], idle: [] };
                 const t = entry[r.terminal];
                 t.mbps.push(r.metrics.throughputMBps);
                 t.frameP50.push(r.metrics.frameTimeP50);
+                t.frameP90.push(r.metrics.frameTimeP90);
                 t.frameP99.push(r.metrics.frameTimeP99);
                 t.idle.push(r.metrics.timeToIdleMs);
               }
@@ -308,6 +309,9 @@ jobs:
 
               report += '### Frame Time p50 — ms (lower is smoother)\n\n';
               report += buildTable('Frame p50', 'ms', t => avg(t.frameP50)) + '\n';
+
+              report += '### Frame Time p90 — ms (lower = less jank)\n\n';
+              report += buildTable('Frame p90', 'ms', t => avg(t.frameP90)) + '\n';
 
               report += '### Frame Time p99 — ms (lower = less jank)\n\n';
               report += buildTable('Frame p99', 'ms', t => avg(t.frameP99)) + '\n';
@@ -367,6 +371,7 @@ jobs:
                 byPane[panes][term] = {
                   mbps: mpAvg(runs.map(r => r.metrics.throughputMBps)),
                   frameP50: mpAvg(runs.map(r => r.metrics.frameTimeP50)),
+                  frameP90: mpAvg(runs.map(r => r.metrics.frameTimeP90)),
                   frameP99: mpAvg(runs.map(r => r.metrics.frameTimeP99)),
                   idle: mpAvg(runs.map(r => r.metrics.timeToIdleMs)),
                   stAvg: mpAvg(runs.map(r => r.responsiveness.avgSetTimeoutDelay)),
@@ -394,6 +399,8 @@ jobs:
               report += mpTable('MB/s', d => d.mbps) + '\n';
               report += '**Frame Time p50 — ms (lower is smoother)**\n\n';
               report += mpTable('ms', d => d.frameP50) + '\n';
+              report += '**Frame Time p90 — ms (lower = less jank)**\n\n';
+              report += mpTable('ms', d => d.frameP90) + '\n';
               report += '**Frame Time p99 — ms (lower = less jank)**\n\n';
               report += mpTable('ms', d => d.frameP99) + '\n';
               report += '**Time to Idle — ms (lower is better)**\n\n';
@@ -406,17 +413,31 @@ jobs:
             }
 
             const mpLinux = loadMpResults('e2e-multi-pane-linux-results');
-            const mpMacos = loadMpResults('e2e-multi-pane-macos-results');
-            const mpResults = mpLinux || mpMacos;
+            const mpResults = mpLinux;
 
-            if (mpLinux || mpMacos) {
-              report += '\n## Multi-Pane Benchmark\n\n';
-              report += 'Measures main thread responsiveness under parallel terminal load.\n\n';
-              renderMpSection('Linux (software rendering)', mpLinux);
-              renderMpSection('macOS (GPU accelerated)', mpMacos);
+            if (mpLinux) {
+              report += '\n## Multi-Pane Benchmark (N WebSockets — stress test)\n\n';
+              report += 'Each pane gets its own WebSocket. Tests event loop under parallel load.\n\n';
+              renderMpSection('Linux (Canvas2D, software rendering)', mpLinux);
             }
 
-            if (!jsonResults && !mpResults) {
+            // --- Mux benchmarks (single WebSocket, interleaved — realistic) ---
+            function loadMuxResults(artifactName) {
+              const dir = path.join('artifacts', artifactName);
+              const files = findJsonFiles(dir).filter(f => f.includes('mux'));
+              if (files.length === 0) return null;
+              try { return JSON.parse(fs.readFileSync(files[files.length - 1], 'utf-8')); } catch { return null; }
+            }
+
+            const muxLinux = loadMuxResults('e2e-mux-linux-results');
+
+            if (muxLinux) {
+              report += '\n## Mux Benchmark (single WebSocket — realistic)\n\n';
+              report += 'Single connection demuxes to N panes, simulating tmux/screen.\n\n';
+              renderMpSection('Linux (Canvas2D, software rendering)', muxLinux);
+            }
+
+            if (!jsonResults && !mpResults && !muxLinux) {
               report += '_E2E benchmark results not available._\n';
             }
 

@@ -219,11 +219,11 @@ describe("WorkerBridge", () => {
       expect(bridge.pendingByteCount).toBe(0);
     });
 
-    it("pauses when pending bytes exceed HIGH_WATERMARK (500KB)", () => {
+    it("pauses when pending bytes exceed HIGH_WATERMARK (2MB)", () => {
       bridge.start(80, 24, 1000);
 
       // Send a chunk large enough to exceed the watermark.
-      const bigChunk = new Uint8Array(500 * 1024);
+      const bigChunk = new Uint8Array(2 * 1024 * 1024);
       bridge.write(bigChunk);
 
       expect(bridge.isPaused).toBe(true);
@@ -233,7 +233,7 @@ describe("WorkerBridge", () => {
       bridge.start(80, 24, 1000);
 
       // Exceed watermark.
-      const bigChunk = new Uint8Array(500 * 1024);
+      const bigChunk = new Uint8Array(2 * 1024 * 1024);
       bridge.write(bigChunk);
       expect(bridge.isPaused).toBe(true);
 
@@ -255,7 +255,7 @@ describe("WorkerBridge", () => {
       bridge.start(80, 24, 1000);
 
       // Exceed watermark.
-      const bigChunk = new Uint8Array(500 * 1024);
+      const bigChunk = new Uint8Array(2 * 1024 * 1024);
       bridge.write(bigChunk);
       expect(bridge.isPaused).toBe(true);
 
@@ -267,7 +267,7 @@ describe("WorkerBridge", () => {
         type: "flush",
         cursor: { row: 0, col: 0, visible: true, style: "block" },
         isAlternate: false,
-        bytesProcessed: 500 * 1024, // flush all of the big chunk
+        bytesProcessed: 2 * 1024 * 1024, // flush all of the big chunk
       });
 
       // Should be unpaused now and the queued write should have been sent.
@@ -283,7 +283,7 @@ describe("WorkerBridge", () => {
     it("resize resets flow control state", () => {
       bridge.start(80, 24, 1000);
 
-      const bigChunk = new Uint8Array(500 * 1024);
+      const bigChunk = new Uint8Array(2 * 1024 * 1024);
       bridge.write(bigChunk);
       expect(bridge.isPaused).toBe(true);
 
