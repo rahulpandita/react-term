@@ -42,9 +42,10 @@ jobs:
       - name: Publish packages
         run: |
           # Publish in dependency order: core → web → react, native
+          # Use pnpm publish to resolve workspace:* → real versions
           for pkg in core web react native; do
             cd packages/$pkg
-            npm publish --tag next
+            pnpm publish --tag next --no-git-checks --access public
             cd ../..
           done
         env:
