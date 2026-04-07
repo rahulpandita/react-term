@@ -353,6 +353,39 @@ describe("WebTerminal", () => {
       t.dispose();
     });
 
+    it("loads multiple non-generic fonts from a fallback list", () => {
+      const loadSpy = vi.fn().mockResolvedValue([]);
+      const checkSpy = vi.fn().mockReturnValue(false);
+      Object.defineProperty(document, "fonts", {
+        value: { load: loadSpy, check: checkSpy },
+        configurable: true,
+      });
+
+      const t = make(container, {
+        fontFamily: "  'Fira Code' , 'JetBrains Mono' , monospace ",
+      });
+      // Should load both non-generic fonts, not monospace
+      const loadedFonts = loadSpy.mock.calls.map((c: string[]) => c[0]);
+      expect(loadedFonts.some((f: string) => f.includes("Fira Code"))).toBe(true);
+      expect(loadedFonts.some((f: string) => f.includes("JetBrains Mono"))).toBe(true);
+      expect(loadedFonts.every((f: string) => !f.includes("monospace"))).toBe(true);
+      t.dispose();
+    });
+
+    it("handles unquoted font names in fallback list", () => {
+      const loadSpy = vi.fn().mockResolvedValue([]);
+      const checkSpy = vi.fn().mockReturnValue(false);
+      Object.defineProperty(document, "fonts", {
+        value: { load: loadSpy, check: checkSpy },
+        configurable: true,
+      });
+
+      const t = make(container, { fontFamily: "Cascadia Code, monospace" });
+      expect(loadSpy).toHaveBeenCalled();
+      expect(loadSpy.mock.calls[0][0]).toContain("Cascadia Code");
+      t.dispose();
+    });
+
     it("re-applies font after async load completes", async () => {
       let resolveLoad: () => void;
       const loadPromise = new Promise<void>((r) => {
