@@ -61,13 +61,12 @@ describe("hexToFloat4", () => {
     expect(result[3]).toBeGreaterThanOrEqual(0);
   });
 
-  it("returns black for unrecognized input (no canvas or invalid color)", () => {
+  it("returns opaque black for unrecognized input", () => {
     const [r, g, b, a] = hexToFloat4("not-a-color");
     expect(r).toBe(0);
     expect(g).toBe(0);
     expect(b).toBe(0);
-    // alpha is 1.0 (no-canvas fallback) or 0 (canvas painted transparent for invalid color)
-    expect(a).toBeGreaterThanOrEqual(0);
+    expect(a).toBe(1.0);
   });
 
   it("converts theme foreground color", () => {

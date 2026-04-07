@@ -85,7 +85,15 @@ export function hexToFloat4(color: string): [number, number, number, number] {
       ctx.fillStyle = color;
       ctx.fillRect(0, 0, 1, 1);
       const d = ctx.getImageData(0, 0, 1, 1).data;
-      return [d[0] / 255, d[1] / 255, d[2] / 255, d[3] / 255];
+      const a = d[3] / 255;
+      if (a === 0) {
+        // Invalid color or fully transparent — return opaque black
+        return [0, 0, 0, 1.0];
+      }
+      // Unpremultiply RGB (getImageData returns premultiplied on some browsers)
+      return a >= 1
+        ? [d[0] / 255, d[1] / 255, d[2] / 255, 1.0]
+        : [d[0] / 255 / a, d[1] / 255 / a, d[2] / 255 / a, a];
     } catch {
       // Partial canvas implementation (e.g., jsdom) — fall through
     }
