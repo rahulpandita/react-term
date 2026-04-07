@@ -695,6 +695,11 @@ export class WebTerminal {
     const { width, height } = this.renderer.getCellSize();
     this.inputHandler.updateCellSize(width, height);
     this.inputHandler.setFontSize(fontSize);
+
+    // If the new font is a web font that hasn't loaded yet, load it
+    // and re-apply once available. The fonts.check() guard in ensureFont
+    // prevents infinite recursion (ensureFont → setFont → ensureFont stops).
+    this.ensureFont(fontFamily, fontSize, fontWeight, fontWeightBold);
   }
 
   /**
@@ -711,22 +716,45 @@ export class WebTerminal {
     if (typeof document === "undefined" || !document.fonts) return;
 
     const weight = fontWeight ?? 400;
-    const fontSpec = `${weight} ${fontSize}px ${fontFamily}`;
 
-    // Already available — nothing to do
-    if (document.fonts.check(fontSpec)) return;
+    // Extract individual font names from the CSS font-family list.
+    // "' Fira Code ', 'JetBrains Mono', monospace" → ["Fira Code", "JetBrains Mono", "monospace"]
+    const families = fontFamily.split(",").map((f) => f.trim().replace(/^['"]|['"]$/g, ""));
 
-    document.fonts
-      .load(fontSpec)
-      .then(() => {
-        if (this.disposed) return;
-        // Font is now available — re-measure cells and clear glyph caches
-        // so they re-rasterize with the correct font on next render.
-        this.setFont(fontSize, fontFamily, fontWeight, fontWeightBold);
-      })
-      .catch(() => {
-        // Font failed to load — continue with fallback
-      });
+    // Try loading each non-generic font. Generic families (monospace, serif, etc.)
+    // are always available and don't need loading.
+    const generics = new Set([
+      "serif",
+      "sans-serif",
+      "monospace",
+      "cursive",
+      "fantasy",
+      "system-ui",
+      "ui-monospace",
+      "ui-serif",
+      "ui-sans-serif",
+      "ui-rounded",
+    ]);
+
+    const toLoad = families.filter((f) => !generics.has(f));
+    if (toLoad.length === 0) return;
+
+    // Check if the primary (first non-generic) font is already available
+    const primarySpec = `${weight} ${fontSize}px '${toLoad[0]}'`;
+    if (document.fonts.check(primarySpec)) return;
+
+    // Load all non-generic fonts in the list
+    const loads = toLoad.map((f) =>
+      document.fonts.load(`${weight} ${fontSize}px '${f}'`).catch(() => {
+        // Individual font failed — continue with others
+      }),
+    );
+
+    Promise.all(loads).then(() => {
+      if (this.disposed) return;
+      // At least one font may now be available — re-measure and re-rasterize.
+      this.setFont(fontSize, fontFamily, fontWeight, fontWeightBold);
+    });
   }
 
   getCellSize(): { width: number; height: number } {
