@@ -29,6 +29,8 @@ export interface TerminalPaneProps {
   theme?: Partial<Theme>;
   fontSize?: number;
   fontFamily?: string;
+  fontWeight?: number;
+  fontWeightBold?: number;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -56,6 +58,8 @@ interface PaneLeafProps {
   theme?: Partial<Theme>;
   fontSize?: number;
   fontFamily?: string;
+  fontWeight?: number;
+  fontWeightBold?: number;
   onRef: (id: string, handle: TerminalHandle | null) => void;
   sharedContext: SharedWebGLContext | null;
 }
@@ -66,6 +70,8 @@ function PaneLeaf({
   theme,
   fontSize,
   fontFamily,
+  fontWeight,
+  fontWeightBold,
   onRef,
   sharedContext,
 }: PaneLeafProps) {
@@ -118,6 +124,8 @@ function PaneLeaf({
         theme={theme}
         fontSize={fontSize}
         fontFamily={fontFamily}
+        fontWeight={fontWeight}
+        fontWeightBold={fontWeightBold}
         onData={handleData}
         sharedContext={sharedContext ?? undefined}
         paneId={sharedContext ? id : undefined}
@@ -137,6 +145,8 @@ interface PaneNodeProps {
   theme?: Partial<Theme>;
   fontSize?: number;
   fontFamily?: string;
+  fontWeight?: number;
+  fontWeightBold?: number;
   onRef: (id: string, handle: TerminalHandle | null) => void;
   sharedContext: SharedWebGLContext | null;
 }
@@ -147,6 +157,8 @@ function PaneNode({
   theme,
   fontSize,
   fontFamily,
+  fontWeight,
+  fontWeightBold,
   onRef,
   sharedContext,
 }: PaneNodeProps) {
@@ -158,6 +170,8 @@ function PaneNode({
         theme={theme}
         fontSize={fontSize}
         fontFamily={fontFamily}
+        fontWeight={fontWeight}
+        fontWeightBold={fontWeightBold}
         onRef={onRef}
         sharedContext={sharedContext}
       />
@@ -202,6 +216,8 @@ function PaneNode({
               theme={theme}
               fontSize={fontSize}
               fontFamily={fontFamily}
+              fontWeight={fontWeight}
+              fontWeightBold={fontWeightBold}
               onRef={onRef}
               sharedContext={sharedContext}
             />
@@ -218,7 +234,17 @@ function PaneNode({
 
 export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   function TerminalPane(props, ref) {
-    const { layout, onData, theme, fontSize, fontFamily, className, style } = props;
+    const {
+      layout,
+      onData,
+      theme,
+      fontSize,
+      fontFamily,
+      fontWeight,
+      fontWeightBold,
+      className,
+      style,
+    } = props;
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalsRef = useRef<Map<string, TerminalHandle>>(new Map());
     const sharedContextRef = useRef<SharedWebGLContext | null>(null);
@@ -339,6 +365,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           theme={theme}
           fontSize={fontSize}
           fontFamily={fontFamily}
+          fontWeight={fontWeight}
+          fontWeightBold={fontWeightBold}
           onRef={handleRef}
           sharedContext={sharedContext}
         />

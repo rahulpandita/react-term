@@ -9,6 +9,10 @@ export interface TerminalProps {
   rows?: number;
   fontSize?: number;
   fontFamily?: string;
+  /** CSS font-weight for normal text (default: 400). */
+  fontWeight?: number;
+  /** CSS font-weight for bold text (default: 700). */
+  fontWeightBold?: number;
   theme?: Partial<Theme>;
   scrollback?: number;
   onData?: (data: Uint8Array) => void;
@@ -43,6 +47,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     rows = 24,
     fontSize = 16,
     fontFamily = "'Courier New', monospace",
+    fontWeight,
+    fontWeightBold,
     theme,
     scrollback = 1000,
     onData,
@@ -119,6 +125,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       rows,
       fontSize,
       fontFamily,
+      fontWeight,
+      fontWeightBold,
       theme,
       scrollback,
       renderMode,
@@ -142,6 +150,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     cols,
     fontFamily,
     fontSize,
+    fontWeight,
+    fontWeightBold,
     paneId,
     renderMode,
     rendererProp,
@@ -162,9 +172,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   // Update font when it changes
   useEffect(() => {
     if (termRef.current) {
-      termRef.current.setFont(fontSize, fontFamily);
+      termRef.current.setFont(fontSize, fontFamily, fontWeight, fontWeightBold);
     }
-  }, [fontSize, fontFamily]);
+  }, [fontSize, fontFamily, fontWeight, fontWeightBold]);
 
   // AutoFit: observe container size via ResizeObserver, debounced with rAF.
   // Also listen to visualViewport resize for iOS keyboard show/hide.

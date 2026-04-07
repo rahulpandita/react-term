@@ -45,6 +45,10 @@ export interface WebTerminalOptions {
   rows?: number;
   fontSize?: number;
   fontFamily?: string;
+  /** CSS font-weight for normal text (default: 400). */
+  fontWeight?: number;
+  /** CSS font-weight for bold text (default: 700). */
+  fontWeightBold?: number;
   theme?: Partial<Theme>;
   scrollback?: number;
   devicePixelRatio?: number;
@@ -112,7 +116,12 @@ export class WebTerminal {
   private renderer: IRenderer & {
     startRenderLoop(): void;
     stopRenderLoop(): void;
-    setFont?(fontSize: number, fontFamily: string): void;
+    setFont?(
+      fontSize: number,
+      fontFamily: string,
+      fontWeight?: number,
+      fontWeightBold?: number,
+    ): void;
   };
   private inputHandler: InputHandler;
   private disposed = false;
@@ -196,11 +205,15 @@ export class WebTerminal {
 
     // Create renderer based on selected backend
     const rendererType = options?.renderer ?? "auto";
+    const fontWeight = options?.fontWeight;
+    const fontWeightBold = options?.fontWeightBold;
     const rendererOpts: RendererOptions = {
       fontSize,
       fontFamily,
       theme,
       devicePixelRatio: options?.devicePixelRatio,
+      fontWeight,
+      fontWeightBold,
     };
 
     if (options?.sharedContext && options?.paneId) {
@@ -662,12 +675,17 @@ export class WebTerminal {
     this.renderer.setTheme(merged);
   }
 
-  setFont(fontSize: number, fontFamily: string): void {
+  setFont(
+    fontSize: number,
+    fontFamily: string,
+    fontWeight?: number,
+    fontWeightBold?: number,
+  ): void {
     if (this.renderBridge) {
-      this.renderBridge.setFont(fontSize, fontFamily);
+      this.renderBridge.setFont(fontSize, fontFamily, fontWeight, fontWeightBold);
     }
     if (this.renderer.setFont) {
-      this.renderer.setFont(fontSize, fontFamily);
+      this.renderer.setFont(fontSize, fontFamily, fontWeight, fontWeightBold);
     }
     const { width, height } = this.renderer.getCellSize();
     this.inputHandler.updateCellSize(width, height);

@@ -144,10 +144,20 @@ export class GlyphAtlas {
 
   private fontSize: number;
   private fontFamily: string;
+  private fontWeight: number;
+  private fontWeightBold: number;
 
-  constructor(fontSize: number, fontFamily: string, initialSize = 512) {
+  constructor(
+    fontSize: number,
+    fontFamily: string,
+    fontWeight = 400,
+    fontWeightBold = 700,
+    initialSize = 512,
+  ) {
     this.fontSize = fontSize;
     this.fontFamily = fontFamily;
+    this.fontWeight = fontWeight;
+    this.fontWeightBold = fontWeightBold;
     this.width = initialSize;
     this.height = initialSize;
 
@@ -269,7 +279,7 @@ export class GlyphAtlas {
   private buildFont(bold: boolean, italic: boolean): string {
     let font = "";
     if (italic) font += "italic ";
-    if (bold) font += "bold ";
+    font += `${bold ? this.fontWeightBold : this.fontWeight} `;
     font += `${this.fontSize}px ${this.fontFamily}`;
     return font;
   }
@@ -503,6 +513,8 @@ export class WebGLRenderer implements IRenderer {
 
   private fontSize: number;
   private fontFamily: string;
+  private fontWeight: number;
+  private fontWeightBold: number;
   private theme: Theme;
   private dpr: number;
   private palette: string[];
@@ -574,6 +586,8 @@ export class WebGLRenderer implements IRenderer {
   constructor(options: RendererOptions) {
     this.fontSize = options.fontSize;
     this.fontFamily = options.fontFamily;
+    this.fontWeight = options.fontWeight ?? 400;
+    this.fontWeightBold = options.fontWeightBold ?? 700;
     this.theme = options.theme ?? DEFAULT_THEME;
     this.dpr =
       options.devicePixelRatio ?? (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1);
@@ -581,7 +595,12 @@ export class WebGLRenderer implements IRenderer {
     this.measureCellSize();
     this.buildPaletteFloat();
 
-    this.atlas = new GlyphAtlas(Math.round(this.fontSize * this.dpr), this.fontFamily);
+    this.atlas = new GlyphAtlas(
+      Math.round(this.fontSize * this.dpr),
+      this.fontFamily,
+      this.fontWeight,
+      this.fontWeightBold,
+    );
 
     // Pre-allocate instance buffers for a reasonable default size
     const maxCells = 80 * 24;
@@ -922,16 +941,28 @@ export class WebGLRenderer implements IRenderer {
     }
   }
 
-  setFont(fontSize: number, fontFamily: string): void {
+  setFont(
+    fontSize: number,
+    fontFamily: string,
+    fontWeight?: number,
+    fontWeightBold?: number,
+  ): void {
     this.fontSize = fontSize;
     this.fontFamily = fontFamily;
+    if (fontWeight !== undefined) this.fontWeight = fontWeight;
+    if (fontWeightBold !== undefined) this.fontWeightBold = fontWeightBold;
     this.measureCellSize();
 
-    // Recreate atlas with new font size
+    // Recreate atlas with new font size/weight
     if (this.gl) {
       this.atlas.dispose(this.gl);
     }
-    this.atlas = new GlyphAtlas(Math.round(this.fontSize * this.dpr), this.fontFamily);
+    this.atlas = new GlyphAtlas(
+      Math.round(this.fontSize * this.dpr),
+      this.fontFamily,
+      this.fontWeight,
+      this.fontWeightBold,
+    );
 
     if (this.grid) {
       this.syncCanvasSize();
@@ -1468,7 +1499,7 @@ export class WebGLRenderer implements IRenderer {
   private buildFontString(bold: boolean, italic: boolean): string {
     let font = "";
     if (italic) font += "italic ";
-    if (bold) font += "bold ";
+    font += `${bold ? this.fontWeightBold : this.fontWeight} `;
     font += `${this.fontSize}px ${this.fontFamily}`;
     return font;
   }

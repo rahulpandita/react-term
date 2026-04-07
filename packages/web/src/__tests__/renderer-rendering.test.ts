@@ -585,7 +585,7 @@ describe("Canvas2DRenderer — text attribute rendering", () => {
 
     const textOp = mockCtx.ops.find((o) => o.type === "fillText");
     expect(textOp).toBeDefined();
-    expect(textOp?.font).toContain("bold");
+    expect(textOp?.font).toContain("700");
     expect(textOp?.font).not.toContain("italic");
     renderer.dispose();
   });
@@ -599,7 +599,7 @@ describe("Canvas2DRenderer — text attribute rendering", () => {
     const textOp = mockCtx.ops.find((o) => o.type === "fillText");
     expect(textOp).toBeDefined();
     expect(textOp?.font).toContain("italic");
-    expect(textOp?.font).not.toContain("bold");
+    expect(textOp?.font).toContain("400");
     renderer.dispose();
   });
 
@@ -611,7 +611,7 @@ describe("Canvas2DRenderer — text attribute rendering", () => {
 
     const textOp = mockCtx.ops.find((o) => o.type === "fillText");
     expect(textOp).toBeDefined();
-    expect(textOp?.font).toContain("bold");
+    expect(textOp?.font).toContain("700");
     expect(textOp?.font).toContain("italic");
     renderer.dispose();
   });

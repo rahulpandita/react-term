@@ -10,6 +10,10 @@ export interface RendererOptions {
   fontFamily: string;
   theme: Theme;
   devicePixelRatio?: number;
+  /** CSS font-weight for normal text (default: 400). */
+  fontWeight?: number;
+  /** CSS font-weight for bold text (default: 700). */
+  fontWeightBold?: number;
 }
 
 export interface HighlightRange {
@@ -111,6 +115,8 @@ export class Canvas2DRenderer implements IRenderer {
 
   private fontSize: number;
   private fontFamily: string;
+  private fontWeight: number;
+  private fontWeightBold: number;
   private theme: Theme;
   private dpr: number;
   private palette: string[];
@@ -128,6 +134,8 @@ export class Canvas2DRenderer implements IRenderer {
   constructor(options: RendererOptions) {
     this.fontSize = options.fontSize;
     this.fontFamily = options.fontFamily;
+    this.fontWeight = options.fontWeight ?? 400;
+    this.fontWeightBold = options.fontWeightBold ?? 700;
     this.theme = options.theme ?? DEFAULT_THEME;
     this.dpr =
       options.devicePixelRatio ?? (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1);
@@ -288,9 +296,16 @@ export class Canvas2DRenderer implements IRenderer {
     }
   }
 
-  setFont(fontSize: number, fontFamily: string): void {
+  setFont(
+    fontSize: number,
+    fontFamily: string,
+    fontWeight?: number,
+    fontWeightBold?: number,
+  ): void {
     this.fontSize = fontSize;
     this.fontFamily = fontFamily;
+    if (fontWeight !== undefined) this.fontWeight = fontWeight;
+    if (fontWeightBold !== undefined) this.fontWeightBold = fontWeightBold;
     this.measureCellSize();
     if (this.grid) {
       this.syncCanvasSize();
@@ -410,7 +425,7 @@ export class Canvas2DRenderer implements IRenderer {
   private buildFontString(bold: boolean, italic: boolean): string {
     let font = "";
     if (italic) font += "italic ";
-    if (bold) font += "bold ";
+    font += `${bold ? this.fontWeightBold : this.fontWeight} `;
     font += `${this.fontSize}px ${this.fontFamily}`;
     return font;
   }
