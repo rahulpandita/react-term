@@ -24,6 +24,27 @@ const sharedCtx = new SharedWebGLContext();
 
 `TerminalPane` now automatically creates and manages a `SharedWebGLContext` internally — these props are only needed when composing terminals manually outside of `TerminalPane`.
 
+### `Terminal` and `TerminalPane` — `fontWeight` and `fontWeightBold`
+
+Two props control the CSS `font-weight` values used when rendering normal and bold text. Both `Terminal` and `TerminalPane` accept them.
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `fontWeight` | `number` | `400` | CSS font-weight for normal text |
+| `fontWeightBold` | `number` | `700` | CSS font-weight for bold text (SGR 1 / `\x1b[1m`) |
+
+```tsx
+<Terminal
+  fontSize={14}
+  fontFamily="'Fira Code', monospace"
+  fontWeight={300}
+  fontWeightBold={600}
+  onData={(data) => socket.send(data)}
+/>
+```
+
+Use cases include matching a thinner UI font (e.g. `fontWeight={300}`) or using a semi-bold style instead of full bold. Both values are threaded through all renderer paths (Canvas 2D, WebGL2, render worker).
+
 ### Software Renderer Auto-Detection
 
 `WebTerminal` detects software WebGL renderers (e.g. SwiftShader in headless Chromium, virtual machines) and automatically falls back to the **Canvas 2D** renderer. This ensures correct rendering in CI pipelines and VMs that lack a real GPU.
@@ -36,6 +57,36 @@ const term = new WebTerminal(container, { renderer: 'auto' });
 
 // Force WebGL2 even on software renderers (not recommended):
 const term = new WebTerminal(container, { renderer: 'webgl' });
+```
+
+### CSS Color Format Support
+
+The WebGL renderer's `hexToFloat4` color parser accepts **any valid CSS color format**. All theme color fields (e.g. `theme.background`, `theme.foreground`, `theme.cursor`, palette entries) can use any of:
+
+| Format | Example |
+|--------|---------|
+| Hex (6-digit) | `#1e1e2e` |
+| Hex (3-digit) | `#123` |
+| `rgb()` comma | `rgb(30, 30, 46)` |
+| `rgb()` space | `rgb(30 30 46)` |
+| `rgba()` | `rgba(30 30 46 / 0.9)` |
+| `hsl()` | `hsl(240 20% 15%)` |
+| `oklch()` | `oklch(20% 0.02 260)` |
+| `color(srgb ...)` | `color(srgb 0.12 0.12 0.18)` |
+| Named colors | `rebeccapurple`, `crimson` |
+
+Hex fast paths (`#rrggbb` / `#rgb`) require no canvas. All other formats are resolved via a 1×1 `OffscreenCanvas` in the render worker, so there is no performance cost on the main thread.
+
+This fixes the "completely black terminal" bug that occurred when theme colors came from `getComputedStyle` or CSS custom properties (e.g. `var(--color-bg)` resolved at runtime).
+
+```ts
+const term = new WebTerminal(container, {
+  theme: {
+    background: 'oklch(20% 0.02 260)',  // any CSS color works
+    foreground: 'rgb(205 214 244)',
+    cursor:     'hsl(267 84% 81%)',
+  },
+});
 ```
 
 ## Utilities
