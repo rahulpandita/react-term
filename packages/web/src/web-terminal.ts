@@ -309,6 +309,11 @@ export class WebTerminal {
       this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
     }
 
+    // Ensure web fonts are available to the canvas/atlas before first render.
+    // Fires asynchronously — if the font loads after first paint, the atlas
+    // is cleared and glyphs are re-rasterized with the correct font (FOUT).
+    this.ensureFont(fontFamily, fontSize, fontWeight, fontWeightBold);
+
     // Create scrollbar overlay
     this.createScrollbar(container);
 
@@ -690,6 +695,38 @@ export class WebTerminal {
     const { width, height } = this.renderer.getCellSize();
     this.inputHandler.updateCellSize(width, height);
     this.inputHandler.setFontSize(fontSize);
+  }
+
+  /**
+   * Load the specified font via the CSS Font Loading API so canvas/OffscreenCanvas
+   * can use it. If the font loads after the atlas has already rasterized glyphs
+   * with the fallback font, clear the atlas and re-measure cells.
+   */
+  private ensureFont(
+    fontFamily: string,
+    fontSize: number,
+    fontWeight?: number,
+    fontWeightBold?: number,
+  ): void {
+    if (typeof document === "undefined" || !document.fonts) return;
+
+    const weight = fontWeight ?? 400;
+    const fontSpec = `${weight} ${fontSize}px ${fontFamily}`;
+
+    // Already available — nothing to do
+    if (document.fonts.check(fontSpec)) return;
+
+    document.fonts
+      .load(fontSpec)
+      .then(() => {
+        if (this.disposed) return;
+        // Font is now available — re-measure cells and clear glyph caches
+        // so they re-rasterize with the correct font on next render.
+        this.setFont(fontSize, fontFamily, fontWeight, fontWeightBold);
+      })
+      .catch(() => {
+        // Font failed to load — continue with fallback
+      });
   }
 
   getCellSize(): { width: number; height: number } {
