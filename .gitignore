@@ -148,4 +148,4 @@ vite.config.ts.timestamp-*
 
 # Playwright MCP
 .playwright-mcp/
-*.png
+*.png.claude/scheduled_tasks.lock
