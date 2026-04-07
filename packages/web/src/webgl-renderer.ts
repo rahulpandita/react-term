@@ -27,31 +27,71 @@ const ATTR_INVERSE = 0x40;
 // Color helpers
 // ---------------------------------------------------------------------------
 
-/** Parse a hex color (#rrggbb or #rgb) to [r, g, b, a] in 0-1 range. */
-export function hexToFloat4(hex: string): [number, number, number, number] {
-  let r = 0,
-    g = 0,
-    b = 0;
-  if (hex.startsWith("#")) {
-    const h = hex.slice(1);
-    if (h.length === 3) {
-      r = parseInt(h[0] + h[0], 16) / 255;
-      g = parseInt(h[1] + h[1], 16) / 255;
-      b = parseInt(h[2] + h[2], 16) / 255;
-    } else if (h.length === 6) {
-      r = parseInt(h.slice(0, 2), 16) / 255;
-      g = parseInt(h.slice(2, 4), 16) / 255;
-      b = parseInt(h.slice(4, 6), 16) / 255;
+/**
+ * Parse any CSS color string to [r, g, b, a] in 0-1 range.
+ *
+ * Fast path for #rrggbb/#rgb hex (no canvas overhead).
+ * All other formats (rgb(), rgba(), hsl(), oklch(), color(), named colors)
+ * are resolved by the browser's native CSS engine via a 1x1 canvas.
+ */
+// Singleton canvas context for CSS color resolution (works in main thread
+// and Web Workers via OffscreenCanvas)
+let _colorCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+let _colorCtxFailed = false;
+
+function getColorCtx(): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null {
+  if (_colorCtx || _colorCtxFailed) return _colorCtx;
+  try {
+    if (typeof OffscreenCanvas !== "undefined") {
+      _colorCtx = new OffscreenCanvas(1, 1).getContext("2d");
+    } else if (typeof document !== "undefined") {
+      const c = document.createElement("canvas");
+      c.width = 1;
+      c.height = 1;
+      _colorCtx = c.getContext("2d");
     }
-  } else if (hex.startsWith("rgb(")) {
-    const m = hex.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-    if (m) {
-      r = parseInt(m[1], 10) / 255;
-      g = parseInt(m[2], 10) / 255;
-      b = parseInt(m[3], 10) / 255;
+  } catch {
+    // No canvas available (SSR / test environment)
+  }
+  if (!_colorCtx) _colorCtxFailed = true;
+  return _colorCtx;
+}
+
+export function hexToFloat4(color: string): [number, number, number, number] {
+  // Fast path: #rrggbb (most common — default theme + 256-palette are all hex)
+  if (color.length === 7 && color.charCodeAt(0) === 0x23 /* # */) {
+    return [
+      parseInt(color.slice(1, 3), 16) / 255,
+      parseInt(color.slice(3, 5), 16) / 255,
+      parseInt(color.slice(5, 7), 16) / 255,
+      1.0,
+    ];
+  }
+  // Fast path: #rgb
+  if (color.length === 4 && color.charCodeAt(0) === 0x23) {
+    return [
+      parseInt(color[1] + color[1], 16) / 255,
+      parseInt(color[2] + color[2], 16) / 255,
+      parseInt(color[3] + color[3], 16) / 255,
+      1.0,
+    ];
+  }
+  // Universal path: let the browser parse any CSS color
+  const ctx = getColorCtx();
+  if (ctx) {
+    try {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = "#000";
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, 1, 1);
+      const d = ctx.getImageData(0, 0, 1, 1).data;
+      return [d[0] / 255, d[1] / 255, d[2] / 255, d[3] / 255];
+    } catch {
+      // Partial canvas implementation (e.g., jsdom) — fall through
     }
   }
-  return [r, g, b, 1.0];
+  // No canvas fallback — return black
+  return [0, 0, 0, 1.0];
 }
 
 /** Build a glyph cache key from codepoint and style flags. */
