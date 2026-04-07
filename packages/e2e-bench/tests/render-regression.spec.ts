@@ -235,6 +235,51 @@ test.describe('rendering regression', () => {
       await expect(canvas.first()).toBeVisible();
     });
 
+    test('hexToFloat4 resolves non-hex CSS color formats in real browser', async ({ page }) => {
+      const result = await page.evaluate(() => {
+        const h = window.__hexToFloat4;
+        if (!h) return null;
+        return {
+          'rgb-space': h('rgb(255 128 0)'),
+          'rgb-comma': h('rgb(255, 128, 0)'),
+          'rgba-slash': h('rgba(255 128 0 / 0.5)'),
+          'hsl': h('hsl(30 100% 50%)'),
+          'named': h('rebeccapurple'),
+          'hex': h('#ff8000'),
+          'invalid': h('not-a-color'),
+        };
+      });
+
+      expect(result).not.toBeNull();
+      if (!result) return;
+
+      // All valid formats should produce non-black colors
+      for (const name of ['rgb-space', 'rgb-comma', 'hsl', 'named', 'hex']) {
+        const [r, g, b] = result[name];
+        expect(r + g + b, `${name} should not be black`).toBeGreaterThan(0);
+      }
+
+      // rgb-space, rgb-comma, and hex should all produce the same orange
+      expect(result['rgb-space'][0]).toBeCloseTo(result['hex'][0], 2);
+      expect(result['rgb-space'][1]).toBeCloseTo(result['hex'][1], 2);
+      expect(result['rgb-space'][2]).toBeCloseTo(result['hex'][2], 2);
+      expect(result['rgb-comma'][0]).toBeCloseTo(result['hex'][0], 2);
+
+      // rgba with alpha should have alpha < 1
+      expect(result['rgba-slash'][3]).toBeCloseTo(0.5, 1);
+
+      // rebeccapurple = (102, 51, 153)
+      expect(result['named'][0]).toBeCloseTo(102 / 255, 2);
+      expect(result['named'][1]).toBeCloseTo(51 / 255, 2);
+      expect(result['named'][2]).toBeCloseTo(153 / 255, 2);
+
+      // Invalid color should return opaque black
+      expect(result['invalid'][0]).toBe(0);
+      expect(result['invalid'][1]).toBe(0);
+      expect(result['invalid'][2]).toBe(0);
+      expect(result['invalid'][3]).toBe(1.0);
+    });
+
     test('canvas2d handles all SGR attributes', async ({ page }) => {
       const error = await page.evaluate(() => {
         try {

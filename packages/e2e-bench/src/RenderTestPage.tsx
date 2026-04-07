@@ -1,5 +1,6 @@
 import type { TerminalHandle, TerminalPaneHandle } from "@next_term/react";
 import { Terminal, TerminalPane } from "@next_term/react";
+import { hexToFloat4 } from "@next_term/web";
 import { useEffect, useRef, useState } from "react";
 
 // Expose refs on window for Playwright to call
@@ -7,9 +8,13 @@ declare global {
   interface Window {
     __termRef?: TerminalHandle | null;
     __paneRef?: TerminalPaneHandle | null;
+    __hexToFloat4?: typeof hexToFloat4;
     __renderTestReady?: boolean;
   }
 }
+
+// Expose hexToFloat4 for Playwright color resolution tests
+window.__hexToFloat4 = hexToFloat4;
 
 export function RenderTestPage() {
   const [mode, setMode] = useState<"single" | "multi" | "canvas2d">("single");
