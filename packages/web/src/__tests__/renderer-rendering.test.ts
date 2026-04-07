@@ -644,3 +644,157 @@ describe("Canvas2DRenderer — text attribute rendering", () => {
     renderer.dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Canvas2DRenderer — render optimization (dirty-row skipping)
+// ---------------------------------------------------------------------------
+
+describe("Canvas2DRenderer — render optimization", () => {
+  let mockCtx: MockCtx;
+  let spy: { mockRestore(): void };
+
+  beforeEach(() => {
+    mockCtx = makeMockCtx();
+    spy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(mockCtx as unknown as CanvasRenderingContext2D);
+  });
+
+  afterEach(() => {
+    spy.mockRestore();
+  });
+
+  it("render() only clears rows that are dirty", () => {
+    // makeRenderer clears all dirty flags after attach.
+    const { renderer, grid } = makeRenderer(80, 24);
+    // Mark only row 5 dirty; cursor is at row 0 (HIDDEN_CURSOR) so it also marks row 0.
+    grid.markDirty(5);
+    mockCtx.clearRect.mockClear();
+
+    renderer.render();
+
+    // clearRect is called once per rendered row, with y = row * CELL_H
+    const renderedYs = mockCtx.clearRect.mock.calls.map((c: number[]) => c[1]);
+    expect(renderedYs).toContain(0 * CELL_H); // cursor row 0 always re-rendered
+    expect(renderedYs).toContain(5 * CELL_H); // explicitly marked dirty
+    // No other rows should have been cleared
+    expect(renderedYs.filter((y: number) => y !== 0 && y !== 5 * CELL_H)).toHaveLength(0);
+    renderer.dispose();
+  });
+
+  it("cursor movement marks old cursor row dirty so the ghost is erased", () => {
+    const cur: CursorState = { row: 3, col: 0, visible: true, style: "block", wrapPending: false };
+    const { renderer, grid } = makeRenderer(80, 24, cur);
+
+    // First render: establishes prevCursorRow = 3 and prevCursorCol = 0
+    grid.markDirty(3);
+    renderer.render();
+
+    // Clear all dirty flags and mockCtx call counts
+    for (let r = 0; r < 24; r++) grid.clearDirty(r);
+    mockCtx.clearRect.mockClear();
+
+    // Move cursor to row 7
+    cur.row = 7;
+    cur.col = 2;
+
+    renderer.render();
+
+    const renderedYs = mockCtx.clearRect.mock.calls.map((c: number[]) => c[1]);
+    // Old cursor row (3) must be re-rendered to erase the cursor ghost
+    expect(renderedYs).toContain(3 * CELL_H);
+    // New cursor row (7) must also be re-rendered to draw the cursor
+    expect(renderedYs).toContain(7 * CELL_H);
+    renderer.dispose();
+  });
+
+  it("render() is a no-op after dispose()", () => {
+    const { renderer } = makeRenderer(10, 5);
+    renderer.dispose();
+    mockCtx.clearRect.mockClear();
+
+    // Should not throw and should not draw anything
+    expect(() => renderer.render()).not.toThrow();
+    expect(mockCtx.clearRect).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canvas2DRenderer — lifecycle (setTheme, setFont, setSelection, setHighlights)
+// ---------------------------------------------------------------------------
+
+describe("Canvas2DRenderer — lifecycle", () => {
+  let mockCtx: MockCtx;
+  let spy: { mockRestore(): void };
+
+  beforeEach(() => {
+    mockCtx = makeMockCtx();
+    spy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(mockCtx as unknown as CanvasRenderingContext2D);
+  });
+
+  afterEach(() => {
+    spy.mockRestore();
+  });
+
+  it("setTheme() marks all grid rows dirty", () => {
+    const { renderer, grid } = makeRenderer(80, 24);
+    // Verify all rows are clean after makeRenderer's explicit clearDirty loop
+    for (let r = 0; r < 24; r++) expect(grid.isDirty(r)).toBe(false);
+
+    renderer.setTheme({ ...DEFAULT_THEME, background: "#000001" });
+
+    for (let r = 0; r < 24; r++) expect(grid.isDirty(r)).toBe(true);
+    renderer.dispose();
+  });
+
+  it("setTheme() without an attached grid does not throw", () => {
+    const renderer = new Canvas2DRenderer({
+      fontSize: 14,
+      fontFamily: "monospace",
+      theme: DEFAULT_THEME,
+    });
+    expect(() => renderer.setTheme({ ...DEFAULT_THEME })).not.toThrow();
+    renderer.dispose();
+  });
+
+  it("setFont() marks all grid rows dirty", () => {
+    const { renderer, grid } = makeRenderer(80, 24);
+    for (let r = 0; r < 24; r++) expect(grid.isDirty(r)).toBe(false);
+
+    renderer.setFont(18, "Courier New");
+
+    for (let r = 0; r < 24; r++) expect(grid.isDirty(r)).toBe(true);
+    renderer.dispose();
+  });
+
+  it("setSelection() marks all grid rows dirty", () => {
+    const { renderer, grid } = makeRenderer(80, 24);
+    for (let r = 0; r < 24; r++) expect(grid.isDirty(r)).toBe(false);
+
+    renderer.setSelection({ startRow: 0, startCol: 0, endRow: 1, endCol: 5 });
+
+    for (let r = 0; r < 24; r++) expect(grid.isDirty(r)).toBe(true);
+    renderer.dispose();
+  });
+
+  it("setHighlights() marks all grid rows dirty", () => {
+    const hl: HighlightRange = { row: 2, startCol: 0, endCol: 4, isCurrent: true };
+    const { renderer, grid } = makeRenderer(80, 24);
+    for (let r = 0; r < 24; r++) expect(grid.isDirty(r)).toBe(false);
+
+    renderer.setHighlights([hl]);
+
+    for (let r = 0; r < 24; r++) expect(grid.isDirty(r)).toBe(true);
+    renderer.dispose();
+  });
+
+  it("dispose() is idempotent — calling it twice does not throw", () => {
+    const { renderer } = makeRenderer(10, 5);
+    expect(() => {
+      renderer.dispose();
+      renderer.dispose();
+    }).not.toThrow();
+  });
+});
