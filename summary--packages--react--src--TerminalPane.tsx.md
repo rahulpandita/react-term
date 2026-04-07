@@ -1,1 +1,1 @@
-h:10265 TerminalPane:forwardRef,TerminalPaneProps(layout/onData/theme/fontSize/fontFamily/className/style),TerminalPaneHandle(getTerminal/getPaneIds). PaneLeaf(viewport-sync-via-ResizeObserver+setViewport)+PaneNode recursive rendering. SharedWebGLContext:init/startRenderLoop/stopRenderLoop/syncCanvasSize/setTheme/dispose. Fallback to per-pane on GL failure.
+h:10870 see summary--packages--react--src--Terminal.tsx.md

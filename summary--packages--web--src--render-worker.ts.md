@@ -1,0 +1,1 @@
+h:31906 see summary--packages--web--src--render-bridge.ts.md for render-worker details. render-worker.ts:DedicatedWorkerGlobalScope,OffscreenCanvas+SAB,WebGL2-rAF-loop. Messages:init/update/resize/theme/font/dispose in,frame/error out. Imports GlyphAtlas+pack*Instance from webgl-renderer.ts.
