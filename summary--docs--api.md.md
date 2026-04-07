@@ -1,0 +1,2 @@
+h:17757 docs/api.md: Terminal-sharedContext(SharedWebGLContext|undefined)+paneId(string|undefined)-props-for-manual-multi-pane-wiring. SoftwareRenderer-autodetection:renderer='auto'-uses-Canvas2D-on-SwiftShader/VMs. collectPaneIds. VTParser-callbacks:OSC52/4/7/8/10/11/12/104/133,DCS,DCS-tmux,DEC2026,Kitty-flags-1/2/4/8/16.
+h:363 vitest:include=packages/*/src/**/*.test.ts, resolve-alias:@next_term/core→packages/core/src/index.ts,@next_term/web→packages/web/src/index.ts

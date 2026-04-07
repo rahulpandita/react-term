@@ -1,1 +1,1 @@
-h:289 vitest:include=packages/*/src/**/*.test.ts, resolve-alias:@next_term/core→packages/core/src/index.ts,@next_term/web→packages/web/src/index.ts
+h:363 see summary--docs--api.md.md for combined vitest+api notes
