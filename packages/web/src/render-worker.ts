@@ -44,6 +44,8 @@ export interface RenderWorkerInitMessage {
   theme: Theme;
   fontSize: number;
   fontFamily: string;
+  fontWeight: number;
+  fontWeightBold: number;
   devicePixelRatio: number;
 }
 
@@ -69,6 +71,8 @@ export interface RenderWorkerFontMessage {
   type: "font";
   fontSize: number;
   fontFamily: string;
+  fontWeight: number;
+  fontWeightBold: number;
 }
 
 export interface RenderWorkerDisposeMessage {
@@ -211,6 +215,8 @@ let rows = 0;
 let dpr = 1;
 let fontSize = 14;
 let fontFamily = "monospace";
+let fontWeight = 400;
+let fontWeightBold = 700;
 let theme: Theme = DEFAULT_THEME;
 let palette: string[] = [];
 let paletteFloat: ColorFloat4[] = [];
@@ -287,7 +293,7 @@ function measureCellSize(): void {
     return;
   }
 
-  ctx.font = `${fontSize}px ${fontFamily}`;
+  ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
   const metrics = ctx.measureText("M");
 
   cellWidth = Math.ceil(metrics.width);
@@ -922,6 +928,8 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       theme = msg.theme;
       fontSize = msg.fontSize;
       fontFamily = msg.fontFamily;
+      fontWeight = msg.fontWeight;
+      fontWeightBold = msg.fontWeightBold;
       dpr = msg.devicePixelRatio;
 
       buildPaletteFloat();
@@ -929,7 +937,7 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
 
       grid = createGridFromSAB(msg.sharedBuffer, cols, rows);
 
-      atlas = new GlyphAtlas(Math.round(fontSize * dpr), fontFamily);
+      atlas = new GlyphAtlas(Math.round(fontSize * dpr), fontFamily, fontWeight, fontWeightBold);
 
       gl = canvas.getContext("webgl2", {
         alpha: false,
@@ -1018,12 +1026,14 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
     case "font": {
       fontSize = msg.fontSize;
       fontFamily = msg.fontFamily;
+      fontWeight = msg.fontWeight;
+      fontWeightBold = msg.fontWeightBold;
       measureCellSize();
 
       if (gl && atlas) {
         atlas.dispose(gl);
       }
-      atlas = new GlyphAtlas(Math.round(fontSize * dpr), fontFamily);
+      atlas = new GlyphAtlas(Math.round(fontSize * dpr), fontFamily, fontWeight, fontWeightBold);
 
       if (gl) {
         initGLResources();

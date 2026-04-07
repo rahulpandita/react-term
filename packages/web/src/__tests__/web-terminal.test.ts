@@ -287,7 +287,7 @@ describe("WebTerminal", () => {
       const spy = vi.spyOn(Canvas2DRenderer.prototype, "setFont");
       const t = make(container);
       t.setFont(18, "Courier New");
-      expect(spy).toHaveBeenCalledWith(18, "Courier New");
+      expect(spy).toHaveBeenCalledWith(18, "Courier New", undefined, undefined);
       t.dispose();
     });
   });

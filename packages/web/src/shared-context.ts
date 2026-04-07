@@ -241,6 +241,8 @@ export class SharedWebGLContext {
 
   private fontSize: number;
   private fontFamily: string;
+  private fontWeight: number;
+  private fontWeightBold: number;
   private dpr: number;
   private cellWidth = 0;
   private cellHeight = 0;
@@ -248,11 +250,15 @@ export class SharedWebGLContext {
   constructor(options?: {
     fontSize?: number;
     fontFamily?: string;
+    fontWeight?: number;
+    fontWeightBold?: number;
     theme?: Partial<Theme>;
     devicePixelRatio?: number;
   }) {
     this.fontSize = options?.fontSize ?? 14;
     this.fontFamily = options?.fontFamily ?? "'Menlo', 'DejaVu Sans Mono', 'Consolas', monospace";
+    this.fontWeight = options?.fontWeight ?? 400;
+    this.fontWeightBold = options?.fontWeightBold ?? 700;
     this.theme = { ...DEFAULT_THEME, ...options?.theme };
     this.dpr =
       options?.devicePixelRatio ?? (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1);
@@ -260,7 +266,12 @@ export class SharedWebGLContext {
     this.buildPaletteFloat();
     this.measureCellSize();
 
-    this.atlas = new GlyphAtlas(Math.round(this.fontSize * this.dpr), this.fontFamily);
+    this.atlas = new GlyphAtlas(
+      Math.round(this.fontSize * this.dpr),
+      this.fontFamily,
+      this.fontWeight,
+      this.fontWeightBold,
+    );
 
     // Pre-allocate instance buffers for batched rendering (all terminals combined)
     const maxCells = 80 * 24 * 4; // start with 4 terminals worth
@@ -980,7 +991,7 @@ export class SharedWebGLContext {
       return;
     }
 
-    const font = `${this.fontSize}px ${this.fontFamily}`;
+    const font = `${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`;
     measureCtx.font = font;
     const metrics = measureCtx.measureText("M");
 

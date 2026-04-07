@@ -34,6 +34,8 @@ export function canUseOffscreenCanvas(): boolean {
 export interface RenderBridgeOptions {
   fontSize: number;
   fontFamily: string;
+  fontWeight?: number;
+  fontWeightBold?: number;
   theme: Theme;
   devicePixelRatio?: number;
   /** Called when the worker reports FPS. */
@@ -79,6 +81,8 @@ export class RenderBridge {
       theme: this.options.theme,
       fontSize: this.options.fontSize,
       fontFamily: this.options.fontFamily,
+      fontWeight: this.options.fontWeight ?? 400,
+      fontWeightBold: this.options.fontWeightBold ?? 700,
       devicePixelRatio:
         this.options.devicePixelRatio ??
         (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1),
@@ -158,13 +162,20 @@ export class RenderBridge {
   /**
    * Update the render worker's font settings.
    */
-  setFont(fontSize: number, fontFamily: string): void {
+  setFont(
+    fontSize: number,
+    fontFamily: string,
+    fontWeight?: number,
+    fontWeightBold?: number,
+  ): void {
     if (this.disposed || !this.worker) return;
 
     const msg: RenderWorkerFontMessage = {
       type: "font",
       fontSize,
       fontFamily,
+      fontWeight: fontWeight ?? 400,
+      fontWeightBold: fontWeightBold ?? 700,
     };
     this.worker.postMessage(msg);
   }

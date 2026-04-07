@@ -183,7 +183,7 @@ describe("packGlyphInstance", () => {
 
 describe("GlyphAtlas", () => {
   it("creates with specified initial size", () => {
-    const atlas = new GlyphAtlas(14, "monospace", 256);
+    const atlas = new GlyphAtlas(14, "monospace", 400, 700, 256);
     expect(atlas.width).toBe(256);
     expect(atlas.height).toBe(256);
   });
