@@ -24,8 +24,10 @@ interface InitMessage {
   cols: number;
   rows: number;
   scrollback: number;
-  /** When SAB is available the main thread sends its buffer. */
+  /** When SAB is available the main thread sends its normal buffer. */
   sharedBuffer?: SharedArrayBuffer;
+  /** When SAB is available the main thread sends its alternate buffer. */
+  sharedAltBuffer?: SharedArrayBuffer;
 }
 
 interface WriteMessage {
@@ -38,6 +40,8 @@ interface ResizeMessage {
   cols: number;
   rows: number;
   scrollback: number;
+  sharedBuffer?: SharedArrayBuffer;
+  sharedAltBuffer?: SharedArrayBuffer;
 }
 
 interface DisposeMessage {
@@ -78,8 +82,14 @@ let usingSAB = false;
 
 // ---- Helpers ---------------------------------------------------------------
 
-function createBufferAndParser(cols: number, rows: number, scrollback: number): void {
-  bufferSet = new BufferSet(cols, rows, scrollback);
+function createBufferAndParser(
+  cols: number,
+  rows: number,
+  scrollback: number,
+  sharedBuffer?: SharedArrayBuffer,
+  sharedAltBuffer?: SharedArrayBuffer,
+): void {
+  bufferSet = new BufferSet(cols, rows, scrollback, sharedBuffer, sharedAltBuffer);
   parser = new VTParser(bufferSet);
 }
 
@@ -121,20 +131,13 @@ function handleMessage(msg: InboundMessage): void {
   switch (msg.type) {
     case "init": {
       usingSAB = msg.sharedBuffer !== undefined;
-
-      if (usingSAB) {
-        // The main thread owns the CellGrid backed by SAB.  We create
-        // a BufferSet on our side — the underlying CellGrid constructor
-        // will allocate its own SAB in SAB-capable environments, and the
-        // main thread shares the same buffer reference.
-        // NOTE: In a full implementation the shared buffer would be used
-        // to construct the CellGrid views on both sides.  For now we
-        // create a fresh BufferSet whose CellGrid will use SAB if the
-        // environment supports it.
-        createBufferAndParser(msg.cols, msg.rows, msg.scrollback);
-      } else {
-        createBufferAndParser(msg.cols, msg.rows, msg.scrollback);
-      }
+      createBufferAndParser(
+        msg.cols,
+        msg.rows,
+        msg.scrollback,
+        msg.sharedBuffer,
+        msg.sharedAltBuffer,
+      );
       break;
     }
 
@@ -160,7 +163,13 @@ function handleMessage(msg: InboundMessage): void {
     }
 
     case "resize": {
-      createBufferAndParser(msg.cols, msg.rows, msg.scrollback);
+      createBufferAndParser(
+        msg.cols,
+        msg.rows,
+        msg.scrollback,
+        msg.sharedBuffer,
+        msg.sharedAltBuffer,
+      );
       // Send a full flush so the main thread gets initial state.
       const flush = buildFlush(0);
       if (!usingSAB) {

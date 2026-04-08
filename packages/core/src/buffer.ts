@@ -17,8 +17,9 @@ export class Buffer {
   constructor(
     public readonly cols: number,
     public readonly rows: number,
+    existingGrid?: CellGrid,
   ) {
-    this.grid = new CellGrid(cols, rows);
+    this.grid = existingGrid ?? new CellGrid(cols, rows);
     this.cursor = { row: 0, col: 0, visible: true, style: "block", wrapPending: false };
     this.scrollTop = 0;
     this.scrollBottom = rows - 1;
@@ -113,9 +114,15 @@ export class BufferSet {
     public readonly cols: number,
     public readonly rows: number,
     maxScrollback = 5000,
+    sharedBuffer?: SharedArrayBuffer,
+    sharedAltBuffer?: SharedArrayBuffer,
   ) {
-    this.normal = new Buffer(cols, rows);
-    this.alternate = new Buffer(cols, rows);
+    this.normal = sharedBuffer
+      ? new Buffer(cols, rows, new CellGrid(cols, rows, sharedBuffer))
+      : new Buffer(cols, rows);
+    this.alternate = sharedAltBuffer
+      ? new Buffer(cols, rows, new CellGrid(cols, rows, sharedAltBuffer))
+      : new Buffer(cols, rows);
     this.active = this.normal;
     this.scrollback = [];
     this.maxScrollback = maxScrollback;

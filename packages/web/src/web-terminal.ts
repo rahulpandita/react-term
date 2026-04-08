@@ -377,7 +377,8 @@ export class WebTerminal {
   private startWorkerMode(cols: number, rows: number, scrollback: number): void {
     try {
       this.workerBridge = new WorkerBridge(
-        this.bufferSet.active.grid,
+        this.bufferSet.normal.grid,
+        this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
         (isAlternate: boolean) => {
           // When the alternate buffer is toggled the renderer needs to
@@ -612,7 +613,11 @@ export class WebTerminal {
 
     if (this.workerBridge) {
       // Update the bridge's grid reference and notify the worker.
-      this.workerBridge.updateGrid(this.bufferSet.active.grid, this.bufferSet.active.cursor);
+      this.workerBridge.updateGrid(
+        this.bufferSet.normal.grid,
+        this.bufferSet.alternate.grid,
+        this.bufferSet.active.cursor,
+      );
       this.workerBridge.resize(cols, rows, scrollback);
     } else {
       this.parser = new VTParser(this.bufferSet);

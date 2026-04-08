@@ -98,7 +98,7 @@ describe("WorkerBridge", () => {
     cursor = makeCursor();
     flushSpy = vi.fn();
     errorSpy = vi.fn();
-    bridge = new WorkerBridge(grid, cursor, flushSpy, errorSpy);
+    bridge = new WorkerBridge(grid, makeGrid(), cursor, flushSpy, errorSpy);
   });
 
   afterEach(() => {
@@ -361,7 +361,7 @@ describe("WorkerBridge", () => {
         rows = 2;
       const testGrid = new CellGrid(cols, rows);
       const testCursor = makeCursor();
-      const b = new WorkerBridge(testGrid, testCursor, vi.fn());
+      const b = new WorkerBridge(testGrid, new CellGrid(cols, rows), testCursor, vi.fn());
       b.start(cols, rows, 100);
 
       // Place codepoint 'A' (0x41) at physical (row=0, col=0).
@@ -382,7 +382,7 @@ describe("WorkerBridge", () => {
       testGrid.clearDirty(1);
 
       const testCursor = makeCursor();
-      const b = new WorkerBridge(testGrid, testCursor, vi.fn());
+      const b = new WorkerBridge(testGrid, new CellGrid(cols, rows), testCursor, vi.fn());
       b.start(cols, rows, 100);
 
       // Send a message where only row 0 is dirty; the cellData for row 1 is
@@ -404,7 +404,7 @@ describe("WorkerBridge", () => {
       testGrid.clearDirty(0);
       testGrid.clearDirty(1);
 
-      const b = new WorkerBridge(testGrid, makeCursor(), vi.fn());
+      const b = new WorkerBridge(testGrid, new CellGrid(cols, rows), makeCursor(), vi.fn());
       b.start(cols, rows, 100);
 
       const msg = buildFlushMsg(cols, rows, {}, [1, 0]); // only row 0 dirty
@@ -419,7 +419,7 @@ describe("WorkerBridge", () => {
       const cols = 2,
         rows = 2;
       const testGrid = new CellGrid(cols, rows);
-      const b = new WorkerBridge(testGrid, makeCursor(), vi.fn());
+      const b = new WorkerBridge(testGrid, new CellGrid(cols, rows), makeCursor(), vi.fn());
       b.start(cols, rows, 100);
 
       const msg = buildFlushMsg(cols, rows, {}, [0, 0], /* rowOffset= */ 1);
@@ -434,7 +434,7 @@ describe("WorkerBridge", () => {
         rows = 2;
       const testGrid = new CellGrid(cols, rows);
       const testCursor = makeCursor();
-      const b = new WorkerBridge(testGrid, testCursor, vi.fn());
+      const b = new WorkerBridge(testGrid, new CellGrid(cols, rows), testCursor, vi.fn());
       b.start(cols, rows, 100);
 
       const cellData = new Uint32Array(cols * rows * CELL_SIZE);
@@ -466,10 +466,10 @@ describe("WorkerBridge", () => {
       const oldGrid = new CellGrid(cols, rows);
       const newGrid = new CellGrid(cols, rows);
       const testCursor = makeCursor();
-      const b = new WorkerBridge(oldGrid, testCursor, vi.fn());
+      const b = new WorkerBridge(oldGrid, new CellGrid(cols, rows), testCursor, vi.fn());
       b.start(cols, rows, 100);
 
-      b.updateGrid(newGrid, testCursor);
+      b.updateGrid(newGrid, new CellGrid(cols, rows), testCursor);
 
       const cellData = new Uint32Array(cols * rows * CELL_SIZE);
       cellData[0] = 0x43 | (7 << 23); // 'C' at row 0, col 0
