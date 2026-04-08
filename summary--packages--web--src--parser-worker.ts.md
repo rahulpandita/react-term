@@ -1,0 +1,1 @@
+h:6239 parser-worker:DedicatedWorkerGlobalScope,init(sharedBuffer?,sharedAltBuffer?)+write+resize+dispose msgs in,flush+error msgs out. Uses sharedBuffer/sharedAltBuffer to construct BufferSet over main-thread SABs. Non-SAB:transfers cellData+dirtyRows+rowOffset in flush. FlushMessage/ErrorMessage/OutboundMessage types exported.

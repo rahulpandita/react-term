@@ -1,1 +1,1 @@
-h:4727 Buffer:CellGrid+cursor+scrollTop+scrollBottom+tabStops,scrollUp/Down(O1-rotate/copyWithin),saveCursor/restoreCursor. BufferSet:normal+alternate+active+scrollback,activateAlternate/activateNormal,pushScrollback
+h:5041 Buffer:CellGrid+cursor+scrollTop+scrollBottom+tabStops,scrollUp/Down(O1-rotate/copyWithin),saveCursor/restoreCursor. BufferSet:normal+alternate+active+scrollback,activateAlternate/activateNormal,pushScrollback

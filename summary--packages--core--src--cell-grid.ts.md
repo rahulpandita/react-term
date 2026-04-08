@@ -1,1 +1,1 @@
-h:11873 CellGrid:SAB-backed,2xUint32/cell,cols/rows/data/dirtyRows/rgbColors/cursorData,circular-scroll,Atomics,setCell/markDirty/rotateUp/extractText/normalizeSelection
+h:12317 CellGrid:SAB-backed,2xUint32/cell,cols/rows/data/dirtyRows/rgbColors/cursorData,circular-scroll,Atomics,setCell/markDirty/rotateUp/extractText/normalizeSelection. constructor accepts optional existingBuffer:SharedArrayBuffer to share memory with workers. isShared flag. getBuffer() returns SAB or AB.
