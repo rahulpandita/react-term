@@ -1,0 +1,27 @@
+{
+  "name": "@next_term/comparison",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"pnpm server\" \"pnpm vite\"",
+    "vite": "vite",
+    "server": "tsx server.ts",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@next_term/core": "workspace:*",
+    "@next_term/web": "workspace:*",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "typescript": "^5.5.0",
+    "ws": "^8.18.0",
+    "node-pty": "1.2.0-beta.11",
+    "tsx": "^4.19.0",
+    "concurrently": "^9.1.0"
+  }
+}

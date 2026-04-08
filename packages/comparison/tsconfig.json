@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "@next_term/core": ["../core/src/index.ts"],
+      "@next_term/web": ["../web/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "server.ts"]
+}

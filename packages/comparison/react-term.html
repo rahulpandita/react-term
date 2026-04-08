@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>react-term — 8 Pane Comparison</title>
+</head>
+<body>
+  <div class="header">
+    <h1>react-term — 8 Multiplexed Panes</h1>
+    <div class="controls">
+      <a href="#shared" onclick="location.hash='shared';location.reload()"><button id="btn-shared">SharedWebGL</button></a>
+      <a href="#independent" onclick="location.hash='independent';location.reload()"><button id="btn-independent">Independent</button></a>
+      <a href="#worker" onclick="location.hash='worker';location.reload()"><button id="btn-worker">Worker</button></a>
+      <a href="xterm.html"><button>xterm.js</button></a>
+    </div>
+  </div>
+  <div class="main-layout">
+    <div class="terminal-grid" id="grid"></div>
+    <div id="metrics"></div>
+  </div>
+  <div class="status-bar">
+    <span><span class="dot disconnected" id="status-dot"></span> <span id="status-text">Connecting...</span></span>
+    <span id="status-mode">8 panes · react-term</span>
+  </div>
+  <script>
+    // Highlight active mode button
+    const mode = location.hash.replace('#','') || 'shared';
+    const btn = document.getElementById('btn-' + mode);
+    if (btn) btn.classList.add('active');
+  </script>
+  <script type="module" src="/src/react-term-page.ts"></script>
+</body>
+</html>

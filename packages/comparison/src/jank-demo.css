@@ -1,0 +1,195 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0a0a0f;
+  color: #cdd6f4;
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.jank-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: #11111b;
+  border-bottom: 1px solid #313244;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.jank-header h1 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cba6f7;
+}
+
+.jank-toggle, .jank-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.jank-toggle button, .jank-controls button {
+  background: #313244;
+  color: #cdd6f4;
+  border: 1px solid #45475a;
+  border-radius: 6px;
+  padding: 4px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.jank-toggle button:hover, .jank-controls button:hover {
+  background: #45475a;
+}
+
+.jank-toggle button.active {
+  background: #cba6f7;
+  color: #11111b;
+  border-color: #cba6f7;
+}
+
+.jank-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#btn-start { background: #a6e3a1; color: #11111b; border-color: #a6e3a1; }
+#btn-start:hover:not(:disabled) { background: #94d494; }
+#btn-stop { background: #f38ba8; color: #11111b; border-color: #f38ba8; }
+#btn-stop:hover:not(:disabled) { background: #e07a95; }
+
+/* Jank meter: bouncing ball */
+.jank-meter {
+  position: relative;
+  height: 28px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.jank-ball {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #cba6f7, #89b4fa);
+  box-shadow: 0 0 8px rgba(203, 166, 247, 0.5);
+  will-change: transform;
+}
+
+.jank-label {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: #6c7086;
+}
+
+/* Latency graph */
+.latency-section {
+  flex-shrink: 0;
+  background: #11111b;
+  border-bottom: 1px solid #313244;
+}
+
+.latency-section canvas {
+  display: block;
+  width: 100%;
+  height: 80px;
+}
+
+.latency-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 8px;
+  font-size: 10px;
+  color: #6c7086;
+}
+
+#latency-value {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+/* Terminal area — must constrain height for the grid to work */
+.jank-terminal {
+  flex: 1;
+  min-height: 0;
+  background: #181825;
+  overflow: hidden;
+}
+
+.jank-terminal > .terminal-grid {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(var(--grid-cols, 2), 1fr);
+  grid-template-rows: repeat(var(--grid-rows, 2), 1fr);
+  gap: 2px;
+  padding: 2px;
+}
+
+.jank-terminal .pane {
+  position: relative;
+  background: #1e1e2e;
+  overflow: hidden;
+  border-radius: 4px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.jank-terminal .pane > div:last-child {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.jank-terminal .pane .xterm {
+  height: 100% !important;
+}
+
+/* Stats bar */
+.jank-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  height: 44px;
+  background: #11111b;
+  border-top: 2px solid #313244;
+  font-size: 16px;
+  color: #cdd6f4;
+  gap: 32px;
+  flex-shrink: 0;
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+  font-weight: 600;
+}
+
+.jank-stats span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jank-stats .stat-label {
+  color: #6c7086;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.jank-stats .stat-value {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.jank-stats .stat-value.good { color: #a6e3a1; }
+.jank-stats .stat-value.warn { color: #fab387; }
+.jank-stats .stat-value.bad { color: #f38ba8; }

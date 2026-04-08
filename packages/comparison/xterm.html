@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>xterm.js — 8 Pane Comparison</title>
+</head>
+<body>
+  <div class="header">
+    <h1>xterm.js — 8 Multiplexed Panes</h1>
+    <div class="controls">
+      <a href="react-term.html"><button>Switch to react-term</button></a>
+    </div>
+  </div>
+  <div class="main-layout">
+    <div class="terminal-grid" id="grid"></div>
+    <div id="metrics"></div>
+  </div>
+  <div class="status-bar">
+    <span><span class="dot disconnected" id="status-dot"></span> <span id="status-text">Connecting...</span></span>
+    <span>8 panes &middot; xterm.js</span>
+  </div>
+  <script type="module" src="/src/xterm-page.ts"></script>
+</body>
+</html>
