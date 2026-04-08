@@ -50,7 +50,33 @@ Word 1: [0-7]   bg color index (0-255)
         [11]    strikethrough
         [12-13] underline style
         [14]    inverse
-        [15]    wide character flag
+        [15]    wide character flag (ATTR_WIDE — set on first cell of a 2-column wide char)
+```
+
+Wide characters (CJK, Hangul, emoji, fullwidth forms) set `ATTR_WIDE` on the first cell and write a spacer cell (codepoint 0) in the next column. Renderers skip spacer cells and draw wide chars at 2× cell width.
+
+## Wide Character Support
+
+The VT parser handles Unicode character widths automatically:
+
+- **Wide chars** (CJK, Hangul, Hiragana/Katakana, emoji, fullwidth forms): occupy 2 columns, set `ATTR_WIDE` flag
+- **Combining marks** (U+0300+, variation selectors, ZWJ): absorbed without advancing the cursor
+- **Normal chars**: occupy 1 column as usual
+
+The `wcwidth` and `isCombining` utilities are exposed for custom integrations:
+
+```ts
+import { wcwidth, isCombining } from '@next_term/core';
+
+wcwidth(0x4e2d);   // 2 — '中' (CJK)
+wcwidth(0x1f600);  // 2 — '😀' (emoji)
+wcwidth(0xff41);   // 2 — fullwidth 'ａ'
+wcwidth(0x0041);   // 1 — 'A'
+wcwidth(0x0300);   // 0 — combining grave accent
+
+isCombining(0x0300); // true  — no cursor advance
+isCombining(0x200d); // true  — ZWJ
+isCombining(0x0041); // false
 ```
 
 ## SharedArrayBuffer
@@ -67,6 +93,7 @@ export { BufferSet } from "@next_term/core";
 export { VTParser } from "@next_term/core";
 export { DEFAULT_THEME } from "@next_term/core";
 export { extractText, normalizeSelection } from "@next_term/core";
+export { wcwidth, isCombining } from "@next_term/core";
 
 export type { Theme, CursorState, TerminalOptions, SelectionRange } from "@next_term/core";
 ```
