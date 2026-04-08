@@ -126,7 +126,8 @@ export class MetricsTracker {
     let paneRows = "";
     for (let i = 0; i < this.paneLabels.length; i++) {
       const kb = (this.paneByteCounts[i] / 1024).toFixed(0);
-      paneRows += `<tr><td class="pane-label">${i}: ${this.paneLabels[i]}</td><td>${kb} KB</td></tr>`;
+      const label = this.paneLabels[i].replace(/[<>&"]/g, "");
+      paneRows += `<tr><td class="pane-label">${i}: ${label}</td><td>${kb} KB</td></tr>`;
     }
 
     this.panel.innerHTML = `

@@ -108,9 +108,10 @@ wss.on("connection", (ws: WebSocket) => {
     const data = JSON.parse(msg.toString());
 
     if (data.type === "start") {
-      const cols = data.cols ?? 120;
-      const rows = data.rows ?? 30;
-      const paneCount = data.paneCount ?? WORKLOADS.length;
+      if (ptys.length > 0) return; // prevent duplicate start
+      const cols = Math.max(2, Math.min(data.cols ?? 120, 500));
+      const rows = Math.max(1, Math.min(data.rows ?? 30, 500));
+      const paneCount = Math.min(data.paneCount ?? WORKLOADS.length, 32);
 
       // Spawn PTYs — cycle workloads if paneCount > WORKLOADS.length
       for (let i = 0; i < paneCount; i++) {
@@ -170,7 +171,10 @@ wss.on("connection", (ws: WebSocket) => {
       const idx = data.pane;
       if (idx >= 0 && idx < ptys.length) {
         try {
-          ptys[idx].resize(data.cols, data.rows);
+          ptys[idx].resize(
+            Math.max(2, Math.min(data.cols ?? 80, 500)),
+            Math.max(1, Math.min(data.rows ?? 24, 500)),
+          );
         } catch {}
       }
     }
