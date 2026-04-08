@@ -12,6 +12,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **Multi-pane** — single shared WebGL context (bypasses Chrome's 16-context limit)
 - **Accessibility** — parallel DOM with ARIA attributes, screen reader support
 - **Addons** — search (regex), web links, fit
+- **Wide character support** — CJK, Hangul, Hiragana/Katakana, emoji, and fullwidth forms occupy 2 cells; combining marks absorbed without cursor advance
 - **Full VT100/ANSI** — SGR (16/256/RGB), cursor control, scroll regions, alternate buffer
 - **OSC sequences** — clipboard (52), palette (4/104), hyperlinks (8), CWD (7), dynamic colors (10/11/12), shell integration (133)
 - **DCS** — device control strings, tmux passthrough
@@ -113,6 +114,23 @@ pnpm start         # Start demo with PTY server
 # Set up pre-commit hooks (one-time)
 git config core.hooksPath .githooks
 ```
+
+### Comparison App
+
+```bash
+pnpm --filter @next_term/comparison dev    # Side-by-side react-term vs xterm.js
+```
+
+The comparison app (`packages/comparison/`) provides three modes:
+- **Separate pages** — react-term and xterm.js with configurable pane count (`?panes=N`)
+- **Jank demo** — A/B toggle with a bouncing-ball animation + event-loop latency graph
+
+| Metric | react-term | xterm.js |
+|--------|-----------|----------|
+| FPS | **120** | 82 |
+| Dropped frames | **0** | 295 |
+| Data processed | **1,456 MB** | 383 MB |
+| Loop latency | **4.8 ms** | 16.1 ms |
 
 ### Benchmarks
 

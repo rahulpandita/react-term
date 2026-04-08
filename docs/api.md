@@ -89,6 +89,47 @@ const term = new WebTerminal(container, {
 });
 ```
 
+## Unicode Utilities
+
+### `wcwidth` — Character Display Width
+
+Exported from `@next_term/core`. Returns the display width (number of terminal columns) of a Unicode codepoint:
+
+| Return | Meaning |
+|--------|---------|
+| `0` | Zero-width (combining marks, ZWJ, control chars, variation selectors) |
+| `1` | Normal width (ASCII, Latin, Greek, Cyrillic, most BMP characters) |
+| `2` | Full-width (CJK Unified Ideographs, Hangul, fullwidth Latin/ASCII, etc.) |
+
+```ts
+import { wcwidth, isCombining } from '@next_term/core';
+
+wcwidth(0x0041);   // 1 — 'A'
+wcwidth(0x4e2d);   // 2 — '中' (CJK)
+wcwidth(0x1f600);  // 2 — '😀' (emoji)
+wcwidth(0x0300);   // 0 — combining grave accent
+wcwidth(0xff41);   // 2 — fullwidth 'ａ'
+
+isCombining(0x0300);  // true — combining mark, no cursor advance
+isCombining(0x0041);  // false
+```
+
+**Implementation**: O(1) BMP lookup via a 64 KB `Uint8Array` flat table (codepoints U+0000–U+FFFF). Supplementary planes (emoji, CJK Ext B–I) use binary search, with zero parser throughput regression verified at 146 MB/s (ASCII) / 301 MB/s (Unicode).
+
+**VT parser integration**: The parser automatically calls `wcwidth()` for non-ASCII codepoints when writing characters to the cell grid. Wide characters (`wcwidth == 2`) set the `ATTR_WIDE` flag on the first cell and write a spacer cell (codepoint 0) in the next column. Combining characters (`isCombining == true`) are absorbed without advancing the cursor. All four renderers (Canvas 2D, WebGL, SharedWebGLContext, RenderWorker) skip spacer cells and render wide chars at 2× cell width.
+
+### `isCombining`
+
+Returns `true` if a codepoint is zero-width and should not advance the cursor (combining marks, variation selectors, ZWJ, etc.). Excludes C0/C1 controls and soft hyphen.
+
+```ts
+import { isCombining } from '@next_term/core';
+
+isCombining(0x0300); // true  — U+0300 COMBINING GRAVE ACCENT
+isCombining(0x200d); // true  — ZWJ
+isCombining(0x0041); // false — 'A'
+```
+
 ## Utilities
 
 ### `collectPaneIds`
