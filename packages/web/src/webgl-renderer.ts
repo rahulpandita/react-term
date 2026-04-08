@@ -746,6 +746,24 @@ export class WebGLRenderer implements IRenderer {
         const attrs = grid.getAttrs(row, col);
         const fgIsRGB = grid.isFgRGB(row, col);
         const bgIsRGB = grid.isBgRGB(row, col);
+        const wide = grid.isWide(row, col);
+
+        // Skip spacer cells (right half of wide character)
+        if (codepoint === 0 && col > 0 && grid.isWide(row, col - 1)) {
+          // Still need to emit a bg instance for this column
+          packBgInstance(
+            this.bgInstances,
+            bgBase + col * BG_INSTANCE_FLOATS,
+            col,
+            row,
+            0,
+            0,
+            0,
+            0, // transparent — wide char bg already covers this
+          );
+          continue;
+        }
+
         let fg = resolveColorFloat(
           fgIdx,
           fgIsRGB,
@@ -774,7 +792,7 @@ export class WebGLRenderer implements IRenderer {
           bg = tmp;
         }
 
-        // Background instance — emit for all cells to paint default bg too
+        // Background instance — wide chars get 2x width via two bg cells
         packBgInstance(
           this.bgInstances,
           bgBase + col * BG_INSTANCE_FLOATS,
@@ -785,6 +803,19 @@ export class WebGLRenderer implements IRenderer {
           bg[2],
           bg[3],
         );
+        if (wide && col + 1 < cols) {
+          // Paint right-half bg with same color
+          packBgInstance(
+            this.bgInstances,
+            bgBase + (col + 1) * BG_INSTANCE_FLOATS,
+            col + 1,
+            row,
+            bg[0],
+            bg[1],
+            bg[2],
+            bg[3],
+          );
+        }
 
         // Glyph instance — skip spaces and control chars
         if (codepoint > 0x20) {

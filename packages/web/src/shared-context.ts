@@ -757,6 +757,25 @@ export class SharedWebGLContext {
           const fgIsRGB = grid.isFgRGB(row, col);
           const bgIsRGB = grid.isBgRGB(row, col);
 
+          // Skip spacer cells (right half of wide character)
+          if (codepoint === 0 && col > 0 && grid.isWide(row, col - 1)) {
+            // Emit transparent bg to fill the slot
+            const bOff = bgCount * SC_BG_INSTANCE_FLOATS;
+            bgData[bOff] = col;
+            bgData[bOff + 1] = row;
+            bgData[bOff + 2] = 0;
+            bgData[bOff + 3] = 0;
+            bgData[bOff + 4] = 0;
+            bgData[bOff + 5] = 0;
+            bgData[bOff + 6] = vpX;
+            bgData[bOff + 7] = vpY;
+            bgCount++;
+            rowBg++;
+            continue;
+          }
+
+          const wide = grid.isWide(row, col);
+
           let fg = resolveColorFloat(
             fgIdx,
             fgIsRGB,
@@ -796,6 +815,21 @@ export class SharedWebGLContext {
           bgData[bOff + 7] = vpY;
           bgCount++;
           rowBg++;
+
+          // Wide char: paint bg for right-half too
+          if (wide && col + 1 < cols) {
+            const bOff2 = bgCount * SC_BG_INSTANCE_FLOATS;
+            bgData[bOff2] = col + 1;
+            bgData[bOff2 + 1] = row;
+            bgData[bOff2 + 2] = bg[0];
+            bgData[bOff2 + 3] = bg[1];
+            bgData[bOff2 + 4] = bg[2];
+            bgData[bOff2 + 5] = bg[3];
+            bgData[bOff2 + 6] = vpX;
+            bgData[bOff2 + 7] = vpY;
+            bgCount++;
+            rowBg++;
+          }
 
           if (codepoint > 0x20) {
             const bold = !!(attrs & ATTR_BOLD);
