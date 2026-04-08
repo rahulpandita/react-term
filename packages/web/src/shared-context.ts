@@ -296,7 +296,7 @@ export class SharedWebGLContext {
       alpha: true,
       antialias: false,
       premultipliedAlpha: false,
-      preserveDrawingBuffer: false,
+      preserveDrawingBuffer: true,
     }) as WebGL2RenderingContext | null;
 
     if (!this.gl) {
@@ -384,12 +384,34 @@ export class SharedWebGLContext {
     this.bufferIndex ^= 1;
     const bi = this.bufferIndex;
 
-    // Full-canvas clear
+    // --- Early out: check if any terminal has dirty rows ---
+    const cellW = this.cellWidth * this.dpr;
+    const cellH = this.cellHeight * this.dpr;
+
+    let anyTerminalDirty = false;
+    for (const [id, entry] of this.terminals) {
+      const { grid } = entry;
+      if (!this.terminalFullyRendered.has(id)) {
+        anyTerminalDirty = true;
+        break;
+      }
+      for (let row = 0; row < grid.rows; row++) {
+        if (grid.isDirty(row)) {
+          anyTerminalDirty = true;
+          break;
+        }
+      }
+      if (anyTerminalDirty) break;
+    }
+
+    // Nothing changed — skip everything, reuse last frame
+    if (!anyTerminalDirty) return;
+
+    // --- Phase 1: Clear viewports ---
     gl.viewport(0, 0, canvasWidth, canvasHeight);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    // --- Phase 1: Clear each terminal's viewport with theme bg color ---
     gl.enable(gl.SCISSOR_TEST);
     const bgR = this.themeBgFloat[0];
     const bgG = this.themeBgFloat[1];
@@ -409,8 +431,6 @@ export class SharedWebGLContext {
     gl.disable(gl.SCISSOR_TEST);
 
     // --- Phase 2: Build combined instance data for all terminals ---
-    const cellW = this.cellWidth * this.dpr;
-    const cellH = this.cellHeight * this.dpr;
     let totalBgCount = 0;
     let totalGlyphCount = 0;
 
