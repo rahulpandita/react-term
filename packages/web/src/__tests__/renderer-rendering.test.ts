@@ -798,3 +798,185 @@ describe("Canvas2DRenderer — lifecycle", () => {
     }).not.toThrow();
   });
 });
+
+describe("Canvas2DRenderer — resize and attach", () => {
+  let mockCtx: MockCtx;
+  let spy: { mockRestore(): void };
+
+  beforeEach(() => {
+    mockCtx = makeMockCtx();
+    spy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(mockCtx as unknown as CanvasRenderingContext2D);
+  });
+
+  afterEach(() => {
+    spy.mockRestore();
+  });
+
+  it("attach() sets canvas pixel dimensions using cols × cellWidth and rows × cellHeight", () => {
+    const renderer = new Canvas2DRenderer({
+      fontSize: 14,
+      fontFamily: "monospace",
+      theme: DEFAULT_THEME,
+      devicePixelRatio: 1,
+    });
+    const canvas = document.createElement("canvas");
+    const grid = new CellGrid(40, 10);
+    renderer.attach(canvas, grid, HIDDEN_CURSOR);
+
+    // With mock measureText width=8 and ascent/descent=12/4: cellWidth=8, cellHeight=16
+    expect(canvas.width).toBe(40 * CELL_W);
+    expect(canvas.height).toBe(10 * CELL_H);
+    expect(canvas.style.width).toBe(`${40 * CELL_W}px`);
+    expect(canvas.style.height).toBe(`${10 * CELL_H}px`);
+    renderer.dispose();
+  });
+
+  it("attach() scales canvas by devicePixelRatio", () => {
+    const dpr = 2;
+    const renderer = new Canvas2DRenderer({
+      fontSize: 14,
+      fontFamily: "monospace",
+      theme: DEFAULT_THEME,
+      devicePixelRatio: dpr,
+    });
+    const canvas = document.createElement("canvas");
+    const grid = new CellGrid(20, 5);
+    renderer.attach(canvas, grid, HIDDEN_CURSOR);
+
+    expect(canvas.width).toBe(Math.round(20 * CELL_W * dpr));
+    expect(canvas.height).toBe(Math.round(5 * CELL_H * dpr));
+    renderer.dispose();
+  });
+
+  it("attach() calls setTransform with DPR so drawing uses CSS-pixel coordinates", () => {
+    const dpr = 2;
+    const renderer = new Canvas2DRenderer({
+      fontSize: 14,
+      fontFamily: "monospace",
+      theme: DEFAULT_THEME,
+      devicePixelRatio: dpr,
+    });
+    const canvas = document.createElement("canvas");
+    const grid = new CellGrid(10, 5);
+    renderer.attach(canvas, grid, HIDDEN_CURSOR);
+
+    expect(mockCtx.setTransform).toHaveBeenCalledWith(dpr, 0, 0, dpr, 0, 0);
+    renderer.dispose();
+  });
+
+  it("resize() updates canvas dimensions to match the new grid size", () => {
+    const { renderer, canvas } = makeRenderer(20, 5);
+
+    // Simulate grid growing to 40×10 by altering the grid's cols/rows isn't
+    // possible directly, so we re-attach a larger grid and call resize.
+    const bigGrid = new CellGrid(40, 10);
+    renderer.attach(canvas, bigGrid, HIDDEN_CURSOR);
+    renderer.resize(40, 10);
+
+    expect(canvas.width).toBe(40 * CELL_W);
+    expect(canvas.height).toBe(10 * CELL_H);
+    renderer.dispose();
+  });
+
+  it("resize() marks all grid rows dirty", () => {
+    const { renderer, grid } = makeRenderer(20, 5);
+    // Clear dirty state first
+    for (let r = 0; r < 5; r++) grid.clearDirty(r);
+    for (let r = 0; r < 5; r++) expect(grid.isDirty(r)).toBe(false);
+
+    renderer.resize(20, 5);
+
+    for (let r = 0; r < 5; r++) expect(grid.isDirty(r)).toBe(true);
+    renderer.dispose();
+  });
+
+  it("resize() without an attached canvas/grid does not throw", () => {
+    const renderer = new Canvas2DRenderer({
+      fontSize: 14,
+      fontFamily: "monospace",
+      theme: DEFAULT_THEME,
+    });
+    expect(() => renderer.resize(80, 24)).not.toThrow();
+    renderer.dispose();
+  });
+});
+
+describe("Canvas2DRenderer — render loop", () => {
+  let mockCtx: MockCtx;
+  let ctxSpy: { mockRestore(): void };
+  // Manually-controlled RAF queue
+  const rafCallbacks: FrameRequestCallback[] = [];
+  let rafSpy: ReturnType<typeof vi.spyOn>;
+  let cafSpy: ReturnType<typeof vi.spyOn>;
+
+  function flushOneFrame() {
+    const cb = rafCallbacks.shift();
+    if (cb) cb(0);
+  }
+
+  beforeEach(() => {
+    mockCtx = makeMockCtx();
+    ctxSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(mockCtx as unknown as CanvasRenderingContext2D);
+    rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length; // fake rafId
+    });
+    cafSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((_id) => {
+      // Clear all queued callbacks (simple: a stopped loop never re-fires)
+      rafCallbacks.length = 0;
+    });
+  });
+
+  afterEach(() => {
+    ctxSpy.mockRestore();
+    rafSpy.mockRestore();
+    cafSpy.mockRestore();
+    rafCallbacks.length = 0;
+  });
+
+  it("startRenderLoop() causes render() to be called on the next animation frame", () => {
+    const { renderer, grid } = makeRenderer(10, 5);
+    grid.markDirty(0);
+
+    renderer.startRenderLoop();
+    // RAF callback queued but not yet fired
+    expect(mockCtx.clearRect).not.toHaveBeenCalled();
+
+    flushOneFrame();
+    expect(mockCtx.clearRect).toHaveBeenCalled();
+
+    renderer.stopRenderLoop();
+    renderer.dispose();
+  });
+
+  it("stopRenderLoop() prevents further render() calls after the loop is cancelled", () => {
+    const { renderer, grid } = makeRenderer(10, 5);
+    grid.markDirty(0);
+
+    renderer.startRenderLoop();
+    flushOneFrame(); // fires render + re-schedules
+    const callsAfterFirstFrame = mockCtx.clearRect.mock.calls.length;
+
+    renderer.stopRenderLoop();
+    // Even if something queued a frame before stop, no new calls should be made
+    grid.markDirty(0);
+    flushOneFrame(); // should be a no-op (queue was cleared by cancelAnimationFrame)
+
+    expect(mockCtx.clearRect.mock.calls.length).toBe(callsAfterFirstFrame);
+    renderer.dispose();
+  });
+
+  it("startRenderLoop() on a disposed renderer is a no-op — no RAF is scheduled", () => {
+    const { renderer } = makeRenderer(10, 5);
+
+    renderer.dispose();
+    renderer.startRenderLoop();
+
+    // startRenderLoop() returns early when disposed; RAF should not be scheduled
+    expect(rafSpy).not.toHaveBeenCalled();
+  });
+});
