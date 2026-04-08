@@ -146,18 +146,17 @@ export class BufferSet {
     this.active = this.normal;
   }
 
-  /** Push a line into scrollback (for the normal buffer). */
+  /**
+   * Push a line into scrollback (for the normal buffer).
+   *
+   * IMPORTANT: push() must happen before shift() — borrowRowBuffer()
+   * returns scrollback[0] which the caller fills before calling this.
+   * Reversing the order would evict the buffer before it's appended.
+   */
   pushScrollback(line: Uint32Array): void {
     this.scrollback.push(line);
     if (this.scrollback.length > this.maxScrollback) {
-      // Batch eviction: remove oldest entries. Using splice instead of
-      // shift() avoids repeated O(n) array shifts when scrollback is full.
-      const excess = this.scrollback.length - this.maxScrollback;
-      if (excess === 1) {
-        this.scrollback.shift();
-      } else {
-        this.scrollback.splice(0, excess);
-      }
+      this.scrollback.shift();
     }
   }
 

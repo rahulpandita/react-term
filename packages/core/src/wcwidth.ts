@@ -595,9 +595,9 @@ export function wcwidth(cp: number): number {
 }
 
 /**
- * Returns true if the codepoint is a combining character (zero-width)
- * that should be attached to the preceding cell rather than advancing
- * the cursor.
+ * Returns true if the codepoint is zero-width and should not advance
+ * the cursor (combining marks, variation selectors, ZWJ, etc.).
+ * Excludes C0/C1 controls and soft hyphen (< U+0300).
  */
 export function isCombining(cp: number): boolean {
   return cp >= 0x0300 && wcwidth(cp) === 0;
