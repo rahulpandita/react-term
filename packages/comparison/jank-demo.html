@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jank Demo — react-term vs xterm.js</title>
+</head>
+<body>
+  <div class="jank-header">
+    <h1>Main Thread Freedom</h1>
+    <div class="jank-toggle">
+      <button id="btn-rt" class="active">react-term</button>
+      <button id="btn-xt">xterm.js</button>
+    </div>
+    <div class="jank-controls">
+      <button id="btn-start">Start</button>
+      <button id="btn-stop" disabled>Stop</button>
+    </div>
+  </div>
+
+  <!-- Jank meter: smooth animation that stutters when main thread is blocked -->
+  <div class="jank-meter">
+    <div class="jank-ball" id="ball"></div>
+    <div class="jank-label">Animation smoothness (rAF-driven) — stutters = main thread blocked</div>
+  </div>
+
+  <!-- Latency graph -->
+  <div class="latency-section">
+    <canvas id="latency-graph" height="80"></canvas>
+    <div class="latency-labels">
+      <span>Event loop latency (setTimeout 0)</span>
+      <span id="latency-value">0 ms</span>
+    </div>
+  </div>
+
+  <!-- Terminal -->
+  <div class="jank-terminal" id="terminal-container"></div>
+
+  <!-- Stats -->
+  <div class="jank-stats">
+    <span><span class="stat-label">Engine</span> <span class="stat-value" id="stat-engine">react-term</span></span>
+    <span><span class="stat-label">FPS</span> <span class="stat-value good" id="stat-fps">--</span></span>
+    <span><span class="stat-label">Throughput</span> <span class="stat-value" id="stat-throughput">-- MB/s</span></span>
+    <span><span class="stat-label">Data</span> <span class="stat-value" id="stat-bytes">0 MB</span></span>
+    <span><span class="stat-label">Dropped</span> <span class="stat-value good" id="stat-dropped">0</span></span>
+    <span><span class="stat-label">Long tasks</span> <span class="stat-value good" id="stat-long">0</span></span>
+  </div>
+
+  <script type="module" src="/src/jank-demo.ts"></script>
+</body>
+</html>

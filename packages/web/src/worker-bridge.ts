@@ -33,6 +33,7 @@ const SAB_AVAILABLE =
 export class WorkerBridge {
   private worker: Worker | null = null;
   private grid: CellGrid;
+  private altGrid: CellGrid;
   private cursor: CursorState;
   private onFlush: (isAlternate: boolean) => void;
   private onError: ((message: string) => void) | null;
@@ -47,11 +48,13 @@ export class WorkerBridge {
 
   constructor(
     grid: CellGrid,
+    altGrid: CellGrid,
     cursor: CursorState,
     onFlush: (isAlternate: boolean) => void,
     onError?: (message: string) => void,
   ) {
     this.grid = grid;
+    this.altGrid = altGrid;
     this.cursor = cursor;
     this.onFlush = onFlush;
     this.onError = onError ?? null;
@@ -70,24 +73,13 @@ export class WorkerBridge {
     this.worker.addEventListener("message", this.handleWorkerMessage);
     this.worker.addEventListener("error", this.handleWorkerError);
 
-    const init: {
-      type: "init";
-      cols: number;
-      rows: number;
-      scrollback: number;
-      sharedBuffer?: SharedArrayBuffer;
-    } = {
+    this.worker.postMessage({
       type: "init",
       cols,
       rows,
       scrollback,
-    };
-
-    if (SAB_AVAILABLE && this.grid.isShared) {
-      init.sharedBuffer = this.grid.getBuffer() as SharedArrayBuffer;
-    }
-
-    this.worker.postMessage(init);
+      ...this.getSharedBuffers(),
+    });
   }
 
   /**
@@ -118,7 +110,13 @@ export class WorkerBridge {
     this.paused = false;
     this.writeQueue.length = 0;
 
-    this.worker.postMessage({ type: "resize", cols, rows, scrollback });
+    this.worker.postMessage({
+      type: "resize",
+      cols,
+      rows,
+      scrollback,
+      ...this.getSharedBuffers(),
+    });
   }
 
   /**
@@ -151,12 +149,26 @@ export class WorkerBridge {
 
   // ---- Allow updating the grid / cursor reference after resize -------------
 
-  updateGrid(grid: CellGrid, cursor: CursorState): void {
+  updateGrid(grid: CellGrid, altGrid: CellGrid, cursor: CursorState): void {
     this.grid = grid;
+    this.altGrid = altGrid;
     this.cursor = cursor;
   }
 
   // ---- Internals -----------------------------------------------------------
+
+  private getSharedBuffers(): {
+    sharedBuffer?: SharedArrayBuffer;
+    sharedAltBuffer?: SharedArrayBuffer;
+  } {
+    if (SAB_AVAILABLE && this.grid.isShared) {
+      return {
+        sharedBuffer: this.grid.getBuffer() as SharedArrayBuffer,
+        sharedAltBuffer: this.altGrid.getBuffer() as SharedArrayBuffer,
+      };
+    }
+    return {};
+  }
 
   private sendWrite(data: Uint8Array): void {
     if (!this.worker) return;

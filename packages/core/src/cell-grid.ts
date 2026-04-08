@@ -44,20 +44,27 @@ export class CellGrid {
    */
   readonly rowOffsetData: Int32Array;
 
-  constructor(cols: number, rows: number) {
+  constructor(cols: number, rows: number, existingBuffer?: SharedArrayBuffer) {
     this.cols = cols;
     this.rows = rows;
-    this.isShared = SAB_AVAILABLE;
 
     const cellBytes = cols * rows * CELL_SIZE * 4;
     const dirtyBytes = rows * 4; // Int32Array: 4 bytes per element
     const rgbBytes = 512 * 4;
     const cursorBytes = 4 * 4; // 4 x Int32: row, col, visible, style
     const offsetBytes = 1 * 4; // 1 x Int32: row offset for circular buffer
-    const totalBytes = cellBytes + dirtyBytes + rgbBytes + cursorBytes + offsetBytes;
 
-    const BufferType = SAB_AVAILABLE ? SharedArrayBuffer : ArrayBuffer;
-    this.buffer = new BufferType(totalBytes);
+    if (existingBuffer) {
+      // Create views over an existing SharedArrayBuffer (used by workers
+      // to share the same memory as the main thread).
+      this.buffer = existingBuffer;
+      this.isShared = true;
+    } else {
+      const totalBytes = cellBytes + dirtyBytes + rgbBytes + cursorBytes + offsetBytes;
+      const BufferType = SAB_AVAILABLE ? SharedArrayBuffer : ArrayBuffer;
+      this.buffer = new BufferType(totalBytes);
+      this.isShared = SAB_AVAILABLE;
+    }
 
     this.data = new Uint32Array(this.buffer, 0, cols * rows * CELL_SIZE);
     this.dirtyRows = new Int32Array(this.buffer, cellBytes, rows);
@@ -76,7 +83,11 @@ export class CellGrid {
       // [c * CELL_SIZE + 1] is already DEFAULT_CELL_W1 (0)
     }
 
-    this.clear();
+    // Only clear when creating a fresh buffer — an existing buffer
+    // already contains valid data from the main thread.
+    if (!existingBuffer) {
+      this.clear();
+    }
   }
 
   /** Map logical row to physical row in the circular buffer. */
