@@ -387,7 +387,8 @@ describe("WebTerminal", () => {
     });
 
     it("re-applies font after async load completes", async () => {
-      let resolveLoad: () => void;
+      // biome-ignore lint/style/useConst: assigned inside Promise executor
+      let resolveLoad: (() => void) | undefined;
       const loadPromise = new Promise<void>((r) => {
         resolveLoad = r;
       });
