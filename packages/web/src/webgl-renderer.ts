@@ -170,6 +170,22 @@ export class GlyphAtlas {
   }
 
   /**
+   * Clear the glyph cache so all glyphs are re-rasterized on next access.
+   * Used when the underlying font changes (e.g., after a web font loads).
+   */
+  clearCache(): void {
+    this.cache.clear();
+    this.nextX = 0;
+    this.nextY = 0;
+    this.rowHeight = 0;
+    this.dirty = true;
+    // Clear the atlas canvas
+    if (this.ctx && this.canvas) {
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+  }
+
+  /**
    * Get (or rasterize) a glyph. Returns the GlyphInfo with atlas coordinates.
    */
   getGlyph(codepoint: number, bold: boolean, italic: boolean): GlyphInfo | null {

@@ -218,8 +218,26 @@ describe("GlyphAtlas", () => {
     }
   });
 
+  it("clearCache resets all state", () => {
+    const atlas = new GlyphAtlas(14, "monospace");
+    // Populate cache if OffscreenCanvas is available
+    atlas.getGlyph(65, false, false);
+    atlas.getGlyph(66, false, false);
+
+    atlas.clearCache();
+
+    expect(atlas.cache.size).toBe(0);
+    // After clearing, getGlyph should re-rasterize (not return stale data)
+    const glyph = atlas.getGlyph(65, false, false);
+    if (glyph) {
+      // Re-rasterized glyph should be at the start of the atlas (position was reset)
+      expect(glyph.u).toBe(0);
+      expect(glyph.v).toBe(0);
+    }
+  });
+
   it("getGlyph returns GlyphInfo with valid UV coordinates", () => {
-    const atlas = new GlyphAtlas(14, "monospace", 512);
+    const atlas = new GlyphAtlas(14, "monospace", 400, 700, 512);
     const glyph = atlas.getGlyph(65, false, false);
     if (glyph) {
       expect(glyph.u).toBeGreaterThanOrEqual(0);

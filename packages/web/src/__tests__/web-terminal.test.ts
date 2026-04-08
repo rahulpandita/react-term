@@ -292,6 +292,129 @@ describe("WebTerminal", () => {
     });
   });
 
+  // ---- ensureFont (web font loading) --------------------------------------
+
+  describe("web font loading", () => {
+    // Save whatever document.fonts is (may be undefined in jsdom)
+    const savedDescriptor =
+      Object.getOwnPropertyDescriptor(Document.prototype, "fonts") ??
+      Object.getOwnPropertyDescriptor(document, "fonts");
+
+    afterEach(() => {
+      // Restore by deleting the instance override — falls back to prototype
+      try {
+        Object.defineProperty(document, "fonts", {
+          value: savedDescriptor?.value,
+          writable: true,
+          configurable: true,
+        });
+      } catch {
+        // Ignore if we can't restore
+      }
+    });
+
+    it("calls document.fonts.load when font is not available", () => {
+      const loadSpy = vi.fn().mockResolvedValue([]);
+      const checkSpy = vi.fn().mockReturnValue(false);
+      Object.defineProperty(document, "fonts", {
+        value: { load: loadSpy, check: checkSpy },
+        configurable: true,
+      });
+
+      const t = make(container, { fontFamily: "'Fira Code', monospace" });
+      expect(loadSpy).toHaveBeenCalled();
+      expect(loadSpy.mock.calls[0][0]).toContain("Fira Code");
+      t.dispose();
+    });
+
+    it("skips loading for generic-only font families", () => {
+      const loadSpy = vi.fn().mockResolvedValue([]);
+      const checkSpy = vi.fn().mockReturnValue(true);
+      Object.defineProperty(document, "fonts", {
+        value: { load: loadSpy, check: checkSpy },
+        configurable: true,
+      });
+
+      const t = make(container, { fontFamily: "monospace" });
+      expect(loadSpy).not.toHaveBeenCalled();
+      t.dispose();
+    });
+
+    it("skips loading when font is already available", () => {
+      const loadSpy = vi.fn().mockResolvedValue([]);
+      const checkSpy = vi.fn().mockReturnValue(true);
+      Object.defineProperty(document, "fonts", {
+        value: { load: loadSpy, check: checkSpy },
+        configurable: true,
+      });
+
+      const t = make(container, { fontFamily: "'Menlo', monospace" });
+      expect(loadSpy).not.toHaveBeenCalled();
+      t.dispose();
+    });
+
+    it("loads multiple non-generic fonts from a fallback list", () => {
+      const loadSpy = vi.fn().mockResolvedValue([]);
+      const checkSpy = vi.fn().mockReturnValue(false);
+      Object.defineProperty(document, "fonts", {
+        value: { load: loadSpy, check: checkSpy },
+        configurable: true,
+      });
+
+      const t = make(container, {
+        fontFamily: "  'Fira Code' , 'JetBrains Mono' , monospace ",
+      });
+      // Should load both non-generic fonts, not monospace
+      const loadedFonts = loadSpy.mock.calls.map((c: string[]) => c[0]);
+      expect(loadedFonts.some((f: string) => f.includes("Fira Code"))).toBe(true);
+      expect(loadedFonts.some((f: string) => f.includes("JetBrains Mono"))).toBe(true);
+      expect(loadedFonts.every((f: string) => !f.includes("monospace"))).toBe(true);
+      t.dispose();
+    });
+
+    it("handles unquoted font names in fallback list", () => {
+      const loadSpy = vi.fn().mockResolvedValue([]);
+      const checkSpy = vi.fn().mockReturnValue(false);
+      Object.defineProperty(document, "fonts", {
+        value: { load: loadSpy, check: checkSpy },
+        configurable: true,
+      });
+
+      const t = make(container, { fontFamily: "Cascadia Code, monospace" });
+      expect(loadSpy).toHaveBeenCalled();
+      expect(loadSpy.mock.calls[0][0]).toContain("Cascadia Code");
+      t.dispose();
+    });
+
+    it("re-applies font after async load completes", async () => {
+      // biome-ignore lint/style/useConst: assigned inside Promise executor
+      let resolveLoad: (() => void) | undefined;
+      const loadPromise = new Promise<void>((r) => {
+        resolveLoad = r;
+      });
+      const loadSpy = vi.fn().mockReturnValue(loadPromise);
+      let fontAvailable = false;
+      const checkSpy = vi.fn().mockImplementation(() => fontAvailable);
+      Object.defineProperty(document, "fonts", {
+        value: { load: loadSpy, check: checkSpy },
+        configurable: true,
+      });
+
+      const setFontSpy = vi.spyOn(Canvas2DRenderer.prototype, "setFont");
+      const t = make(container, { fontFamily: "'Fira Code', monospace" });
+      const initialCalls = setFontSpy.mock.calls.length;
+
+      // Simulate font becoming available
+      fontAvailable = true;
+      resolveLoad?.();
+      await loadPromise;
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(setFontSpy.mock.calls.length).toBeGreaterThan(initialCalls);
+      t.dispose();
+    });
+  });
+
   // ---- getCellSize() -----------------------------------------------------
 
   describe("getCellSize()", () => {
