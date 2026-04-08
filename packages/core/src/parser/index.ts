@@ -1,6 +1,7 @@
 import type { BufferSet } from "../buffer.js";
 import { CELL_SIZE, DEFAULT_CELL_W0, DEFAULT_CELL_W1 } from "../cell-grid.js";
 import type { CursorState } from "../types.js";
+import { wcwidth } from "../wcwidth.js";
 import { Action, State, TABLE } from "./states.js";
 
 // Attribute bit positions in the attrs byte (word 1, bits 8-15)
@@ -12,7 +13,7 @@ const ATTR_STRIKETHROUGH = 0x08;
 // bits 4-5: underline style (reserved)
 const ATTR_INVERSE = 0x40;
 const ATTR_HIDDEN = 0x20;
-// const ATTR_WIDE = 0x80;
+const ATTR_WIDE = 0x80;
 
 /** Mouse tracking protocol. */
 export type MouseProtocol = "none" | "x10" | "vt200" | "drag" | "any";
@@ -540,6 +541,7 @@ export class VTParser {
           (this.fgIsRGB ? 1 << 21 : 0) | (this.bgIsRGB ? 1 << 22 : 0) | ((fgVal & 0xff) << 23);
         const word1 =
           ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
+        const word1Wide = word1 | (ATTR_WIDE << 8);
 
         let cachedRow = cursor.row;
         let cachedRowStart = grid.rowStart(cachedRow);
@@ -592,6 +594,17 @@ export class VTParser {
 
           // Inline cell write — duplicates printCodepoint() for throughput.
           // If you change wrap/cell-write/cursor logic here, update printCodepoint() too.
+
+          const charWidth = cp >= 0x80 ? wcwidth(cp) : 1;
+
+          // Combining characters (zero-width) attach to the previous cell
+          if (charWidth === 0 && cp >= 0x0300) {
+            // TODO: store combined grapheme clusters when cell format supports it
+            lastCp = cp;
+            j++;
+            continue;
+          }
+
           if (cursor.wrapPending) {
             cursor.wrapPending = false;
             if (this.autoWrapMode) {
@@ -608,11 +621,38 @@ export class VTParser {
             }
           }
 
+          // Wide character at last column: wrap to next line first
+          if (charWidth === 2 && cursor.col >= lastCol) {
+            // Fill current cell with space, then wrap
+            gridData[cellIdx] = 0x20 | word0Base;
+            gridData[cellIdx + 1] = word1;
+            grid.markDirty(cachedRow);
+            cursor.col = 0;
+            cursor.row++;
+            if (cursor.row > buf.scrollBottom) {
+              cursor.row = buf.scrollBottom;
+              this._scrollUpFull();
+            }
+            cachedRow = cursor.row;
+            cachedRowStart = grid.rowStart(cachedRow);
+            cellIdx = cachedRowStart;
+          }
+
           gridData[cellIdx] = (cp & 0x1fffff) | word0Base;
-          gridData[cellIdx + 1] = word1;
+          gridData[cellIdx + 1] = charWidth === 2 ? word1Wide : word1;
 
           if (this.fgIsRGB) grid.rgbColors[cursor.col] = this.fgRGB;
           if (this.bgIsRGB) grid.rgbColors[256 + cursor.col] = this.bgRGB;
+
+          if (charWidth === 2) {
+            // Write spacer in next cell (right half of wide char)
+            cursor.col++;
+            if (cursor.col < gridCols) {
+              cellIdx += CELL_SIZE;
+              gridData[cellIdx] = word0Base; // codepoint 0 = spacer
+              gridData[cellIdx + 1] = word1;
+            }
+          }
 
           if (cursor.col >= lastCol) {
             cursor.wrapPending = true;
@@ -796,6 +836,14 @@ export class VTParser {
     const cursor = buf.cursor;
     const grid = buf.grid;
 
+    const charWidth = cp >= 0x80 ? wcwidth(cp) : 1;
+
+    // Combining characters (zero-width) attach to the previous cell
+    if (charWidth === 0 && cp >= 0x0300) {
+      // TODO: store combined grapheme clusters when cell format supports it
+      return;
+    }
+
     // Resolve pending wrap from a previous print at the last column
     if (cursor.wrapPending) {
       cursor.wrapPending = false;
@@ -814,6 +862,26 @@ export class VTParser {
       cursor.col = this.cols - 1;
     }
 
+    const lastCol = this.cols - 1;
+
+    // Wide character at last column: fill with space, then wrap
+    if (charWidth === 2 && cursor.col >= lastCol) {
+      const idx = grid.rowStart(cursor.row) + cursor.col * CELL_SIZE;
+      const fgVal = this.fgIsRGB ? this.fgRGB & 0xff : this.fgIndex;
+      grid.data[idx] =
+        0x20 | (this.fgIsRGB ? 1 << 21 : 0) | (this.bgIsRGB ? 1 << 22 : 0) | ((fgVal & 0xff) << 23);
+      grid.data[idx + 1] =
+        ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
+      grid.markDirty(cursor.row);
+
+      cursor.col = 0;
+      cursor.row++;
+      if (cursor.row > buf.scrollBottom) {
+        cursor.row = buf.scrollBottom;
+        this._scrollUpFull();
+      }
+    }
+
     // Inline cell write — avoids setCell() function call overhead.
     const idx = grid.rowStart(cursor.row) + cursor.col * CELL_SIZE;
     const fgVal = this.fgIsRGB ? this.fgRGB & 0xff : this.fgIndex;
@@ -822,8 +890,9 @@ export class VTParser {
       (this.fgIsRGB ? 1 << 21 : 0) |
       (this.bgIsRGB ? 1 << 22 : 0) |
       ((fgVal & 0xff) << 23);
+    const attrsWithWide = charWidth === 2 ? this.attrs | ATTR_WIDE : this.attrs;
     grid.data[idx + 1] =
-      ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
+      ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((attrsWithWide & 0xff) << 8);
     grid.markDirty(cursor.row);
 
     // Store full RGB values in the rgbColors lookup if using RGB
@@ -836,8 +905,20 @@ export class VTParser {
 
     this.lastPrintedCodepoint = cp;
 
+    if (charWidth === 2) {
+      // Write spacer cell for right half of wide character
+      cursor.col++;
+      if (cursor.col < this.cols) {
+        const spacerIdx = grid.rowStart(cursor.row) + cursor.col * CELL_SIZE;
+        grid.data[spacerIdx] =
+          (this.fgIsRGB ? 1 << 21 : 0) | (this.bgIsRGB ? 1 << 22 : 0) | ((fgVal & 0xff) << 23); // codepoint 0 = spacer
+        grid.data[spacerIdx + 1] =
+          ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
+      }
+    }
+
     // Advance cursor; if at last column, defer wrap
-    if (cursor.col >= this.cols - 1) {
+    if (cursor.col >= lastCol) {
       cursor.wrapPending = true;
     } else {
       cursor.col++;
@@ -893,11 +974,22 @@ export class VTParser {
     if (buf.scrollTop === 0 && buf.scrollBottom === this.rows - 1) {
       const grid = buf.grid;
       if (this.bufferSet.maxScrollback > 0 && buf === this.bufferSet.normal) {
-        this.bufferSet.pushScrollback(grid.copyRow(0));
+        const rowSize = grid.cols * CELL_SIZE;
+        const dest = this.bufferSet.borrowRowBuffer(rowSize);
+        grid.copyRowInto(0, dest);
+        this.bufferSet.pushScrollback(dest);
       }
       grid.rotateUp();
       grid.clearRowRaw(buf.scrollBottom);
-      grid.markDirtyRange(buf.scrollTop, buf.scrollBottom);
+      // rotateUp changes the row offset — all rows are logically new positions.
+      // Renderers that use the circular buffer directly (SAB mode) only need
+      // the cleared row marked dirty. Non-SAB renderers get a full buffer copy
+      // on every flush, so they always re-render everything.
+      if (grid.isShared) {
+        grid.markDirty(buf.scrollBottom);
+      } else {
+        grid.markDirtyRange(buf.scrollTop, buf.scrollBottom);
+      }
     } else {
       this.bufferSet.scrollUpWithHistory();
     }

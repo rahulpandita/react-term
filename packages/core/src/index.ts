@@ -16,3 +16,4 @@ export { VTParser } from "./parser/index.js";
 export { Action, State, TABLE, unpackAction, unpackState } from "./parser/states.js";
 export type { CursorState, SelectionState, TerminalOptions, Theme } from "./types.js";
 export { DEFAULT_THEME, DirtyState } from "./types.js";
+export { isCombining, wcwidth } from "./wcwidth.js";

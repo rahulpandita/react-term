@@ -204,6 +204,15 @@ export class Canvas2DRenderer implements IRenderer {
         const attrs = grid.getAttrs(row, col);
         const fgIsRGB = grid.isFgRGB(row, col);
         const bgIsRGB = grid.isBgRGB(row, col);
+        const wide = grid.isWide(row, col);
+
+        // Skip spacer cells (right half of wide character, codepoint 0)
+        if (grid.isSpacerCell(row, col)) {
+          continue;
+        }
+
+        // Effective cell width (wide chars span 2 columns)
+        const effWidth = wide ? cellWidth * 2 : cellWidth;
 
         // Resolve colors
         let fg = this.resolveCellColor(fgIdx, fgIsRGB, grid, col, true);
@@ -219,7 +228,7 @@ export class Canvas2DRenderer implements IRenderer {
         // Draw background if not the default bg
         if (bg !== this.theme.background) {
           ctx.fillStyle = bg;
-          ctx.fillRect(x, y, cellWidth, cellHeight);
+          ctx.fillRect(x, y, effWidth, cellHeight);
         }
 
         // Draw character
@@ -239,7 +248,7 @@ export class Canvas2DRenderer implements IRenderer {
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(x, lineY);
-          ctx.lineTo(x + cellWidth, lineY);
+          ctx.lineTo(x + effWidth, lineY);
           ctx.stroke();
         }
 
@@ -250,7 +259,7 @@ export class Canvas2DRenderer implements IRenderer {
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(x, lineY);
-          ctx.lineTo(x + cellWidth, lineY);
+          ctx.lineTo(x + effWidth, lineY);
           ctx.stroke();
         }
       }

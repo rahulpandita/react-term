@@ -100,10 +100,13 @@ describe("VTParser Edge Cases", () => {
 
     it("handles combining characters (e + combining acute)", () => {
       // 'e' (0x65) + combining acute accent U+0301 (0xCC 0x81)
+      // Combining characters attach to the base character — they don't
+      // advance the cursor or occupy their own cell.
       parser.write(new Uint8Array([0x65, 0xcc, 0x81]));
       const grid = bs.active.grid;
-      expect(grid.getCodepoint(0, 0)).toBe(0x65); // 'e'
-      expect(grid.getCodepoint(0, 1)).toBe(0x0301); // combining accent in next cell
+      expect(grid.getCodepoint(0, 0)).toBe(0x65); // 'e' (base char)
+      // Cursor stays at col 1 (after 'e'), combining mark was absorbed
+      expect(bs.active.cursor.col).toBe(1);
     });
 
     it("handles split UTF-8 across multiple writes", () => {

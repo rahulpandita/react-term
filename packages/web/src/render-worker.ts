@@ -529,6 +529,8 @@ function render(): void {
       // Count glyphs in clean rows so glyphCount stays correct
       for (let col = 0; col < cols; col++) {
         const codepoint = grid.getCodepoint(row, col);
+        // Skip spacer cells (right half of wide char)
+        if (grid.isSpacerCell(row, col)) continue;
         if (codepoint > 0x20) glyphCount++;
       }
       continue;
@@ -539,11 +541,19 @@ function render(): void {
     // and repack below.
     for (let col = 0; col < cols; col++) {
       const codepoint = grid.getCodepoint(row, col);
+
+      // Skip spacer cells (right half of wide character)
+      if (grid.isSpacerCell(row, col)) {
+        packBgInstance(bgInstances, (row * cols + col) * BG_INSTANCE_FLOATS, col, row, 0, 0, 0, 0);
+        continue;
+      }
+
       const fgIdx = grid.getFgIndex(row, col);
       const bgIdx = grid.getBgIndex(row, col);
       const attrs = grid.getAttrs(row, col);
       const fgIsRGB = grid.isFgRGB(row, col);
       const bgIsRGB = grid.isBgRGB(row, col);
+      const wide = grid.isWide(row, col);
 
       let fg = resolveColorFloat(
         fgIdx,
@@ -584,6 +594,20 @@ function render(): void {
         bg[3],
       );
 
+      // Wide char: paint bg for right-half too
+      if (wide && col + 1 < cols) {
+        packBgInstance(
+          bgInstances,
+          (row * cols + col + 1) * BG_INSTANCE_FLOATS,
+          col + 1,
+          row,
+          bg[0],
+          bg[1],
+          bg[2],
+          bg[3],
+        );
+      }
+
       if (codepoint > 0x20) {
         const bold = !!(attrs & ATTR_BOLD);
         const italic = !!(attrs & ATTR_ITALIC);
@@ -603,6 +627,8 @@ function render(): void {
     for (let col = 0; col < cols; col++) {
       const codepoint = grid.getCodepoint(row, col);
       if (codepoint <= 0x20) continue;
+      // Skip spacer cells (right half of wide character)
+      if (grid.isSpacerCell(row, col)) continue;
       const fgIdx = grid.getFgIndex(row, col);
       const attrs = grid.getAttrs(row, col);
       const fgIsRGB = grid.isFgRGB(row, col);

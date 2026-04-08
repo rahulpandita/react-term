@@ -908,8 +908,10 @@ describe("Canvas2DRenderer — render loop", () => {
   let ctxSpy: { mockRestore(): void };
   // Manually-controlled RAF queue
   const rafCallbacks: FrameRequestCallback[] = [];
-  let rafSpy: ReturnType<typeof vi.spyOn>;
-  let cafSpy: ReturnType<typeof vi.spyOn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rafSpy: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let cafSpy: any;
 
   function flushOneFrame() {
     const cb = rafCallbacks.shift();

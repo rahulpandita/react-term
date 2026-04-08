@@ -163,6 +163,11 @@ export class CellGrid {
     return (this.data[this.rowStart(row) + col * CELL_SIZE + 1] & (1 << 15)) !== 0;
   }
 
+  /** True if this cell is the right half of a wide character (spacer with codepoint 0). */
+  isSpacerCell(row: number, col: number): boolean {
+    return col > 0 && this.getCodepoint(row, col) === 0 && this.isWide(row, col - 1);
+  }
+
   setCell(
     row: number,
     col: number,
@@ -235,6 +240,13 @@ export class CellGrid {
   copyRow(row: number): Uint32Array {
     const start = this.rowStart(row);
     return new Uint32Array(this.data.slice(start, start + this.cols * CELL_SIZE));
+  }
+
+  /** Copy a logical row into an existing buffer (avoids allocation). */
+  copyRowInto(row: number, dest: Uint32Array): void {
+    const start = this.rowStart(row);
+    const len = this.cols * CELL_SIZE;
+    for (let i = 0; i < len; i++) dest[i] = this.data[start + i];
   }
 
   /** Overwrite a logical row from a previously copied Uint32Array. */

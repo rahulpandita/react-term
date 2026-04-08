@@ -146,18 +146,42 @@ export class BufferSet {
     this.active = this.normal;
   }
 
-  /** Push a line into scrollback (for the normal buffer). */
+  /**
+   * Push a line into scrollback (for the normal buffer).
+   *
+   * IMPORTANT: push() must happen before shift() — borrowRowBuffer()
+   * returns scrollback[0] which the caller fills before calling this.
+   * Reversing the order would evict the buffer before it's appended.
+   */
   pushScrollback(line: Uint32Array): void {
     this.scrollback.push(line);
-    while (this.scrollback.length > this.maxScrollback) {
+    if (this.scrollback.length > this.maxScrollback) {
       this.scrollback.shift();
     }
+  }
+
+  /**
+   * Get a reusable row buffer or allocate a new one.
+   * Reuses the buffer that's about to be evicted from scrollback.
+   */
+  borrowRowBuffer(size: number): Uint32Array {
+    if (this.scrollback.length >= this.maxScrollback && this.maxScrollback > 0) {
+      const existing = this.scrollback[0];
+      if (existing && existing.length >= size) {
+        return existing;
+      }
+    }
+    return new Uint32Array(size);
   }
 
   /** Scroll the active buffer up, pushing the top line into scrollback if normal buffer. */
   scrollUpWithHistory(): void {
     if (this.maxScrollback > 0 && this.active === this.normal && this.active.scrollTop === 0) {
-      this.pushScrollback(this.active.grid.copyRow(0));
+      const grid = this.active.grid;
+      const rowSize = grid.cols * CELL_SIZE;
+      const dest = this.borrowRowBuffer(rowSize);
+      grid.copyRowInto(0, dest);
+      this.pushScrollback(dest);
     }
     this.active.scrollUp();
   }
