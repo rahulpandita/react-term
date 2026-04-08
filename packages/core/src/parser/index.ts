@@ -647,9 +647,11 @@ export class VTParser {
           if (charWidth === 2) {
             // Write spacer in next cell (right half of wide char)
             cursor.col++;
-            cellIdx += CELL_SIZE;
-            gridData[cellIdx] = word0Base; // codepoint 0 = spacer
-            gridData[cellIdx + 1] = word1;
+            if (cursor.col < gridCols) {
+              cellIdx += CELL_SIZE;
+              gridData[cellIdx] = word0Base; // codepoint 0 = spacer
+              gridData[cellIdx + 1] = word1;
+            }
           }
 
           if (cursor.col >= lastCol) {
