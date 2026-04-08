@@ -163,6 +163,11 @@ export class CellGrid {
     return (this.data[this.rowStart(row) + col * CELL_SIZE + 1] & (1 << 15)) !== 0;
   }
 
+  /** True if this cell is the right half of a wide character (spacer with codepoint 0). */
+  isSpacerCell(row: number, col: number): boolean {
+    return col > 0 && this.getCodepoint(row, col) === 0 && this.isWide(row, col - 1);
+  }
+
   setCell(
     row: number,
     col: number,

@@ -178,7 +178,11 @@ export class BufferSet {
   /** Scroll the active buffer up, pushing the top line into scrollback if normal buffer. */
   scrollUpWithHistory(): void {
     if (this.maxScrollback > 0 && this.active === this.normal && this.active.scrollTop === 0) {
-      this.pushScrollback(this.active.grid.copyRow(0));
+      const grid = this.active.grid;
+      const rowSize = grid.cols * CELL_SIZE;
+      const dest = this.borrowRowBuffer(rowSize);
+      grid.copyRowInto(0, dest);
+      this.pushScrollback(dest);
     }
     this.active.scrollUp();
   }

@@ -758,7 +758,7 @@ export class SharedWebGLContext {
           const bgIsRGB = grid.isBgRGB(row, col);
 
           // Skip spacer cells (right half of wide character)
-          if (codepoint === 0 && col > 0 && grid.isWide(row, col - 1)) {
+          if (grid.isSpacerCell(row, col)) {
             // Emit transparent bg to fill the slot
             const bOff = bgCount * SC_BG_INSTANCE_FLOATS;
             bgData[bOff] = col;

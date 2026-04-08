@@ -207,7 +207,7 @@ export class Canvas2DRenderer implements IRenderer {
         const wide = grid.isWide(row, col);
 
         // Skip spacer cells (right half of wide character, codepoint 0)
-        if (codepoint === 0 && col > 0 && grid.isWide(row, col - 1)) {
+        if (grid.isSpacerCell(row, col)) {
           continue;
         }
 

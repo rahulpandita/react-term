@@ -530,7 +530,7 @@ function render(): void {
       for (let col = 0; col < cols; col++) {
         const codepoint = grid.getCodepoint(row, col);
         // Skip spacer cells (right half of wide char)
-        if (codepoint === 0 && col > 0 && grid.isWide(row, col - 1)) continue;
+        if (grid.isSpacerCell(row, col)) continue;
         if (codepoint > 0x20) glyphCount++;
       }
       continue;
@@ -543,7 +543,7 @@ function render(): void {
       const codepoint = grid.getCodepoint(row, col);
 
       // Skip spacer cells (right half of wide character)
-      if (codepoint === 0 && col > 0 && grid.isWide(row, col - 1)) {
+      if (grid.isSpacerCell(row, col)) {
         packBgInstance(bgInstances, (row * cols + col) * BG_INSTANCE_FLOATS, col, row, 0, 0, 0, 0);
         continue;
       }
@@ -628,7 +628,7 @@ function render(): void {
       const codepoint = grid.getCodepoint(row, col);
       if (codepoint <= 0x20) continue;
       // Skip spacer cells (right half of wide character)
-      if (codepoint === 0 && col > 0 && grid.isWide(row, col - 1)) continue;
+      if (grid.isSpacerCell(row, col)) continue;
       const fgIdx = grid.getFgIndex(row, col);
       const attrs = grid.getAttrs(row, col);
       const fgIsRGB = grid.isFgRGB(row, col);

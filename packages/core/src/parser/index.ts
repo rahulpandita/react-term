@@ -1,7 +1,7 @@
 import type { BufferSet } from "../buffer.js";
 import { CELL_SIZE, DEFAULT_CELL_W0, DEFAULT_CELL_W1 } from "../cell-grid.js";
 import type { CursorState } from "../types.js";
-import { isCombining, wcwidth } from "../wcwidth.js";
+import { wcwidth } from "../wcwidth.js";
 import { Action, State, TABLE } from "./states.js";
 
 // Attribute bit positions in the attrs byte (word 1, bits 8-15)
@@ -595,17 +595,15 @@ export class VTParser {
           // Inline cell write — duplicates printCodepoint() for throughput.
           // If you change wrap/cell-write/cursor logic here, update printCodepoint() too.
 
-          // Combining characters attach to the previous cell
-          if (cp >= 0x0300 && isCombining(cp)) {
-            // Attach to previous cell (no cursor advance)
-            // For now, just skip — the base character is already displayed
+          const charWidth = cp >= 0x80 ? wcwidth(cp) : 1;
+
+          // Combining characters (zero-width) attach to the previous cell
+          if (charWidth === 0 && cp >= 0x0300) {
             // TODO: store combined grapheme clusters when cell format supports it
             lastCp = cp;
             j++;
             continue;
           }
-
-          const charWidth = cp >= 0x80 ? wcwidth(cp) : 1;
 
           if (cursor.wrapPending) {
             cursor.wrapPending = false;
@@ -836,14 +834,13 @@ export class VTParser {
     const cursor = buf.cursor;
     const grid = buf.grid;
 
-    // Combining characters attach to the previous cell
-    if (cp >= 0x0300 && isCombining(cp)) {
-      // Skip — base character already displayed
+    const charWidth = cp >= 0x80 ? wcwidth(cp) : 1;
+
+    // Combining characters (zero-width) attach to the previous cell
+    if (charWidth === 0 && cp >= 0x0300) {
       // TODO: store combined grapheme clusters when cell format supports it
       return;
     }
-
-    const charWidth = cp >= 0x80 ? wcwidth(cp) : 1;
 
     // Resolve pending wrap from a previous print at the last column
     if (cursor.wrapPending) {

@@ -749,7 +749,7 @@ export class WebGLRenderer implements IRenderer {
         const wide = grid.isWide(row, col);
 
         // Skip spacer cells (right half of wide character)
-        if (codepoint === 0 && col > 0 && grid.isWide(row, col - 1)) {
+        if (grid.isSpacerCell(row, col)) {
           // Still need to emit a bg instance for this column
           packBgInstance(
             this.bgInstances,
