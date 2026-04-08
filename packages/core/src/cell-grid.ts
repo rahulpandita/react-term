@@ -237,6 +237,13 @@ export class CellGrid {
     return new Uint32Array(this.data.slice(start, start + this.cols * CELL_SIZE));
   }
 
+  /** Copy a logical row into an existing buffer (avoids allocation). */
+  copyRowInto(row: number, dest: Uint32Array): void {
+    const start = this.rowStart(row);
+    const len = this.cols * CELL_SIZE;
+    for (let i = 0; i < len; i++) dest[i] = this.data[start + i];
+  }
+
   /** Overwrite a logical row from a previously copied Uint32Array. */
   pasteRow(row: number, src: Uint32Array): void {
     const start = this.rowStart(row);

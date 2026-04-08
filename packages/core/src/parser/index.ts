@@ -975,11 +975,22 @@ export class VTParser {
     if (buf.scrollTop === 0 && buf.scrollBottom === this.rows - 1) {
       const grid = buf.grid;
       if (this.bufferSet.maxScrollback > 0 && buf === this.bufferSet.normal) {
-        this.bufferSet.pushScrollback(grid.copyRow(0));
+        const rowSize = grid.cols * CELL_SIZE;
+        const dest = this.bufferSet.borrowRowBuffer(rowSize);
+        grid.copyRowInto(0, dest);
+        this.bufferSet.pushScrollback(dest);
       }
       grid.rotateUp();
       grid.clearRowRaw(buf.scrollBottom);
-      grid.markDirtyRange(buf.scrollTop, buf.scrollBottom);
+      // rotateUp changes the row offset — all rows are logically new positions.
+      // Renderers that use the circular buffer directly (SAB mode) only need
+      // the cleared row marked dirty. Non-SAB renderers get a full buffer copy
+      // on every flush, so they always re-render everything.
+      if (grid.isShared) {
+        grid.markDirty(buf.scrollBottom);
+      } else {
+        grid.markDirtyRange(buf.scrollTop, buf.scrollBottom);
+      }
     } else {
       this.bufferSet.scrollUpWithHistory();
     }
