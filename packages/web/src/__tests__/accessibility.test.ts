@@ -212,11 +212,13 @@ describe("AccessibilityManager", () => {
   });
 
   it("announce() after dispose does not add to the live region", () => {
+    // Capture the live region reference before dispose removes it from the DOM
+    const liveRegion = container.querySelector('[role="log"]') as HTMLElement;
+    const countBefore = liveRegion.childNodes.length;
     manager.dispose();
-    const liveRegion = container.querySelector('[role="log"]');
-    const countBefore = liveRegion?.childNodes.length ?? 0;
     manager.announce("hello");
-    expect(liveRegion?.childNodes.length ?? 0).toBe(countBefore);
+    // The live region should not have gained any children
+    expect(liveRegion.childNodes.length).toBe(countBefore);
   });
 
   it("announce caps the live region at 20 child nodes", () => {
