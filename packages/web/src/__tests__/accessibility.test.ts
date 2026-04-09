@@ -185,4 +185,41 @@ describe("AccessibilityManager", () => {
     manager.dispose();
     manager.dispose(); // Should not throw
   });
+
+  it("dispose cancels a pending throttle timer", () => {
+    vi.useFakeTimers();
+
+    // Trigger the first update to arm the throttle timer
+    grid.markDirty(0);
+    manager.update();
+
+    // Dispose while timer is still running — should not throw or fire later
+    manager.dispose();
+
+    // Advancing time must not cause errors
+    expect(() => vi.advanceTimersByTime(200)).not.toThrow();
+
+    vi.useRealTimers();
+  });
+
+  it("update() after dispose is a no-op and does not throw", () => {
+    manager.dispose();
+    grid.markDirty(0);
+    expect(() => manager.update()).not.toThrow();
+  });
+
+  it("announce() after dispose is a no-op and does not throw", () => {
+    manager.dispose();
+    expect(() => manager.announce("hello")).not.toThrow();
+  });
+
+  it("announce caps the live region at 20 child nodes", () => {
+    // Add 25 announcements — the region should be trimmed to ≤ 20 children
+    for (let i = 0; i < 25; i++) {
+      manager.announce(`message ${i}`);
+    }
+
+    const liveRegion = container.querySelector('[role="log"]');
+    expect(liveRegion?.childNodes.length).toBeLessThanOrEqual(20);
+  });
 });
