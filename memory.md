@@ -1,1 +1,1 @@
-2026-04-08 run 24116431322. Tasks 3+7. 1512->1521. PR branch test-assist/renderer-loop-resize (9t: startRenderLoop schedules RAF, stopRenderLoop cancels, disposed no-op, attach canvas dims+DPR+setTransform, resize dims+dirty+no-attach). #83 open monthly summary.
+2026-04-09 run 24171034467. Tasks 3+7. 1576->1580. PR branch test-assist/accessibility-edge-cases (4t: dispose cancels timer, update-after-dispose, announce-after-dispose, announce-caps-live-region-20). #83 open monthly summary.
