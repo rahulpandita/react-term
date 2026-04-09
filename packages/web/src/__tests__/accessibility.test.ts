@@ -202,15 +202,21 @@ describe("AccessibilityManager", () => {
     vi.useRealTimers();
   });
 
-  it("update() after dispose is a no-op and does not throw", () => {
+  it("update() after dispose does not modify the DOM", () => {
     manager.dispose();
+    grid.setCell(0, 0, "X".charCodeAt(0), 7, 0, 0);
     grid.markDirty(0);
-    expect(() => manager.update()).not.toThrow();
+    const htmlBefore = container.innerHTML;
+    manager.update();
+    expect(container.innerHTML).toBe(htmlBefore);
   });
 
-  it("announce() after dispose is a no-op and does not throw", () => {
+  it("announce() after dispose does not add to the live region", () => {
     manager.dispose();
-    expect(() => manager.announce("hello")).not.toThrow();
+    const liveRegion = container.querySelector('[role="log"]');
+    const countBefore = liveRegion?.childNodes.length ?? 0;
+    manager.announce("hello");
+    expect(liveRegion?.childNodes.length ?? 0).toBe(countBefore);
   });
 
   it("announce caps the live region at 20 child nodes", () => {
