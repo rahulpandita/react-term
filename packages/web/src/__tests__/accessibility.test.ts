@@ -185,4 +185,49 @@ describe("AccessibilityManager", () => {
     manager.dispose();
     manager.dispose(); // Should not throw
   });
+
+  it("dispose cancels a pending throttle timer", () => {
+    vi.useFakeTimers();
+
+    // Trigger the first update to arm the throttle timer
+    grid.markDirty(0);
+    manager.update();
+
+    // Dispose while timer is still running — should not throw or fire later
+    manager.dispose();
+
+    // Advancing time must not cause errors
+    expect(() => vi.advanceTimersByTime(200)).not.toThrow();
+
+    vi.useRealTimers();
+  });
+
+  it("update() after dispose does not modify the DOM", () => {
+    manager.dispose();
+    grid.setCell(0, 0, "X".charCodeAt(0), 7, 0, 0);
+    grid.markDirty(0);
+    const htmlBefore = container.innerHTML;
+    manager.update();
+    expect(container.innerHTML).toBe(htmlBefore);
+  });
+
+  it("announce() after dispose does not add to the live region", () => {
+    // Capture the live region reference before dispose removes it from the DOM
+    const liveRegion = container.querySelector('[role="log"]') as HTMLElement;
+    const countBefore = liveRegion.childNodes.length;
+    manager.dispose();
+    manager.announce("hello");
+    // The live region should not have gained any children
+    expect(liveRegion.childNodes.length).toBe(countBefore);
+  });
+
+  it("announce caps the live region at 20 child nodes", () => {
+    // Add 25 announcements — the region should be trimmed to ≤ 20 children
+    for (let i = 0; i < 25; i++) {
+      manager.announce(`message ${i}`);
+    }
+
+    const liveRegion = container.querySelector('[role="log"]');
+    expect(liveRegion?.childNodes.length).toBeLessThanOrEqual(20);
+  });
 });
