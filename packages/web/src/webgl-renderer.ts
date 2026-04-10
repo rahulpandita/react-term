@@ -961,6 +961,7 @@ export class WebGLRenderer implements IRenderer {
   resize(_cols: number, _rows: number): void {
     if (!this.canvas || !this.grid) return;
     this.syncCanvasSize();
+    this.hasRenderedOnce = false; // force full rebuild on any resize (not just grow)
     this.ensureInstanceBuffers();
     this.grid.markAllDirty();
   }
