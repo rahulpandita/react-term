@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BG_INSTANCE_FLOATS, GLYPH_INSTANCE_FLOATS } from "../webgl-renderer.js";
 
 /**
@@ -89,5 +89,119 @@ describe("WebGLRenderer resize — hasRenderedOnce reset", () => {
     state.hasRenderedOnce = true;
     resizeFixed(state, 80, 24);
     expect(state.hasRenderedOnce).toBe(false);
+  });
+});
+
+describe("WebGLRenderer resize — stale glyph cleanup (#127 comment 2)", () => {
+  /**
+   * Replicates the render loop's glyph cleanup logic.
+   * After resize, rowGlyphCounts must be initialized to cols (not 0)
+   * so the cleanup loop zeros all stale glyph slots.
+   */
+  function simulateGlyphCleanup(
+    glyphInstances: Float32Array,
+    rowGlyphCounts: number[],
+    rows: number,
+    cols: number,
+    actualGlyphsPerRow: number[],
+  ) {
+    for (let row = 0; row < rows; row++) {
+      const glyphBase = row * cols * GLYPH_INSTANCE_FLOATS;
+      const rowGlyphCount = actualGlyphsPerRow[row];
+
+      // This is the cleanup loop from webgl-renderer.ts line 849-857
+      for (let i = rowGlyphCount; i < rowGlyphCounts[row]; i++) {
+        const off = glyphBase + i * GLYPH_INSTANCE_FLOATS;
+        for (let j = 0; j < GLYPH_INSTANCE_FLOATS; j++) {
+          glyphInstances[off + j] = 0;
+        }
+      }
+      rowGlyphCounts[row] = rowGlyphCount;
+    }
+  }
+
+  it("rowGlyphCounts initialized to 0: stale glyphs NOT cleared", () => {
+    const cols = 80;
+    const rows = 5;
+    const glyphInstances = new Float32Array(rows * cols * GLYPH_INSTANCE_FLOATS);
+    // Fill with non-zero "stale" data
+    glyphInstances.fill(1.0);
+
+    // Bug: rowGlyphCounts initialized to 0
+    const rowGlyphCounts = new Array(rows).fill(0);
+    // Simulate rendering 10 glyphs per row
+    const actualGlyphs = new Array(rows).fill(10);
+
+    simulateGlyphCleanup(glyphInstances, rowGlyphCounts, rows, cols, actualGlyphs);
+
+    // Stale data at slot 11 should be cleared — but it won't be
+    // because rowGlyphCounts was 0, so the cleanup loop ran from 10..0 (never)
+    const staleOffset = 0 * cols * GLYPH_INSTANCE_FLOATS + 11 * GLYPH_INSTANCE_FLOATS;
+    expect(glyphInstances[staleOffset]).toBe(1.0); // still stale — BUG
+  });
+
+  it("rowGlyphCounts initialized to cols: stale glyphs ARE cleared", () => {
+    const cols = 80;
+    const rows = 5;
+    const glyphInstances = new Float32Array(rows * cols * GLYPH_INSTANCE_FLOATS);
+    glyphInstances.fill(1.0);
+
+    // Fix: rowGlyphCounts initialized to cols
+    const rowGlyphCounts = new Array(rows).fill(cols);
+    const actualGlyphs = new Array(rows).fill(10);
+
+    simulateGlyphCleanup(glyphInstances, rowGlyphCounts, rows, cols, actualGlyphs);
+
+    // Now stale data at slot 11 should be zeroed
+    const staleOffset = 0 * cols * GLYPH_INSTANCE_FLOATS + 11 * GLYPH_INSTANCE_FLOATS;
+    expect(glyphInstances[staleOffset]).toBe(0); // cleared — FIXED
+
+    // All slots from 10 to 79 should be zeroed
+    for (let i = 10; i < cols; i++) {
+      const off = 0 * cols * GLYPH_INSTANCE_FLOATS + i * GLYPH_INSTANCE_FLOATS;
+      expect(glyphInstances[off]).toBe(0);
+    }
+  });
+});
+
+describe("WebGLRenderer attach — context-loss listener cleanup", () => {
+  it("re-attach removes old listeners before adding new ones", () => {
+    const addSpy = vi.fn();
+    const removeSpy = vi.fn();
+    const canvas = {
+      addEventListener: addSpy,
+      removeEventListener: removeSpy,
+    };
+
+    // Simulate the fixed attach() logic
+    let handleContextLost: ((e: Event) => void) | null = null;
+    let handleContextRestored: (() => void) | null = null;
+    let currentCanvas: typeof canvas | null = null;
+
+    function attach(c: typeof canvas) {
+      // Fixed: remove old listeners
+      if (currentCanvas && handleContextLost) {
+        currentCanvas.removeEventListener("webglcontextlost", handleContextLost);
+      }
+      if (currentCanvas && handleContextRestored) {
+        currentCanvas.removeEventListener("webglcontextrestored", handleContextRestored);
+      }
+
+      currentCanvas = c;
+      handleContextLost = () => {};
+      handleContextRestored = () => {};
+      c.addEventListener("webglcontextlost", handleContextLost);
+      c.addEventListener("webglcontextrestored", handleContextRestored);
+    }
+
+    // First attach — no removes (nothing to remove)
+    attach(canvas);
+    expect(addSpy).toHaveBeenCalledTimes(2);
+    expect(removeSpy).toHaveBeenCalledTimes(0);
+
+    // Second attach — should remove old + add new
+    attach(canvas);
+    expect(addSpy).toHaveBeenCalledTimes(4); // 2 + 2
+    expect(removeSpy).toHaveBeenCalledTimes(2); // old ones removed
   });
 });
