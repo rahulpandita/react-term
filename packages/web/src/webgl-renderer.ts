@@ -629,6 +629,14 @@ export class WebGLRenderer implements IRenderer {
   // -----------------------------------------------------------------------
 
   attach(canvas: HTMLCanvasElement, grid: CellGrid, cursor: CursorState): void {
+    // Remove old context-loss listeners if re-attaching to the same canvas
+    if (this.canvas && this.handleContextLost) {
+      this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
+    }
+    if (this.canvas && this.handleContextRestored) {
+      this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
+    }
+
     this.canvas = canvas;
     this.grid = grid;
     this.cursor = cursor;
