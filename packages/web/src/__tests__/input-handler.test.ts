@@ -80,17 +80,17 @@ describe("InputHandler", () => {
       return { onScroll, dispatch, teardown };
     }
 
-    it("calls onScroll with positive lines when scrolling down", () => {
+    it("calls onScroll with positive delta when wheel scrolls up (into history)", () => {
       const { onScroll, dispatch, teardown } = setupWheel();
-      dispatch(48);
-      expect(onScroll).toHaveBeenCalledWith(3); // 48 / 16 = 3 lines
+      dispatch(-48); // wheel up = negative deltaY
+      expect(onScroll).toHaveBeenCalledWith(3); // negated: 48 / 16 = 3 lines back
       teardown();
     });
 
-    it("calls onScroll with negative lines when scrolling up", () => {
+    it("calls onScroll with negative delta when wheel scrolls down (toward live)", () => {
       const { onScroll, dispatch, teardown } = setupWheel();
-      dispatch(-32);
-      expect(onScroll).toHaveBeenCalledWith(-2); // -32 / 16 = -2 lines
+      dispatch(32); // wheel down = positive deltaY
+      expect(onScroll).toHaveBeenCalledWith(-2); // negated: -32 / 16 = -2 lines forward
       teardown();
     });
 

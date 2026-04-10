@@ -1074,9 +1074,11 @@ export class InputHandler {
       const button = e.deltaY < 0 ? 64 : 65;
       this.onData(toBytes(this.encodeMouseEvent(button, pos.col, pos.row)));
     } else if (this.onScroll && this.cellHeight > 0) {
-      // Normal mode — scroll the viewport through scrollback history
+      // Normal mode — scroll the viewport through scrollback history.
+      // Negate deltaY: wheel-up (deltaY < 0) should scroll back (positive),
+      // matching the GestureHandler convention used by scrollViewport.
       e.preventDefault();
-      const lines = Math.round(e.deltaY / this.cellHeight);
+      const lines = Math.round(-e.deltaY / this.cellHeight);
       if (lines !== 0) {
         this.onScroll(lines);
       }
