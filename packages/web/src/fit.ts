@@ -12,7 +12,6 @@ export function calculateFit(
   let width = rect.width;
   let height = rect.height;
 
-  // Subtract CSS padding so the canvas fits inside the content box.
   if (typeof getComputedStyle === "function") {
     const style = getComputedStyle(container);
     width -= (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);

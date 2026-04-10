@@ -59,76 +59,46 @@ describe("InputHandler", () => {
   });
 
   describe("mouse wheel scrolling in normal mode", () => {
-    it("calls onScroll with positive lines when scrolling down", () => {
+    function setupWheel() {
       const onData = vi.fn();
       const onScroll = vi.fn();
       const handler = new InputHandler({ onData, onScroll });
-
-      // Simulate attach with a cell height of 16px
       const container = document.createElement("div");
       container.style.width = "800px";
       container.style.height = "400px";
       document.body.appendChild(container);
       handler.attach(container, 8, 16);
 
-      // Dispatch a wheel event (deltaY > 0 = scroll down)
-      const wheelEvent = new WheelEvent("wheel", {
-        deltaY: 48,
-        bubbles: true,
-        cancelable: true,
-      });
-      container.dispatchEvent(wheelEvent);
+      const dispatch = (deltaY: number) =>
+        container.dispatchEvent(
+          new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true }),
+        );
+      const teardown = () => {
+        handler.dispose();
+        document.body.removeChild(container);
+      };
+      return { onScroll, dispatch, teardown };
+    }
 
+    it("calls onScroll with positive lines when scrolling down", () => {
+      const { onScroll, dispatch, teardown } = setupWheel();
+      dispatch(48);
       expect(onScroll).toHaveBeenCalledWith(3); // 48 / 16 = 3 lines
-      handler.dispose();
-      document.body.removeChild(container);
+      teardown();
     });
 
     it("calls onScroll with negative lines when scrolling up", () => {
-      const onData = vi.fn();
-      const onScroll = vi.fn();
-      const handler = new InputHandler({ onData, onScroll });
-
-      const container = document.createElement("div");
-      container.style.width = "800px";
-      container.style.height = "400px";
-      document.body.appendChild(container);
-      handler.attach(container, 8, 16);
-
-      const wheelEvent = new WheelEvent("wheel", {
-        deltaY: -32,
-        bubbles: true,
-        cancelable: true,
-      });
-      container.dispatchEvent(wheelEvent);
-
+      const { onScroll, dispatch, teardown } = setupWheel();
+      dispatch(-32);
       expect(onScroll).toHaveBeenCalledWith(-2); // -32 / 16 = -2 lines
-      handler.dispose();
-      document.body.removeChild(container);
+      teardown();
     });
 
     it("does not call onScroll when deltaY rounds to zero lines", () => {
-      const onData = vi.fn();
-      const onScroll = vi.fn();
-      const handler = new InputHandler({ onData, onScroll });
-
-      const container = document.createElement("div");
-      container.style.width = "800px";
-      container.style.height = "400px";
-      document.body.appendChild(container);
-      handler.attach(container, 8, 16);
-
-      // Small deltaY that rounds to 0 lines
-      const wheelEvent = new WheelEvent("wheel", {
-        deltaY: 2,
-        bubbles: true,
-        cancelable: true,
-      });
-      container.dispatchEvent(wheelEvent);
-
+      const { onScroll, dispatch, teardown } = setupWheel();
+      dispatch(2); // too small to round to 1 line
       expect(onScroll).not.toHaveBeenCalled();
-      handler.dispose();
-      document.body.removeChild(container);
+      teardown();
     });
   });
 
