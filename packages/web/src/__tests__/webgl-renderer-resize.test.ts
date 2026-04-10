@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from "vitest";
+import { BG_INSTANCE_FLOATS, GLYPH_INSTANCE_FLOATS } from "../webgl-renderer.js";
 
 /**
  * Tests for the WebGLRenderer resize bug (#127):
@@ -11,9 +12,6 @@ import { describe, expect, it } from "vitest";
  * WebGLRenderer (requires a WebGL2 context unavailable in jsdom).
  */
 describe("WebGLRenderer resize — hasRenderedOnce reset", () => {
-  const BG_INSTANCE_FLOATS = 7;
-  const GLYPH_INSTANCE_FLOATS = 12;
-
   function createRendererState(cols: number, rows: number) {
     const totalCells = cols * rows;
     return {
