@@ -1,1 +1,1 @@
-2026-04-09 run 24171034467. Tasks 3+7. 1576->1580. PR branch test-assist/accessibility-edge-cases (4t: dispose cancels timer, update-after-dispose, announce-after-dispose, announce-caps-live-region-20). #83 open monthly summary.
+2026-04-10 run 24225264112. Tasks 3+7. 1580->1623. PR branch test-assist/parser-state-table (43t: VT500 state TABLE transitions — GROUND, anywhere rules, ESCAPE, CSI, OSC, DCS states). #83 open monthly summary. PR #118 (accessibility-edge-cases) merged 2026-04-09.
