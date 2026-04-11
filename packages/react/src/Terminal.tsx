@@ -39,6 +39,8 @@ export interface TerminalHandle {
   focus(): void;
   blur(): void;
   fit(): void;
+  /** Read all visible grid rows as plain text (for testing/accessibility). */
+  getRowTexts(): string[];
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(props, ref) {
@@ -107,6 +109,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         if (width <= 0 || height <= 0) return;
         const { cols: fitCols, rows: fitRows } = calculateFit(container, width, height);
         terminal.resize(fitCols, fitRows);
+      },
+      getRowTexts() {
+        const terminal = termRef.current;
+        if (!terminal) return [];
+        return terminal.getRowTexts();
       },
     }),
     [],

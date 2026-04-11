@@ -771,6 +771,22 @@ export class WebTerminal {
     return this.renderer.getCellSize();
   }
 
+  /** Read all visible grid rows as plain text. */
+  getRowTexts(): string[] {
+    const grid = this.bufferSet.active.grid;
+    const rows: string[] = [];
+    for (let r = 0; r < grid.rows; r++) {
+      let line = "";
+      for (let c = 0; c < grid.cols; c++) {
+        const cp = grid.getCodepoint(r, c);
+        if (cp > 0x20) line += String.fromCodePoint(cp);
+        else if (cp === 0x20) line += " ";
+      }
+      rows.push(line.trimEnd());
+    }
+    return rows;
+  }
+
   onData(callback: (data: Uint8Array) => void): void {
     this.onDataCallback = callback;
   }
