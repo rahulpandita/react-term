@@ -328,4 +328,68 @@ test.describe('integration scenarios', () => {
       expect(allText).toContain('README.md');
     });
   });
+
+  // =========================================================================
+  // Canvas2D parity — repeat critical scenarios to verify both renderers
+  // =========================================================================
+  test.describe('Canvas2D parity', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.click('[data-testid="mode-canvas2d"]');
+      await page.waitForTimeout(500);
+    });
+
+  test('carriage return overwrite', async ({ page }) => {
+    await write(page, 'AAAAAAAAAA');
+    await write(page, '\r\x1b[KBBB');
+    const rows = await waitForContent(page, 'BBB');
+    expect(rows[0]?.trim()).toBe('BBB');
+  });
+
+  test('alternate buffer round-trip preserves normal content', async ({ page }) => {
+    await write(page, 'Normal\r\n');
+    await waitForContent(page, 'Normal');
+    await write(page, '\x1b[?1049h');
+    await write(page, 'Alt\r\n');
+    await waitForContent(page, 'Alt');
+    await write(page, '\x1b[?1049l');
+    const rows = await waitForContent(page, 'Normal');
+    expect(rows.some(r => r.includes('Normal'))).toBe(true);
+  });
+
+  test('resize preserves content', async ({ page }) => {
+    await write(page, 'ABCDEFGHIJ\r\n');
+    await waitForContent(page, 'ABCDEFGHIJ');
+    await page.evaluate(() => window.__termRef?.resize(40, 10));
+    await page.waitForTimeout(300);
+    await page.evaluate(() => window.__termRef?.resize(80, 24));
+    const rows = await waitForContent(page, 'ABCDEFGHIJ');
+    expect(rows.join('')).toContain('ABCDEFGHIJ');
+  });
+
+  test('display:none recovery', async ({ page }) => {
+    await write(page, 'Before\r\n');
+    await waitForContent(page, 'Before');
+    await page.evaluate(() => {
+      const c = document.querySelector('[data-testid="terminal-container"]') as HTMLElement;
+      if (c) c.style.display = 'none';
+    });
+    await page.waitForTimeout(200);
+    await write(page, 'After\r\n');
+    await page.evaluate(() => {
+      const c = document.querySelector('[data-testid="terminal-container"]') as HTMLElement;
+      if (c) c.style.display = '';
+    });
+    const rows = await waitForContent(page, 'After');
+    expect(rows.join('')).toContain('Before');
+    expect(rows.join('')).toContain('After');
+  });
+
+  test('scrollback preserves lines', async ({ page }) => {
+    let data = '';
+    for (let i = 0; i < 50; i++) data += `Line ${String(i).padStart(3, '0')}\r\n`;
+    await write(page, data);
+    const rows = await waitForContent(page, 'Line 049');
+    expect(rows.join('')).toContain('Line 049');
+  });
+  });
 });
