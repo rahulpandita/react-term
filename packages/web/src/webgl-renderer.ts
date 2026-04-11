@@ -76,10 +76,23 @@ export function hexToFloat4(color: string): [number, number, number, number] {
       1.0,
     ];
   }
-  // Fast path: rgb(r,g,b) — catches custom themes using rgb() format
-  if (color.startsWith("rgb(")) {
-    const m = color.match(/rgb\((\d+),(\d+),(\d+)\)/);
-    if (m) return [+m[1] / 255, +m[2] / 255, +m[3] / 255, 1.0];
+  // Fast path: rgb(r,g,b) or rgb(r, g, b) — catches custom themes
+  if (color.charCodeAt(0) === 0x72 /* r */ && color.startsWith("rgb(")) {
+    const s = color;
+    let i = 4;
+    while (s.charCodeAt(i) === 0x20) i++; // skip spaces
+    let r = 0;
+    while (i < s.length && s.charCodeAt(i) >= 0x30 && s.charCodeAt(i) <= 0x39)
+      r = r * 10 + s.charCodeAt(i++) - 0x30;
+    while (s.charCodeAt(i) === 0x20 || s.charCodeAt(i) === 0x2c) i++; // skip , and spaces
+    let g = 0;
+    while (i < s.length && s.charCodeAt(i) >= 0x30 && s.charCodeAt(i) <= 0x39)
+      g = g * 10 + s.charCodeAt(i++) - 0x30;
+    while (s.charCodeAt(i) === 0x20 || s.charCodeAt(i) === 0x2c) i++;
+    let b = 0;
+    while (i < s.length && s.charCodeAt(i) >= 0x30 && s.charCodeAt(i) <= 0x39)
+      b = b * 10 + s.charCodeAt(i++) - 0x30;
+    if (r <= 255 && g <= 255 && b <= 255) return [r / 255, g / 255, b / 255, 1.0];
   }
   // Universal path: let the browser parse any CSS color
   const ctx = getColorCtx();

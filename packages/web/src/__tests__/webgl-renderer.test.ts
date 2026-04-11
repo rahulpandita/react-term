@@ -55,7 +55,15 @@ describe("hexToFloat4", () => {
     expect(a).toBe(1.0);
   });
 
-  it("handles rgb() space-separated via canvas (falls back to black in jsdom)", () => {
+  it("converts rgb(r, g, b) with spaces directly without canvas", () => {
+    const [r, g, b, a] = hexToFloat4("rgb(255, 128, 0)");
+    expect(r).toBeCloseTo(1.0, 5);
+    expect(g).toBeCloseTo(128 / 255, 5);
+    expect(b).toBeCloseTo(0.0, 5);
+    expect(a).toBe(1.0);
+  });
+
+  it("handles rgb() space-separated (CSS level 4) via canvas fallback", () => {
     const result = hexToFloat4("rgb(0 255 0)");
     expect(result).toHaveLength(4);
     expect(result[3]).toBeGreaterThanOrEqual(0);
