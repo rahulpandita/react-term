@@ -942,6 +942,7 @@ export class WebTerminal {
         wrapPending: false,
       };
       this.sharedContext.updateTerminal(this.paneId, this.displayGrid, fakeCursor);
+      this.displayGrid.markAllDirty();
     } else if (!this.renderBridge) {
       if (needsAttach) {
         const fakeCursor: CursorState = {
@@ -962,7 +963,13 @@ export class WebTerminal {
     if (this.viewportOffset === 0) return;
     this.viewportOffset = 0;
     this.displayGrid = null;
-    if (!this.renderBridge) {
+    if (this.sharedContext && this.paneId) {
+      this.sharedContext.updateTerminal(
+        this.paneId,
+        this.bufferSet.active.grid,
+        this.bufferSet.active.cursor,
+      );
+    } else if (!this.renderBridge) {
       this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
     }
     this.updateScrollbar();

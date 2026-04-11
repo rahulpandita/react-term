@@ -688,12 +688,53 @@ describe("WebTerminal", () => {
       expect(displayGrid).toBeDefined();
       expect(displayGrid.rows).toBe(3);
 
-      // Scroll back to live — should call updateTerminal with the live grid
+      // Scroll back to live — should call updateTerminal with the LIVE grid
       updateSpy.mockClear();
       (term as unknown as Record<string, (n: number) => void>).scrollViewport(-100);
 
       expect(updateSpy).toHaveBeenCalledTimes(1);
       expect(updateSpy.mock.calls[0][0]).toBe("test-pane");
+      // Verify the grid passed is the live grid (not the display grid)
+      const liveGrid = updateSpy.mock.calls[0][1];
+      expect(liveGrid).not.toBe(displayGrid);
+      // Live grid should be the active buffer's grid
+      const bs = (term as unknown as Record<string, { active: { grid: unknown } }>).bufferSet;
+      expect(liveGrid).toBe(bs.active.grid);
+
+      term.dispose();
+    });
+
+    it("snapToBottom in shared context calls updateTerminal with live grid", () => {
+      const updateSpy = vi.fn();
+      const mockSharedContext = {
+        addTerminal: vi.fn(),
+        removeTerminal: vi.fn(),
+        updateTerminal: updateSpy,
+        getCellSize: () => ({ width: 8, height: 16 }),
+        getCanvas: () => document.createElement("canvas"),
+        setViewport: vi.fn(),
+      };
+
+      const term = make3({
+        sharedContext: mockSharedContext as never,
+        paneId: "snap-test",
+      });
+      writeLines(term, 5);
+
+      // Scroll back
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
+      updateSpy.mockClear();
+
+      // snapToBottom is called when new data arrives while scrolled back
+      const enc = new TextEncoder();
+      term.write(enc.encode("new data\n"));
+
+      // Should have called updateTerminal to restore the live grid
+      expect(updateSpy).toHaveBeenCalled();
+      const lastCall = updateSpy.mock.calls[updateSpy.mock.calls.length - 1];
+      expect(lastCall[0]).toBe("snap-test");
+      const bs = (term as unknown as Record<string, { active: { grid: unknown } }>).bufferSet;
+      expect(lastCall[1]).toBe(bs.active.grid);
 
       term.dispose();
     });
