@@ -335,6 +335,9 @@ export class SharedWebGLContext {
     const entry = this.terminals.get(id);
     if (entry) {
       entry.viewport = { x, y, width, height };
+      // Invalidate so the render loop processes this terminal on the next frame.
+      // Critical for zero→non-zero transitions (showing a hidden pane).
+      this.terminalFullyRendered.delete(id);
     }
   }
 
@@ -390,7 +393,12 @@ export class SharedWebGLContext {
 
     let anyTerminalDirty = false;
     for (const [id, entry] of this.terminals) {
-      const { grid } = entry;
+      const { grid, viewport } = entry;
+      // Zero-viewport terminals are invisible — don't let them force rendering
+      if (viewport.width <= 0 || viewport.height <= 0) {
+        this.terminalFullyRendered.add(id);
+        continue;
+      }
       if (!this.terminalFullyRendered.has(id)) {
         anyTerminalDirty = true;
         break;
