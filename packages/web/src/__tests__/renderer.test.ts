@@ -37,29 +37,29 @@ describe("build256Palette", () => {
     }
   });
 
-  it("color 16 is rgb(0,0,0) — start of 6x6x6 cube", () => {
-    expect(palette[16]).toBe("rgb(0,0,0)");
+  it("color 16 is #000000 — start of 6x6x6 cube", () => {
+    expect(palette[16]).toBe("#000000");
   });
 
-  it("color 21 is rgb(0,0,255) — blue end of first row", () => {
-    expect(palette[21]).toBe("rgb(0,0,255)");
+  it("color 21 is #0000ff — blue end of first row", () => {
+    expect(palette[21]).toBe("#0000ff");
   });
 
-  it("color 196 is rgb(255,0,0) — bright red in cube", () => {
+  it("color 196 is #ff0000 — bright red in cube", () => {
     // r=5, g=0, b=0 → 16 + 5*36 + 0*6 + 0 = 196
-    expect(palette[196]).toBe("rgb(255,0,0)");
+    expect(palette[196]).toBe("#ff0000");
   });
 
-  it("color 231 is rgb(255,255,255) — end of cube", () => {
-    expect(palette[231]).toBe("rgb(255,255,255)");
+  it("color 231 is #ffffff — end of cube", () => {
+    expect(palette[231]).toBe("#ffffff");
   });
 
-  it("color 232 is rgb(8,8,8) — start of grayscale ramp", () => {
-    expect(palette[232]).toBe("rgb(8,8,8)");
+  it("color 232 is #080808 — start of grayscale ramp", () => {
+    expect(palette[232]).toBe("#080808");
   });
 
-  it("color 255 is rgb(238,238,238) — end of grayscale ramp", () => {
-    expect(palette[255]).toBe("rgb(238,238,238)");
+  it("color 255 is #eeeeee — end of grayscale ramp", () => {
+    expect(palette[255]).toBe("#eeeeee");
   });
 
   it("no palette entry is undefined", () => {
