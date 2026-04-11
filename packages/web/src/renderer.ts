@@ -71,13 +71,14 @@ export function build256Palette(theme: Theme): string[] {
     palette[i] = themeColors[i];
   }
 
-  // 16-231: 6x6x6 color cube
+  // 16-231: 6x6x6 color cube (hex format to hit hexToFloat4 fast path)
   const cubeLevels = [0, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
+  const hex2 = (n: number) => n.toString(16).padStart(2, "0");
   for (let r = 0; r < 6; r++) {
     for (let g = 0; g < 6; g++) {
       for (let b = 0; b < 6; b++) {
         const idx = 16 + r * 36 + g * 6 + b;
-        palette[idx] = `rgb(${cubeLevels[r]},${cubeLevels[g]},${cubeLevels[b]})`;
+        palette[idx] = `#${hex2(cubeLevels[r])}${hex2(cubeLevels[g])}${hex2(cubeLevels[b])}`;
       }
     }
   }
@@ -85,7 +86,7 @@ export function build256Palette(theme: Theme): string[] {
   // 232-255: grayscale ramp (8, 18, 28, ..., 238)
   for (let i = 0; i < 24; i++) {
     const v = 8 + i * 10;
-    palette[232 + i] = `rgb(${v},${v},${v})`;
+    palette[232 + i] = `#${hex2(v)}${hex2(v)}${hex2(v)}`;
   }
 
   return palette;

@@ -43,12 +43,12 @@ function getColorCtx(): CanvasRenderingContext2D | OffscreenCanvasRenderingConte
   if (_colorCtx || _colorCtxFailed) return _colorCtx;
   try {
     if (typeof OffscreenCanvas !== "undefined") {
-      _colorCtx = new OffscreenCanvas(1, 1).getContext("2d");
+      _colorCtx = new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true });
     } else if (typeof document !== "undefined") {
       const c = document.createElement("canvas");
       c.width = 1;
       c.height = 1;
-      _colorCtx = c.getContext("2d");
+      _colorCtx = c.getContext("2d", { willReadFrequently: true });
     }
   } catch {
     // No canvas available (SSR / test environment)
@@ -75,6 +75,24 @@ export function hexToFloat4(color: string): [number, number, number, number] {
       parseInt(color[3] + color[3], 16) / 255,
       1.0,
     ];
+  }
+  // Fast path: rgb(r,g,b) or rgb(r, g, b) — catches custom themes
+  if (color.charCodeAt(0) === 0x72 /* r */ && color.startsWith("rgb(")) {
+    const s = color;
+    let i = 4;
+    while (s.charCodeAt(i) === 0x20) i++; // skip spaces
+    let r = 0;
+    while (i < s.length && s.charCodeAt(i) >= 0x30 && s.charCodeAt(i) <= 0x39)
+      r = r * 10 + s.charCodeAt(i++) - 0x30;
+    while (s.charCodeAt(i) === 0x20 || s.charCodeAt(i) === 0x2c) i++; // skip , and spaces
+    let g = 0;
+    while (i < s.length && s.charCodeAt(i) >= 0x30 && s.charCodeAt(i) <= 0x39)
+      g = g * 10 + s.charCodeAt(i++) - 0x30;
+    while (s.charCodeAt(i) === 0x20 || s.charCodeAt(i) === 0x2c) i++;
+    let b = 0;
+    while (i < s.length && s.charCodeAt(i) >= 0x30 && s.charCodeAt(i) <= 0x39)
+      b = b * 10 + s.charCodeAt(i++) - 0x30;
+    if (r <= 255 && g <= 255 && b <= 255) return [r / 255, g / 255, b / 255, 1.0];
   }
   // Universal path: let the browser parse any CSS color
   const ctx = getColorCtx();
