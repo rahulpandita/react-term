@@ -40,7 +40,7 @@ export interface TerminalHandle {
   blur(): void;
   fit(): void;
   /** Read all visible grid rows as plain text (for testing/accessibility). */
-  getRowTexts(): string[];
+  getRowTexts?(): string[];
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(props, ref) {

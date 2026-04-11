@@ -778,9 +778,11 @@ export class WebTerminal {
     for (let r = 0; r < grid.rows; r++) {
       let line = "";
       for (let c = 0; c < grid.cols; c++) {
+        // Skip spacer cells (right half of wide characters)
+        if (grid.isSpacerCell(r, c)) continue;
         const cp = grid.getCodepoint(r, c);
         if (cp > 0x20) line += String.fromCodePoint(cp);
-        else if (cp === 0x20) line += " ";
+        else line += " "; // 0x00 (empty) and 0x20 (space) both render as space
       }
       rows.push(line.trimEnd());
     }
