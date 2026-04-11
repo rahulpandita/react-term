@@ -659,6 +659,44 @@ describe("WebTerminal", () => {
       expect((term as unknown as Record<string, number>).viewportOffset).toBe(0);
       term.dispose();
     });
+
+    it("scrollback in shared context mode calls updateTerminal with display grid", () => {
+      const updateSpy = vi.fn();
+      const mockSharedContext = {
+        addTerminal: vi.fn(),
+        removeTerminal: vi.fn(),
+        updateTerminal: updateSpy,
+        getCellSize: () => ({ width: 8, height: 16 }),
+        getCanvas: () => document.createElement("canvas"),
+        setViewport: vi.fn(),
+      };
+
+      const term = make3({
+        sharedContext: mockSharedContext as never,
+        paneId: "test-pane",
+      });
+      writeLines(term, 5);
+
+      // Scroll back — should call updateTerminal with the display grid
+      updateSpy.mockClear();
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
+
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy.mock.calls[0][0]).toBe("test-pane");
+      // Second arg should be a CellGrid (the display grid, not the live grid)
+      const displayGrid = updateSpy.mock.calls[0][1];
+      expect(displayGrid).toBeDefined();
+      expect(displayGrid.rows).toBe(3);
+
+      // Scroll back to live — should call updateTerminal with the live grid
+      updateSpy.mockClear();
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(-100);
+
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy.mock.calls[0][0]).toBe("test-pane");
+
+      term.dispose();
+    });
   });
 
   // ---- Parser mode sync --------------------------------------------------
