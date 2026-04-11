@@ -392,4 +392,67 @@ test.describe('integration scenarios', () => {
     expect(rows.join('')).toContain('Line 049');
   });
   });
+
+  // =========================================================================
+  // Multi-pane SharedWebGLContext scenarios
+  // =========================================================================
+  test.describe('SharedWebGLContext', () => {
+    test.beforeEach(async ({ page }) => {
+      await page.click('[data-testid="mode-multi"]');
+      await page.waitForTimeout(500);
+    });
+
+    test('both panes render independently', async ({ page }) => {
+      const error = await page.evaluate(() => {
+        try {
+          const pane = window.__paneRef;
+          if (!pane) return 'no pane ref';
+          const left = pane.getTerminal('left');
+          const right = pane.getTerminal('right');
+          if (!left || !right) return 'missing terminals';
+          left.write('LEFT PANE\r\n');
+          right.write('RIGHT PANE\r\n');
+          return null;
+        } catch (e) {
+          return String(e);
+        }
+      });
+      expect(error).toBeNull();
+      await page.waitForTimeout(300);
+
+      // Verify both panes have content via their respective terminals
+      const texts = await page.evaluate(() => {
+        const pane = window.__paneRef;
+        if (!pane) return { left: '', right: '' };
+        const left = pane.getTerminal('left');
+        const right = pane.getTerminal('right');
+        return {
+          left: left?.getRowTexts()?.join('') ?? '',
+          right: right?.getRowTexts()?.join('') ?? '',
+        };
+      });
+      expect(texts.left).toContain('LEFT PANE');
+      expect(texts.right).toContain('RIGHT PANE');
+    });
+
+    test('heavy parallel writes to all panes do not crash', async ({ page }) => {
+      const error = await page.evaluate(() => {
+        try {
+          const pane = window.__paneRef;
+          if (!pane) return 'no pane ref';
+          const left = pane.getTerminal('left');
+          const right = pane.getTerminal('right');
+          if (!left || !right) return 'missing terminals';
+          for (let i = 0; i < 500; i++) {
+            left.write(`L${i}: ${'a'.repeat(60)}\r\n`);
+            right.write(`R${i}: ${'b'.repeat(60)}\r\n`);
+          }
+          return null;
+        } catch (e) {
+          return String(e);
+        }
+      });
+      expect(error).toBeNull();
+    });
+  });
 });

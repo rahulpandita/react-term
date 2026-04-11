@@ -735,11 +735,11 @@ export class SharedWebGLContext {
       this.terminalRowGlyphOffsets.set(id, rowGlyphOffsets);
     }
     if (!rowBgCounts || rowBgCounts.length !== rows) {
-      rowBgCounts = new Array(rows).fill(0);
+      rowBgCounts = new Array(rows).fill(cols);
       this.terminalRowBgCounts.set(id, rowBgCounts);
     }
     if (!rowGlyphCounts || rowGlyphCounts.length !== rows) {
-      rowGlyphCounts = new Array(rows).fill(0);
+      rowGlyphCounts = new Array(rows).fill(cols);
       this.terminalRowGlyphCounts.set(id, rowGlyphCounts);
     }
 
