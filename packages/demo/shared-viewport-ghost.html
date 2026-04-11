@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>SharedWebGLContext – setViewport ghost pixels repro</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #toolbar {
+      padding: 12px 16px;
+      background: #2d2d2d;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      border-bottom: 1px solid #444;
+    }
+    button {
+      background: #0078d4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 16px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+    }
+    button:hover { background: #106ebe; }
+    button.danger { background: #cd3131; }
+    button.danger:hover { background: #a02020; }
+    #status {
+      font-size: 12px;
+      color: #888;
+      margin-left: auto;
+    }
+    #container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    .pane {
+      position: absolute;
+      top: 0;
+      height: 100%;
+    }
+    #paneA { left: 0; width: 50%; border-right: 2px solid #444; }
+    #paneB { left: 50%; width: 50%; }
+    .pane-label {
+      position: absolute;
+      top: 4px;
+      left: 8px;
+      font-size: 11px;
+      color: #888;
+      z-index: 5;
+      pointer-events: none;
+    }
+    h3 { padding: 12px 16px 4px; font-size: 14px; color: #888; }
+    pre#log {
+      padding: 4px 16px 12px;
+      font-size: 11px;
+      color: #6a9955;
+      max-height: 120px;
+      overflow-y: auto;
+      background: #1a1a1a;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <button onclick="hideA()">Hide Terminal A (setViewport 0,0,0,0)</button>
+    <button onclick="showA()">Show Terminal A</button>
+    <button class="danger" onclick="removeA()">Remove Terminal A</button>
+    <span id="status">Loading...</span>
+  </div>
+
+  <div id="container">
+    <div id="paneA" class="pane">
+      <div class="pane-label">Terminal A</div>
+    </div>
+    <div id="paneB" class="pane">
+      <div class="pane-label">Terminal B</div>
+    </div>
+  </div>
+
+  <h3>Repro steps &amp; log</h3>
+  <pre id="log"></pre>
+
+  <script type="module">
+    import { WebTerminal, SharedWebGLContext } from "@next_term/web";
+
+    const logEl = document.getElementById("log");
+    const statusEl = document.getElementById("status");
+    function log(msg) {
+      const line = `[${new Date().toISOString().slice(11, 23)}] ${msg}`;
+      logEl.textContent += line + "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+
+    // ---- Create shared context ----
+    const theme = {
+      background: "#1e1e1e",
+      foreground: "#d4d4d4",
+      cursor: "#d4d4d4",
+      cursorAccent: "#1e1e1e",
+      selectionBackground: "#264f78",
+    };
+
+    const shared = new SharedWebGLContext({
+      fontSize: 14,
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      theme,
+    });
+    shared.init();
+    shared.startRenderLoop();
+    log("SharedWebGLContext created and render loop started");
+
+    // Mount overlay canvas
+    const container = document.getElementById("container");
+    const canvas = shared.getCanvas();
+    canvas.style.position = "absolute";
+    canvas.style.top = "0";
+    canvas.style.left = "0";
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    canvas.style.pointerEvents = "none";
+    canvas.style.zIndex = "2";
+    container.appendChild(canvas);
+    log("Overlay canvas mounted");
+
+    // Sync canvas size
+    const ro = new ResizeObserver(entries => {
+      for (const e of entries) {
+        shared.syncCanvasSize(e.contentRect.width, e.contentRect.height);
+      }
+    });
+    ro.observe(container);
+
+    // ---- Create terminals ----
+    const paneA = document.getElementById("paneA");
+    const paneB = document.getElementById("paneB");
+
+    const termA = new WebTerminal(paneA, {
+      cols: 80, rows: 24,
+      fontSize: 14,
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      theme,
+      renderer: "auto",
+      sharedContext: shared,
+      paneId: "termA",
+    });
+
+    const termB = new WebTerminal(paneB, {
+      cols: 80, rows: 24,
+      fontSize: 14,
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      theme,
+      renderer: "auto",
+      sharedContext: shared,
+      paneId: "termB",
+    });
+
+    log(`Terminal A created: ${termA.cols}x${termA.rows}`);
+    log(`Terminal B created: ${termB.cols}x${termB.rows}`);
+    log(`Registered terminals: ${shared.getTerminalIds()}`);
+
+    // ---- Set viewports ----
+    function syncViewports() {
+      const cr = container.getBoundingClientRect();
+      const ar = paneA.getBoundingClientRect();
+      const br = paneB.getBoundingClientRect();
+      shared.setViewport("termA",
+        ar.left - cr.left, ar.top - cr.top, ar.width, ar.height);
+      shared.setViewport("termB",
+        br.left - cr.left, br.top - cr.top, br.width, br.height);
+      log(`Viewports synced — A: (${Math.round(ar.left - cr.left)}, 0, ${Math.round(ar.width)}, ${Math.round(ar.height)})  B: (${Math.round(br.left - cr.left)}, 0, ${Math.round(br.width)}, ${Math.round(br.height)})`);
+    }
+    // Wait for layout
+    requestAnimationFrame(() => {
+      syncViewports();
+      statusEl.textContent = "Ready — both terminals visible";
+    });
+
+    // ---- Write content ----
+    termA.write("\x1b[1;32m=== Terminal A ===\x1b[0m\r\n");
+    termA.write("This is terminal A.\r\n");
+    termA.write("If you click 'Hide Terminal A',\r\n");
+    termA.write("these pixels should disappear.\r\n\r\n");
+    termA.write("\x1b[1;33m$ \x1b[0mls\r\n");
+    termA.write("AGENTS.md  apps  clients  docs  packages\r\n");
+    termA.write("\x1b[1;33m$ \x1b[0m\x1b[5m█\x1b[0m");
+
+    termB.write("\x1b[1;36m=== Terminal B ===\x1b[0m\r\n");
+    termB.write("This terminal should remain visible\r\n");
+    termB.write("when Terminal A is hidden.\r\n\r\n");
+    termB.write("\x1b[1;33m$ \x1b[0m\x1b[5m█\x1b[0m");
+
+    // ---- Actions ----
+    window.hideA = function() {
+      log("hideA() — calling setViewport('termA', 0, 0, 0, 0)");
+      shared.setViewport("termA", 0, 0, 0, 0);
+      paneA.style.display = "none";
+
+      // Check dirty state
+      const ids = shared.getTerminalIds();
+      log(`Registered terminals after hide: ${ids}`);
+      log("BUG: Terminal A's pixels should be gone, but they persist on the canvas!");
+      log("The render loop's early-out (anyTerminalDirty check) skips gl.clear()");
+      statusEl.textContent = "⚠️ BUG: Terminal A hidden but ghost pixels remain";
+    };
+
+    window.showA = function() {
+      paneA.style.display = "";
+      requestAnimationFrame(() => {
+        syncViewports();
+        log("showA() — viewport restored");
+        statusEl.textContent = "Ready — both terminals visible";
+      });
+    };
+
+    window.removeA = function() {
+      log("removeA() — calling removeTerminal('termA')");
+      shared.removeTerminal("termA");
+      paneA.style.display = "none";
+      log(`Registered terminals after remove: ${shared.getTerminalIds()}`);
+      log("Note: removeTerminal also doesn't clear stale pixels (same bug)");
+      statusEl.textContent = "⚠️ Terminal A removed but ghost pixels may remain";
+    };
+  </script>
+</body>
+</html>
