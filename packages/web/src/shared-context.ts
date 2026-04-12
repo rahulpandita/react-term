@@ -394,9 +394,13 @@ export class SharedWebGLContext {
     let anyTerminalDirty = false;
     for (const [id, entry] of this.terminals) {
       const { grid, viewport } = entry;
-      // Zero-viewport terminals are invisible — don't let them force rendering
+      // Zero-viewport terminals are invisible — skip dirty-row checks.
+      // But if NOT yet marked fully rendered, we need one more frame to
+      // clear stale pixels from the canvas before marking as rendered.
       if (viewport.width <= 0 || viewport.height <= 0) {
-        this.terminalFullyRendered.add(id);
+        if (!this.terminalFullyRendered.has(id)) {
+          anyTerminalDirty = true;
+        }
         continue;
       }
       if (!this.terminalFullyRendered.has(id)) {
@@ -414,6 +418,15 @@ export class SharedWebGLContext {
 
     // Nothing changed — skip everything, reuse last frame
     if (!anyTerminalDirty) return;
+
+    // Mark zero-viewport terminals as fully rendered now that we're about
+    // to clear the canvas — their stale pixels will be erased by gl.clear().
+    for (const [id, entry] of this.terminals) {
+      const { viewport } = entry;
+      if (viewport.width <= 0 || viewport.height <= 0) {
+        this.terminalFullyRendered.add(id);
+      }
+    }
 
     // --- Phase 1: Clear viewports ---
     gl.viewport(0, 0, canvasWidth, canvasHeight);
