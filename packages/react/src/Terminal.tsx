@@ -41,6 +41,8 @@ export interface TerminalHandle {
   fit(): void;
   /** Read all visible grid rows as plain text (for testing/accessibility). */
   getRowTexts?(): string[];
+  /** Get current cursor position (for testing). */
+  getCursorPosition?(): { row: number; col: number };
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(props, ref) {
@@ -114,6 +116,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         const terminal = termRef.current;
         if (!terminal) return [];
         return terminal.getRowTexts();
+      },
+      getCursorPosition() {
+        const terminal = termRef.current;
+        if (!terminal) return { row: 0, col: 0 };
+        return terminal.getCursorPosition();
       },
     }),
     [],

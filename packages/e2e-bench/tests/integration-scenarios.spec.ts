@@ -38,15 +38,9 @@ async function waitForContent(page: import('@playwright/test').Page, substr: str
   return page.evaluate(() => window.__termRef?.getRowTexts() ?? []);
 }
 
-/** Get cursor position via the grid's cursor state. */
+/** Get cursor position via the TerminalHandle API. */
 async function getCursor(page: import('@playwright/test').Page): Promise<{ row: number; col: number }> {
-  return page.evaluate(() => {
-    // Access via the internal terminal ref
-    const t = (window.__termRef as any)?._terminal;
-    if (!t) return { row: 0, col: 0 };
-    const c = t.bufferSet?.active?.cursor ?? { row: 0, col: 0 };
-    return { row: c.row, col: c.col };
-  });
+  return page.evaluate(() => window.__termRef?.getCursorPosition() ?? { row: 0, col: 0 });
 }
 
 test.describe('integration scenarios', () => {
@@ -154,14 +148,23 @@ test.describe('integration scenarios', () => {
     });
 
     test('cursor position is valid after resize', async ({ page }) => {
+      // Move cursor to row 5, col 10 (1-indexed: \x1b[6;11H)
       await write(page, '\x1b[6;11HX');
       await waitForRender(page);
+
+      // Verify cursor is at the expected position before resize
+      const before = await getCursor(page);
+      expect(before.row).toBe(5); // 0-indexed
+      expect(before.col).toBe(11); // after writing 'X' at col 10
+
+      // Resize to 20 cols, 5 rows — cursor row 5 is out of bounds
       await page.evaluate(() => window.__termRef?.resize(20, 5));
       await waitForRender(page);
 
-      const cursor = await getCursor(page);
-      expect(cursor.row).toBeLessThan(5);
-      expect(cursor.col).toBeLessThan(20);
+      // Cursor should be clamped within new bounds
+      const after = await getCursor(page);
+      expect(after.row).toBeLessThan(5);
+      expect(after.col).toBeLessThan(20);
     });
   });
 

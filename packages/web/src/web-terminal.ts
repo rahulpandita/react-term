@@ -789,6 +789,12 @@ export class WebTerminal {
     return rows;
   }
 
+  /** Get current cursor position. */
+  getCursorPosition(): { row: number; col: number } {
+    const c = this.bufferSet.active.cursor;
+    return { row: c.row, col: c.col };
+  }
+
   onData(callback: (data: Uint8Array) => void): void {
     this.onDataCallback = callback;
   }
