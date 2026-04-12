@@ -608,6 +608,9 @@ export class SharedWebGLContext {
     this.canvas.height = Math.round(height * this.dpr);
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
+    // Setting canvas.width/height clears all WebGL pixels (spec behavior).
+    // Force all terminals to re-render on the next frame.
+    this.terminalFullyRendered.clear();
   }
 
   getCanvas(): HTMLCanvasElement {
