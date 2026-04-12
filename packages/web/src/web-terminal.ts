@@ -563,6 +563,11 @@ export class WebTerminal {
     if (this.disposed) return;
     // Guard against bad values
     if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 1) return;
+
+    // Reset scroll state — the display grid has stale dimensions and
+    // viewportOffset may be invalid for the new scrollback layout.
+    this.viewportOffset = 0;
+    this.displayGrid = null;
     const MAX_COLS = 500;
     const MAX_ROWS = 500;
     cols = Math.min(cols, MAX_COLS);
@@ -866,7 +871,13 @@ export class WebTerminal {
       // Back to live view — re-attach live grid
       if (this.displayGrid) {
         this.displayGrid = null;
-        if (!this.renderBridge) {
+        if (this.sharedContext && this.paneId) {
+          this.sharedContext.updateTerminal(
+            this.paneId,
+            this.bufferSet.active.grid,
+            this.bufferSet.active.cursor,
+          );
+        } else if (!this.renderBridge) {
           this.renderer.attach(
             this.canvas,
             this.bufferSet.active.grid,
@@ -926,9 +937,19 @@ export class WebTerminal {
       }
     }
 
-    if (!this.renderBridge) {
+    if (this.sharedContext && this.paneId) {
+      // Shared context mode: update the shared context with the display grid
+      const fakeCursor: CursorState = {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: "block",
+        wrapPending: false,
+      };
+      this.displayGrid.markAllDirty();
+      this.sharedContext.updateTerminal(this.paneId, this.displayGrid, fakeCursor);
+    } else if (!this.renderBridge) {
       if (needsAttach) {
-        // Create a fake cursor (hidden) when scrolled back
         const fakeCursor: CursorState = {
           row: 0,
           col: 0,
@@ -938,7 +959,6 @@ export class WebTerminal {
         };
         this.renderer.attach(this.canvas, this.displayGrid, fakeCursor);
       }
-      // markAllDirty is called by pasteRow/clearRow, but ensure full redraw
       this.displayGrid.markAllDirty();
     }
   }
@@ -948,7 +968,13 @@ export class WebTerminal {
     if (this.viewportOffset === 0) return;
     this.viewportOffset = 0;
     this.displayGrid = null;
-    if (!this.renderBridge) {
+    if (this.sharedContext && this.paneId) {
+      this.sharedContext.updateTerminal(
+        this.paneId,
+        this.bufferSet.active.grid,
+        this.bufferSet.active.cursor,
+      );
+    } else if (!this.renderBridge) {
       this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
     }
     this.updateScrollbar();

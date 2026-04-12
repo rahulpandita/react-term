@@ -335,6 +335,9 @@ export class SharedWebGLContext {
     const entry = this.terminals.get(id);
     if (entry) {
       entry.viewport = { x, y, width, height };
+      // Invalidate so the render loop processes this terminal on the next frame.
+      // Critical for zero→non-zero transitions (showing a hidden pane).
+      this.terminalFullyRendered.delete(id);
     }
   }
 
@@ -390,7 +393,12 @@ export class SharedWebGLContext {
 
     let anyTerminalDirty = false;
     for (const [id, entry] of this.terminals) {
-      const { grid } = entry;
+      const { grid, viewport } = entry;
+      // Zero-viewport terminals are invisible — don't let them force rendering
+      if (viewport.width <= 0 || viewport.height <= 0) {
+        this.terminalFullyRendered.add(id);
+        continue;
+      }
       if (!this.terminalFullyRendered.has(id)) {
         anyTerminalDirty = true;
         break;
@@ -419,6 +427,7 @@ export class SharedWebGLContext {
     gl.clearColor(bgR, bgG, bgB, 1.0);
     for (const [, entry] of this.terminals) {
       const { viewport } = entry;
+      if (viewport.width <= 0 || viewport.height <= 0) continue;
       const vpX = Math.round(viewport.x * this.dpr);
       const vpY = Math.round(viewport.y * this.dpr);
       const vpW = Math.round(viewport.width * this.dpr);
@@ -435,6 +444,8 @@ export class SharedWebGLContext {
     let totalGlyphCount = 0;
 
     for (const [id, entry] of this.terminals) {
+      const { viewport } = entry;
+      if (viewport.width <= 0 || viewport.height <= 0) continue;
       const { bgCount, glyphCount } = this.buildTerminalInstances(id, entry);
       const bgData = this.terminalBgData.get(id);
       const glyphData = this.terminalGlyphData.get(id);
@@ -534,6 +545,7 @@ export class SharedWebGLContext {
     for (const [, entry] of this.terminals) {
       const { cursor, viewport } = entry;
       if (!cursor.visible) continue;
+      if (viewport.width <= 0 || viewport.height <= 0) continue;
       const off = cursorCount * SC_BG_INSTANCE_FLOATS;
       this.cursorBuffer[off] = cursor.col;
       this.cursorBuffer[off + 1] = cursor.row;

@@ -51,6 +51,45 @@ describe("SharedWebGLContext", () => {
     ctx.dispose();
   });
 
+  it("zero-viewport terminal does not crash render (#138)", () => {
+    const ctx = new SharedWebGLContext();
+    const grid = new CellGrid(10, 5);
+    const cursor = { row: 0, col: 0, visible: true, style: "block" as const, wrapPending: false };
+
+    ctx.addTerminal("term-1", grid, cursor);
+    ctx.setViewport("term-1", 0, 0, 0, 0);
+
+    // Render with zero viewport should not throw — glyphs must be skipped
+    expect(() => ctx.render()).not.toThrow();
+
+    ctx.dispose();
+  });
+
+  it("zero-viewport terminal glyphs are excluded from render pass (#138)", () => {
+    const ctx = new SharedWebGLContext();
+    const grid1 = new CellGrid(10, 5);
+    const grid2 = new CellGrid(10, 5);
+    const cursor = { row: 0, col: 0, visible: true, style: "block" as const, wrapPending: false };
+
+    // Write content to grid1
+    grid1.setCell(0, 0, 0x41, 7, 0, 0); // 'A'
+
+    ctx.addTerminal("visible", grid1, cursor);
+    ctx.addTerminal("hidden", grid2, cursor);
+
+    ctx.setViewport("visible", 0, 0, 400, 300);
+    ctx.setViewport("hidden", 0, 0, 0, 0); // hidden
+
+    // Should render without including hidden terminal's data
+    expect(() => ctx.render()).not.toThrow();
+
+    // Hidden terminal should still be registered (not removed)
+    expect(ctx.getTerminalIds()).toContain("hidden");
+    expect(ctx.getTerminalIds()).toContain("visible");
+
+    ctx.dispose();
+  });
+
   it("setViewport for non-existent terminal is a no-op", () => {
     const ctx = new SharedWebGLContext();
     // Should not throw
