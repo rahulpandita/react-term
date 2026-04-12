@@ -771,9 +771,9 @@ export class WebTerminal {
     return this.renderer.getCellSize();
   }
 
-  /** Read all visible grid rows as plain text. */
+  /** Read all visible grid rows as plain text (includes scrollback when scrolled). */
   getRowTexts(): string[] {
-    const grid = this.bufferSet.active.grid;
+    const grid = this.displayGrid ?? this.bufferSet.active.grid;
     const rows: string[] = [];
     for (let r = 0; r < grid.rows; r++) {
       let line = "";
