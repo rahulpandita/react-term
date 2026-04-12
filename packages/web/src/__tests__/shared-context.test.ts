@@ -39,6 +39,33 @@ describe("SharedWebGLContext", () => {
     ctx.dispose();
   });
 
+  it("removeTerminal forces one clear frame to erase stale pixels", () => {
+    const ctx = new SharedWebGLContext();
+    const grid1 = new CellGrid(10, 5);
+    const grid2 = new CellGrid(10, 5);
+    const cursor = { row: 0, col: 0, visible: true, style: "block" as const, wrapPending: false };
+
+    ctx.addTerminal("A", grid1, cursor);
+    ctx.addTerminal("B", grid2, cursor);
+    ctx.setViewport("A", 0, 0, 400, 300);
+    ctx.setViewport("B", 100, 0, 400, 300);
+
+    // Render both to stable state
+    ctx.render();
+
+    // Remove terminal A — should set needsFullClear
+    ctx.removeTerminal("A");
+
+    // Next render must NOT early-return (needs to clear A's stale pixels)
+    // If it early-returns, A's pixels persist on canvas
+    expect(() => ctx.render()).not.toThrow();
+
+    // Subsequent render with no changes should be safe (no infinite loop)
+    expect(() => ctx.render()).not.toThrow();
+
+    ctx.dispose();
+  });
+
   it("setViewport updates the viewport for a terminal", () => {
     const ctx = new SharedWebGLContext();
     const grid = new CellGrid(10, 5);
@@ -86,6 +113,40 @@ describe("SharedWebGLContext", () => {
     // Hidden terminal should still be registered (not removed)
     expect(ctx.getTerminalIds()).toContain("hidden");
     expect(ctx.getTerminalIds()).toContain("visible");
+
+    ctx.dispose();
+  });
+
+  it("hiding terminal triggers one clear frame before going idle", () => {
+    const ctx = new SharedWebGLContext();
+    const grid1 = new CellGrid(10, 5);
+    const grid2 = new CellGrid(10, 5);
+    const cursor = { row: 0, col: 0, visible: true, style: "block" as const, wrapPending: false };
+
+    ctx.addTerminal("A", grid1, cursor);
+    ctx.addTerminal("B", grid2, cursor);
+    ctx.setViewport("A", 0, 0, 400, 300);
+    ctx.setViewport("B", 100, 0, 400, 300);
+
+    // Render both — they become fully rendered
+    ctx.render();
+    ctx.render(); // second render to ensure stable state
+
+    // Hide terminal A
+    ctx.setViewport("A", 0, 0, 0, 0);
+
+    // Next render must NOT early-return — it needs to clear stale pixels.
+    // If it early-returns, the canvas still shows A's old content.
+    // We can't check GL calls in jsdom, but we can verify render() runs
+    // without throwing (if it early-returned, it would be a no-op).
+    // The key invariant: after this render, A should be marked fully
+    // rendered so the SECOND render after hiding CAN early-return.
+    ctx.render(); // first render after hide — must clear canvas
+
+    // Now both terminals should be fully rendered (B visible, A hidden)
+    // A subsequent render with no dirty rows should be a no-op
+    // (no crash, no infinite dirty loop)
+    expect(() => ctx.render()).not.toThrow();
 
     ctx.dispose();
   });

@@ -159,6 +159,8 @@ export class SharedWebGLContext {
   private canvas: HTMLCanvasElement;
   private terminals: Map<string, TerminalEntry> = new Map();
   private disposed = false;
+  /** Set when a terminal is removed — forces one canvas clear to erase stale pixels. */
+  private needsFullClear = false;
   private rafId: number | null = null;
 
   // GL resources
@@ -353,6 +355,8 @@ export class SharedWebGLContext {
 
   removeTerminal(id: string): void {
     this.terminals.delete(id);
+    // Force one clear frame to erase the removed terminal's stale pixels
+    this.needsFullClear = true;
     // Clean up per-terminal dirty tracking state
     this.terminalBgCounts.delete(id);
     this.terminalGlyphCounts.delete(id);
@@ -394,9 +398,13 @@ export class SharedWebGLContext {
     let anyTerminalDirty = false;
     for (const [id, entry] of this.terminals) {
       const { grid, viewport } = entry;
-      // Zero-viewport terminals are invisible — don't let them force rendering
+      // Zero-viewport terminals are invisible — skip dirty-row checks.
+      // But if NOT yet marked fully rendered, we need one more frame to
+      // clear stale pixels from the canvas before marking as rendered.
       if (viewport.width <= 0 || viewport.height <= 0) {
-        this.terminalFullyRendered.add(id);
+        if (!this.terminalFullyRendered.has(id)) {
+          anyTerminalDirty = true;
+        }
         continue;
       }
       if (!this.terminalFullyRendered.has(id)) {
@@ -413,7 +421,17 @@ export class SharedWebGLContext {
     }
 
     // Nothing changed — skip everything, reuse last frame
-    if (!anyTerminalDirty) return;
+    if (!anyTerminalDirty && !this.needsFullClear) return;
+    this.needsFullClear = false;
+
+    // Mark zero-viewport terminals as fully rendered now that we're about
+    // to clear the canvas — their stale pixels will be erased by gl.clear().
+    for (const [id, entry] of this.terminals) {
+      const { viewport } = entry;
+      if (viewport.width <= 0 || viewport.height <= 0) {
+        this.terminalFullyRendered.add(id);
+      }
+    }
 
     // --- Phase 1: Clear viewports ---
     gl.viewport(0, 0, canvasWidth, canvasHeight);
@@ -590,6 +608,9 @@ export class SharedWebGLContext {
     this.canvas.height = Math.round(height * this.dpr);
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
+    // Setting canvas.width/height clears all WebGL pixels (spec behavior).
+    // Force all terminals to re-render on the next frame.
+    this.terminalFullyRendered.clear();
   }
 
   getCanvas(): HTMLCanvasElement {
