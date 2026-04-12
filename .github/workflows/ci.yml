@@ -65,7 +65,19 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('packages/e2e-bench/package.json') }}
       - name: Install Playwright Chromium
         run: cd packages/e2e-bench && npx playwright install chromium --with-deps
       - name: Run integration tests
         run: cd packages/e2e-bench && npx playwright test --config playwright.config.ts tests/integration-scenarios.spec.ts tests/render-regression.spec.ts
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: packages/e2e-bench/test-results/
+          retention-days: 7
