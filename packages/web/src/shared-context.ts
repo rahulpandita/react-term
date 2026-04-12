@@ -159,6 +159,8 @@ export class SharedWebGLContext {
   private canvas: HTMLCanvasElement;
   private terminals: Map<string, TerminalEntry> = new Map();
   private disposed = false;
+  /** Set when a terminal is removed — forces one canvas clear to erase stale pixels. */
+  private needsFullClear = false;
   private rafId: number | null = null;
 
   // GL resources
@@ -353,6 +355,8 @@ export class SharedWebGLContext {
 
   removeTerminal(id: string): void {
     this.terminals.delete(id);
+    // Force one clear frame to erase the removed terminal's stale pixels
+    this.needsFullClear = true;
     // Clean up per-terminal dirty tracking state
     this.terminalBgCounts.delete(id);
     this.terminalGlyphCounts.delete(id);
@@ -417,7 +421,8 @@ export class SharedWebGLContext {
     }
 
     // Nothing changed — skip everything, reuse last frame
-    if (!anyTerminalDirty) return;
+    if (!anyTerminalDirty && !this.needsFullClear) return;
+    this.needsFullClear = false;
 
     // Mark zero-viewport terminals as fully rendered now that we're about
     // to clear the canvas — their stale pixels will be erased by gl.clear().

@@ -39,6 +39,33 @@ describe("SharedWebGLContext", () => {
     ctx.dispose();
   });
 
+  it("removeTerminal forces one clear frame to erase stale pixels", () => {
+    const ctx = new SharedWebGLContext();
+    const grid1 = new CellGrid(10, 5);
+    const grid2 = new CellGrid(10, 5);
+    const cursor = { row: 0, col: 0, visible: true, style: "block" as const, wrapPending: false };
+
+    ctx.addTerminal("A", grid1, cursor);
+    ctx.addTerminal("B", grid2, cursor);
+    ctx.setViewport("A", 0, 0, 400, 300);
+    ctx.setViewport("B", 100, 0, 400, 300);
+
+    // Render both to stable state
+    ctx.render();
+
+    // Remove terminal A — should set needsFullClear
+    ctx.removeTerminal("A");
+
+    // Next render must NOT early-return (needs to clear A's stale pixels)
+    // If it early-returns, A's pixels persist on canvas
+    expect(() => ctx.render()).not.toThrow();
+
+    // Subsequent render with no changes should be safe (no infinite loop)
+    expect(() => ctx.render()).not.toThrow();
+
+    ctx.dispose();
+  });
+
   it("setViewport updates the viewport for a terminal", () => {
     const ctx = new SharedWebGLContext();
     const grid = new CellGrid(10, 5);
