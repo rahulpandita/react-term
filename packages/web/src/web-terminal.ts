@@ -771,6 +771,30 @@ export class WebTerminal {
     return this.renderer.getCellSize();
   }
 
+  /** Read all visible grid rows as plain text (includes scrollback when scrolled). */
+  getRowTexts(): string[] {
+    const grid = this.displayGrid ?? this.bufferSet.active.grid;
+    const rows: string[] = [];
+    for (let r = 0; r < grid.rows; r++) {
+      let line = "";
+      for (let c = 0; c < grid.cols; c++) {
+        // Skip spacer cells (right half of wide characters)
+        if (grid.isSpacerCell(r, c)) continue;
+        const cp = grid.getCodepoint(r, c);
+        if (cp > 0x20) line += String.fromCodePoint(cp);
+        else line += " "; // 0x00 (empty) and 0x20 (space) both render as space
+      }
+      rows.push(line.trimEnd());
+    }
+    return rows;
+  }
+
+  /** Get current cursor position. */
+  getCursorPosition(): { row: number; col: number } {
+    const c = this.bufferSet.active.cursor;
+    return { row: c.row, col: c.col };
+  }
+
   onData(callback: (data: Uint8Array) => void): void {
     this.onDataCallback = callback;
   }

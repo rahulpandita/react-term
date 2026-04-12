@@ -336,6 +336,8 @@ export class SharedWebGLContext {
   setViewport(id: string, x: number, y: number, width: number, height: number): void {
     const entry = this.terminals.get(id);
     if (entry) {
+      const vp = entry.viewport;
+      if (vp.x === x && vp.y === y && vp.width === width && vp.height === height) return;
       entry.viewport = { x, y, width, height };
       // Invalidate so the render loop processes this terminal on the next frame.
       // Critical for zero→non-zero transitions (showing a hidden pane).
@@ -735,11 +737,11 @@ export class SharedWebGLContext {
       this.terminalRowGlyphOffsets.set(id, rowGlyphOffsets);
     }
     if (!rowBgCounts || rowBgCounts.length !== rows) {
-      rowBgCounts = new Array(rows).fill(0);
+      rowBgCounts = new Array(rows).fill(cols);
       this.terminalRowBgCounts.set(id, rowBgCounts);
     }
     if (!rowGlyphCounts || rowGlyphCounts.length !== rows) {
-      rowGlyphCounts = new Array(rows).fill(0);
+      rowGlyphCounts = new Array(rows).fill(cols);
       this.terminalRowGlyphCounts.set(id, rowGlyphCounts);
     }
 

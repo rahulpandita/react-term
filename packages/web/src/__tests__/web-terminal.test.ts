@@ -757,6 +757,50 @@ describe("WebTerminal", () => {
     });
   });
 
+  // ---- getRowTexts --------------------------------------------------------
+
+  describe("getRowTexts", () => {
+    it("returns visible content from live grid", () => {
+      const term = make(container);
+      const enc = new TextEncoder();
+      term.write(enc.encode("Hello World\r\n"));
+      const rows = term.getRowTexts();
+      expect(rows[0]).toContain("Hello World");
+      term.dispose();
+    });
+
+    it("returns scrollback content when scrolled back", () => {
+      const term = make(container, { rows: 3, scrollback: 100 });
+      const enc = new TextEncoder();
+      // Write enough to push LINE1 into scrollback
+      term.write(enc.encode("LINE1\r\nLINE2\r\nLINE3\r\nLINE4\r\n"));
+
+      // Scroll back to see LINE1
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
+
+      const rows = term.getRowTexts();
+      const allText = rows.join(" ");
+      expect(allText).toContain("LINE1");
+      term.dispose();
+    });
+
+    it("returns live content after snapping back to bottom", () => {
+      const term = make(container, { rows: 3, scrollback: 100 });
+      const enc = new TextEncoder();
+      term.write(enc.encode("LINE1\r\nLINE2\r\nLINE3\r\nLINE4\r\n"));
+
+      // Scroll back then snap to bottom
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(-100);
+
+      const rows = term.getRowTexts();
+      const allText = rows.join(" ");
+      // Should show latest content, not scrollback
+      expect(allText).toContain("LINE4");
+      term.dispose();
+    });
+  });
+
   // ---- Parser mode sync --------------------------------------------------
 
   describe("parser mode sync", () => {
