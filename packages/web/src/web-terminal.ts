@@ -563,6 +563,11 @@ export class WebTerminal {
     if (this.disposed) return;
     // Guard against bad values
     if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 1) return;
+
+    // Reset scroll state — the display grid has stale dimensions and
+    // viewportOffset may be invalid for the new scrollback layout.
+    this.viewportOffset = 0;
+    this.displayGrid = null;
     const MAX_COLS = 500;
     const MAX_ROWS = 500;
     cols = Math.min(cols, MAX_COLS);
@@ -941,8 +946,8 @@ export class WebTerminal {
         style: "block",
         wrapPending: false,
       };
-      this.sharedContext.updateTerminal(this.paneId, this.displayGrid, fakeCursor);
       this.displayGrid.markAllDirty();
+      this.sharedContext.updateTerminal(this.paneId, this.displayGrid, fakeCursor);
     } else if (!this.renderBridge) {
       if (needsAttach) {
         const fakeCursor: CursorState = {

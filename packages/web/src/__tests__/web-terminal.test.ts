@@ -738,6 +738,23 @@ describe("WebTerminal", () => {
 
       term.dispose();
     });
+
+    it("resize while scrolled back resets scroll state", () => {
+      const term = make3();
+      writeLines(term, 5);
+
+      // Scroll back
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
+      expect((term as unknown as Record<string, unknown>).displayGrid).not.toBeNull();
+
+      // Resize — should reset scroll state
+      term.resize(40, 5);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(0);
+      expect((term as unknown as Record<string, unknown>).displayGrid).toBeNull();
+
+      term.dispose();
+    });
   });
 
   // ---- Parser mode sync --------------------------------------------------
