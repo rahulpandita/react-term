@@ -564,9 +564,9 @@ export class WebTerminal {
     // Guard against bad values
     if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 1) return;
 
-    // Reset scroll state — the display grid has stale dimensions and
-    // viewportOffset may be invalid for the new scrollback layout.
-    this.viewportOffset = 0;
+    // Clear the stale display grid (wrong dimensions), but preserve
+    // viewportOffset — we'll clamp it to the new scrollback length below.
+    const wasScrolledBack = this.viewportOffset > 0;
     this.displayGrid = null;
     const MAX_COLS = 500;
     const MAX_ROWS = 500;
@@ -613,6 +613,18 @@ export class WebTerminal {
 
     // Copy scrollback
     this.bufferSet.scrollback = oldBufferSet.scrollback;
+
+    // Preserve scroll position: clamp viewportOffset to the new scrollback size.
+    // If the user was scrolled back, keep them at the same (or nearest valid) position.
+    if (wasScrolledBack) {
+      const maxOffset = this.bufferSet.scrollback.length;
+      this.viewportOffset = Math.min(this.viewportOffset, maxOffset);
+      if (this.viewportOffset > 0) {
+        this.buildDisplayGrid();
+      }
+    } else {
+      this.viewportOffset = 0;
+    }
 
     newGrid.markAllDirty();
 
@@ -793,6 +805,24 @@ export class WebTerminal {
   getCursorPosition(): { row: number; col: number } {
     const c = this.bufferSet.active.cursor;
     return { row: c.row, col: c.col };
+  }
+
+  /** Query whether the alternate buffer is currently active. */
+  get isAlternateBuffer(): boolean {
+    return this.bufferSet.isAlternate;
+  }
+
+  /**
+   * Get current parser/input mode state for save/restore scenarios.
+   * Useful when moving a terminal between DOM containers.
+   */
+  getParserModes(): {
+    applicationCursorKeys: boolean;
+    bracketedPasteMode: boolean;
+    mouseProtocol: string;
+    mouseEncoding: string;
+  } {
+    return this.inputHandler.getModes();
   }
 
   onData(callback: (data: Uint8Array) => void): void {

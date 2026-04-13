@@ -739,19 +739,35 @@ describe("WebTerminal", () => {
       term.dispose();
     });
 
-    it("resize while scrolled back resets scroll state", () => {
+    it("resize while scrolled back preserves scroll position", () => {
       const term = make3();
       writeLines(term, 5);
 
       // Scroll back
       (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
       expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
-      expect((term as unknown as Record<string, unknown>).displayGrid).not.toBeNull();
 
-      // Resize — should reset scroll state
+      // Resize — scroll position should be preserved (clamped to valid range)
       term.resize(40, 5);
-      expect((term as unknown as Record<string, number>).viewportOffset).toBe(0);
-      expect((term as unknown as Record<string, unknown>).displayGrid).toBeNull();
+      expect((term as unknown as Record<string, number>).viewportOffset).toBeGreaterThan(0);
+
+      term.dispose();
+    });
+
+    it("resize clamps viewportOffset if scrollback shrinks", () => {
+      const term = make3({ scrollback: 5 });
+      writeLines(term, 10); // push into scrollback
+
+      // Scroll back to maximum
+      const bs = (term as unknown as Record<string, { scrollback: unknown[] }>).bufferSet;
+      const maxOffset = bs.scrollback.length;
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(maxOffset);
+
+      // Resize — offset should be clamped, not exceed new scrollback length
+      term.resize(40, 5);
+      const newOffset = (term as unknown as Record<string, number>).viewportOffset;
+      const newMax = bs.scrollback.length;
+      expect(newOffset).toBeLessThanOrEqual(newMax);
 
       term.dispose();
     });
@@ -797,6 +813,44 @@ describe("WebTerminal", () => {
       const allText = rows.join(" ");
       // Should show latest content, not scrollback
       expect(allText).toContain("LINE4");
+      term.dispose();
+    });
+  });
+
+  // ---- Public API for buffer/mode state (#147) ----------------------------
+
+  describe("buffer and mode state API", () => {
+    it("isAlternateBuffer returns false by default", () => {
+      const term = make(container);
+      expect(term.isAlternateBuffer).toBe(false);
+      term.dispose();
+    });
+
+    it("isAlternateBuffer returns true after DECSET 1049", () => {
+      const term = make(container);
+      const enc = new TextEncoder();
+      term.write(enc.encode("\x1b[?1049h"));
+      expect(term.isAlternateBuffer).toBe(true);
+      term.write(enc.encode("\x1b[?1049l"));
+      expect(term.isAlternateBuffer).toBe(false);
+      term.dispose();
+    });
+
+    it("getParserModes returns current mode state", () => {
+      const term = make(container);
+      const enc = new TextEncoder();
+
+      // Enable application cursor keys
+      term.write(enc.encode("\x1b[?1h"));
+      // Enable bracketed paste
+      term.write(enc.encode("\x1b[?2004h"));
+
+      const modes = term.getParserModes();
+      expect(modes.applicationCursorKeys).toBe(true);
+      expect(modes.bracketedPasteMode).toBe(true);
+      expect(modes.mouseProtocol).toBe("none");
+      expect(modes.mouseEncoding).toBe("default");
+
       term.dispose();
     });
   });

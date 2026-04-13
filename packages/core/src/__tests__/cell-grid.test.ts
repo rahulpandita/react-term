@@ -87,6 +87,26 @@ describe("CellGrid", () => {
     expect(grid.getCodepoint(0, 1)).toBe(0x42);
   });
 
+  it("copyRow preserves RGB truecolor data (#146)", () => {
+    const grid = new CellGrid(10, 5);
+    // Write a cell with RGB foreground
+    const fgRGB = (255 << 16) | (128 << 8) | 64; // #ff8040
+    const bgRGB = (10 << 16) | (20 << 8) | 30; // #0a141e
+    grid.setCell(0, 3, 0x41, 0, 0, 0, true, true);
+    grid.rgbColors[3] = fgRGB;
+    grid.rgbColors[256 + 3] = bgRGB;
+
+    // Copy and paste to a different row
+    const row = grid.copyRow(0);
+    grid.pasteRow(2, row);
+
+    // RGB colors should be restored
+    expect(grid.rgbColors[3]).toBe(fgRGB);
+    expect(grid.rgbColors[256 + 3]).toBe(bgRGB);
+    expect(grid.isFgRGB(2, 3)).toBe(true);
+    expect(grid.isBgRGB(2, 3)).toBe(true);
+  });
+
   it("reports whether SharedArrayBuffer is used", () => {
     const grid = new CellGrid(10, 5);
     // In Node/vitest SAB may or may not be available

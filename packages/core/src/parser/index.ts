@@ -974,7 +974,7 @@ export class VTParser {
     if (buf.scrollTop === 0 && buf.scrollBottom === this.rows - 1) {
       const grid = buf.grid;
       if (this.bufferSet.maxScrollback > 0 && buf === this.bufferSet.normal) {
-        const rowSize = grid.cols * CELL_SIZE;
+        const rowSize = grid.cols * CELL_SIZE + grid.cols * 2;
         const dest = this.bufferSet.borrowRowBuffer(rowSize);
         grid.copyRowInto(0, dest);
         this.bufferSet.pushScrollback(dest);
