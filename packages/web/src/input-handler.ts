@@ -383,12 +383,14 @@ export class InputHandler {
     bracketedPasteMode: boolean;
     mouseProtocol: MouseProtocol;
     mouseEncoding: MouseEncoding;
+    sendFocusEvents: boolean;
   } {
     return {
       applicationCursorKeys: this.applicationCursorKeys,
       bracketedPasteMode: this.bracketedPasteMode,
       mouseProtocol: this.mouseProtocol,
       mouseEncoding: this.mouseEncoding,
+      sendFocusEvents: this.sendFocusEvents,
     };
   }
 

@@ -1,4 +1,4 @@
-import type { Theme } from "@next_term/core";
+import type { MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
 import type { SharedWebGLContext } from "@next_term/web";
 import { calculateFit, WebTerminal } from "@next_term/web";
 import type React from "react";
@@ -49,8 +49,9 @@ export interface TerminalHandle {
   getParserModes?(): {
     applicationCursorKeys: boolean;
     bracketedPasteMode: boolean;
-    mouseProtocol: string;
-    mouseEncoding: string;
+    mouseProtocol: MouseProtocol;
+    mouseEncoding: MouseEncoding;
+    sendFocusEvents: boolean;
   };
 }
 

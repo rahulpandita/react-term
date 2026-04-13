@@ -747,27 +747,31 @@ describe("WebTerminal", () => {
       (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
       expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
 
-      // Resize — scroll position should be preserved (clamped to valid range)
+      // Resize — scroll position should be preserved exactly
       term.resize(40, 5);
-      expect((term as unknown as Record<string, number>).viewportOffset).toBeGreaterThan(0);
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
 
       term.dispose();
     });
 
-    it("resize clamps viewportOffset if scrollback shrinks", () => {
-      const term = make3({ scrollback: 5 });
-      writeLines(term, 10); // push into scrollback
+    it("resize clamps viewportOffset to scrollback length", () => {
+      const term = make3({ scrollback: 3 });
+      writeLines(term, 8); // push into scrollback (only 3 kept)
 
-      // Scroll back to maximum
-      const bs = (term as unknown as Record<string, { scrollback: unknown[] }>).bufferSet;
-      const maxOffset = bs.scrollback.length;
-      (term as unknown as Record<string, (n: number) => void>).scrollViewport(maxOffset);
+      // Scroll back to maximum (3 lines)
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(100);
+      const offsetBefore = (term as unknown as Record<string, number>).viewportOffset;
+      expect(offsetBefore).toBe(3); // clamped to scrollback.length
 
-      // Resize — offset should be clamped, not exceed new scrollback length
+      // Set a large offset artificially to test clamping
+      (term as unknown as Record<string, number>).viewportOffset = 999;
+
+      // Resize — should clamp to actual scrollback length
       term.resize(40, 5);
       const newOffset = (term as unknown as Record<string, number>).viewportOffset;
-      const newMax = bs.scrollback.length;
-      expect(newOffset).toBeLessThanOrEqual(newMax);
+      const bs = (term as unknown as Record<string, { scrollback: unknown[] }>).bufferSet;
+      expect(newOffset).toBeLessThanOrEqual(bs.scrollback.length);
+      expect(newOffset).toBeLessThan(999);
 
       term.dispose();
     });
@@ -850,6 +854,7 @@ describe("WebTerminal", () => {
       expect(modes.bracketedPasteMode).toBe(true);
       expect(modes.mouseProtocol).toBe("none");
       expect(modes.mouseEncoding).toBe("default");
+      expect(modes.sendFocusEvents).toBe(false);
 
       term.dispose();
     });

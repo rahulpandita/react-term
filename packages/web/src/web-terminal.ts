@@ -657,12 +657,11 @@ export class WebTerminal {
         );
       }
     } else if (this.renderBridge) {
-      // Notify render worker of resize with new SAB
-      this.renderBridge.resize(
-        cols,
-        rows,
-        this.bufferSet.active.grid.getBuffer() as SharedArrayBuffer,
-      );
+      // Notify render worker of resize with new SAB.
+      // If scrolled back, send the display grid's buffer instead.
+      const resizeGrid =
+        this.viewportOffset > 0 && this.displayGrid ? this.displayGrid : this.bufferSet.active.grid;
+      this.renderBridge.resize(cols, rows, resizeGrid.getBuffer() as SharedArrayBuffer);
     } else {
       // Re-attach renderer with the appropriate grid.
       // If scrolled back, buildDisplayGrid already attached the display grid above.
@@ -826,12 +825,16 @@ export class WebTerminal {
   /**
    * Get current parser/input mode state for save/restore scenarios.
    * Useful when moving a terminal between DOM containers.
+   *
+   * Note: in worker mode, parser modes are synced to the input handler
+   * via flush messages. Values reflect the last sync, not real-time state.
    */
   getParserModes(): {
     applicationCursorKeys: boolean;
     bracketedPasteMode: boolean;
     mouseProtocol: MouseProtocol;
     mouseEncoding: MouseEncoding;
+    sendFocusEvents: boolean;
   } {
     return this.inputHandler.getModes();
   }

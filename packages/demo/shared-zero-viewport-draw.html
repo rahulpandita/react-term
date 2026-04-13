@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>SharedWebGLContext – zero-viewport glyphs drawn at canvas origin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #toolbar {
+      padding: 12px 16px;
+      background: #2d2d2d;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      border-bottom: 1px solid #444;
+      flex-wrap: wrap;
+    }
+    button {
+      background: #0078d4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 16px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+    }
+    button:hover { background: #106ebe; }
+    button.danger { background: #cd3131; }
+    button.danger:hover { background: #a02020; }
+    button.success { background: #16825d; }
+    button.success:hover { background: #138050; }
+    #status {
+      font-size: 12px;
+      color: #888;
+      width: 100%;
+      margin-top: 4px;
+    }
+    #container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    .pane {
+      position: absolute;
+      top: 0;
+      height: 100%;
+    }
+    #paneA { left: 0; width: 50%; border-right: 2px solid #444; }
+    #paneB { left: 50%; width: 50%; }
+    .pane-label {
+      position: absolute;
+      top: 4px;
+      left: 8px;
+      font-size: 11px;
+      color: #888;
+      z-index: 5;
+      pointer-events: none;
+    }
+    h3 { padding: 12px 16px 4px; font-size: 14px; color: #888; }
+    pre#log {
+      padding: 4px 16px 12px;
+      font-size: 11px;
+      color: #6a9955;
+      max-height: 150px;
+      overflow-y: auto;
+      background: #1a1a1a;
+    }
+    .highlight { background: #3a3a00; }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <button onclick="hideA()">1. setViewport(A, 0,0,0,0)</button>
+    <button class="success" onclick="showA()">Restore A</button>
+    <button class="danger" onclick="removeA()">removeTerminal(A) — workaround</button>
+    <div id="status">
+      <strong>Bug:</strong> Click button 1 to set Terminal A's viewport to (0,0,0,0).
+      Terminal A's glyphs still render at the canvas top-left because
+      <code>buildTerminalInstances</code> packs glyphs at vpX=0/vpY=0 and the draw
+      phase has no scissor test.
+    </div>
+  </div>
+
+  <div id="container">
+    <div id="paneA" class="pane">
+      <div class="pane-label">Terminal A</div>
+    </div>
+    <div id="paneB" class="pane">
+      <div class="pane-label">Terminal B</div>
+    </div>
+  </div>
+
+  <h3>Log</h3>
+  <pre id="log"></pre>
+
+  <script type="module">
+    import { WebTerminal, SharedWebGLContext } from "@next_term/web";
+
+    const logEl = document.getElementById("log");
+    const statusEl = document.getElementById("status");
+    function log(msg) {
+      const line = `[${new Date().toISOString().slice(11, 23)}] ${msg}`;
+      logEl.textContent += line + "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+
+    const theme = {
+      background: "#1e1e1e",
+      foreground: "#d4d4d4",
+      cursor: "#d4d4d4",
+      cursorAccent: "#1e1e1e",
+      selectionBackground: "#264f78",
+    };
+
+    // --- Shared context ---
+    const shared = new SharedWebGLContext({
+      fontSize: 14,
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      theme,
+    });
+    shared.init();
+    shared.startRenderLoop();
+
+    const container = document.getElementById("container");
+    const canvas = shared.getCanvas();
+    canvas.style.position = "absolute";
+    canvas.style.top = "0";
+    canvas.style.left = "0";
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    canvas.style.pointerEvents = "none";
+    canvas.style.zIndex = "2";
+    container.appendChild(canvas);
+
+    const ro = new ResizeObserver(entries => {
+      for (const e of entries) {
+        shared.syncCanvasSize(e.contentRect.width, e.contentRect.height);
+      }
+    });
+    ro.observe(container);
+
+    // --- Terminals ---
+    const paneA = document.getElementById("paneA");
+    const paneB = document.getElementById("paneB");
+
+    const termA = new WebTerminal(paneA, {
+      cols: 80, rows: 24,
+      fontSize: 14,
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      theme, renderer: "auto",
+      sharedContext: shared, paneId: "termA",
+    });
+
+    const termB = new WebTerminal(paneB, {
+      cols: 80, rows: 24,
+      fontSize: 14,
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      theme, renderer: "auto",
+      sharedContext: shared, paneId: "termB",
+    });
+
+    function syncViewports() {
+      const cr = container.getBoundingClientRect();
+      const ar = paneA.getBoundingClientRect();
+      const br = paneB.getBoundingClientRect();
+      shared.setViewport("termA",
+        ar.left - cr.left, ar.top - cr.top, ar.width, ar.height);
+      shared.setViewport("termB",
+        br.left - cr.left, br.top - cr.top, br.width, br.height);
+    }
+
+    requestAnimationFrame(() => {
+      syncViewports();
+      log("Ready — both terminals visible");
+    });
+
+    // --- Write distinctive content ---
+    termA.write("\x1b[1;31m╔══════════════════════════════╗\x1b[0m\r\n");
+    termA.write("\x1b[1;31m║  TERMINAL A — RED CONTENT    ║\x1b[0m\r\n");
+    termA.write("\x1b[1;31m║  This should DISAPPEAR when  ║\x1b[0m\r\n");
+    termA.write("\x1b[1;31m║  viewport is set to (0,0,0,0)║\x1b[0m\r\n");
+    termA.write("\x1b[1;31m╚══════════════════════════════╝\x1b[0m\r\n");
+    for (let i = 1; i <= 5; i++) {
+      termA.write(`\x1b[31mLine ${i}: AAAA AAAA AAAA AAAA\x1b[0m\r\n`);
+    }
+
+    termB.write("\x1b[1;36m╔══════════════════════════════╗\x1b[0m\r\n");
+    termB.write("\x1b[1;36m║  TERMINAL B — CYAN CONTENT   ║\x1b[0m\r\n");
+    termB.write("\x1b[1;36m║  This should remain visible  ║\x1b[0m\r\n");
+    termB.write("\x1b[1;36m║  at all times.               ║\x1b[0m\r\n");
+    termB.write("\x1b[1;36m╚══════════════════════════════╝\x1b[0m\r\n");
+
+    // --- Actions ---
+    window.hideA = function() {
+      log("setViewport('termA', 0, 0, 0, 0)");
+      shared.setViewport("termA", 0, 0, 0, 0);
+      paneA.style.visibility = "hidden";  // hide DOM pane but keep layout
+
+      // Wait for render loop to run
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          log("BUG: Terminal A's red glyphs are drawn at canvas origin (top-left)");
+          log("They overlap Terminal B because buildTerminalInstances() still packs");
+          log("glyph data at vpX=0, vpY=0 and the draw phase has NO scissor test.");
+          log("");
+          log("Root cause in render():");
+          log("  Phase 1 (clear): uses gl.scissor per terminal ✓");
+          log("  Phase 2 (build): buildTerminalInstances() packs ALL terminals");
+          log("    including zero-viewport ones — positions glyphs at (0,0) ✗");
+          log("  Phase 3 (draw): single drawElementsInstanced for ALL glyphs");
+          log("    with NO scissor test — zero-viewport glyphs leak through ✗");
+          statusEl.innerHTML =
+            '<strong style="color:#cd3131">BUG:</strong> Red glyphs from Terminal A visible at top-left. ' +
+            'Expected: only Terminal B visible.';
+        });
+      });
+    };
+
+    window.showA = function() {
+      // Re-add terminal if it was removed
+      if (!shared.getTerminalIds().includes("termA")) {
+        log("Terminal was removed — re-creating to restore");
+        // Can't easily re-add without re-creating WebTerminal.
+        // In practice the host app would remount the component.
+        location.reload();
+        return;
+      }
+      paneA.style.visibility = "";
+      requestAnimationFrame(() => {
+        syncViewports();
+        log("Restored Terminal A viewport");
+        statusEl.innerHTML = "Both terminals visible.";
+      });
+    };
+
+    window.removeA = function() {
+      log("removeTerminal('termA') — workaround");
+      shared.removeTerminal("termA");
+      paneA.style.visibility = "hidden";
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          log("Workaround: removeTerminal prevents render loop from drawing.");
+          log("But this is heavy-handed — the library should handle zero viewports.");
+          statusEl.innerHTML =
+            '<strong style="color:#16825d">Workaround:</strong> removeTerminal() prevents the draw. ' +
+            'But setViewport(0,0,0,0) should also work.';
+        });
+      });
+    };
+  </script>
+</body>
+</html>
