@@ -143,6 +143,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             bracketedPasteMode: false,
             mouseProtocol: "none",
             mouseEncoding: "default",
+            sendFocusEvents: false,
           };
         return terminal.getParserModes();
       },

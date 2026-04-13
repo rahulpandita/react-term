@@ -826,8 +826,9 @@ export class WebTerminal {
    * Get current parser/input mode state for save/restore scenarios.
    * Useful when moving a terminal between DOM containers.
    *
-   * Note: in worker mode, parser modes are synced to the input handler
-   * via flush messages. Values reflect the last sync, not real-time state.
+   * Note: in worker mode, parser modes are NOT currently synced from the
+   * worker. Values reflect the main-thread InputHandler defaults until
+   * worker-to-main mode sync is implemented. Known limitation.
    */
   getParserModes(): {
     applicationCursorKeys: boolean;
