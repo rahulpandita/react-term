@@ -194,6 +194,53 @@ describe("write message", () => {
   });
 });
 
+describe("flush modes (#149)", () => {
+  it("flush includes kittyFlags=0 and syncedOutput=false by default", () => {
+    dispatch({ type: "write", data: enc("A") });
+    const flush = lastFlush();
+    expect(flush.modes.kittyFlags).toBe(0);
+    expect(flush.modes.syncedOutput).toBe(false);
+  });
+
+  it("flush includes kittyFlags after CSI = 1 u", () => {
+    // CSI = 1 u enables kitty disambiguate flag
+    dispatch({ type: "write", data: enc("\x1b[=1u") });
+    const flush = lastFlush();
+    expect(flush.modes.kittyFlags).toBe(1);
+  });
+
+  it("flush includes kittyFlags=3 after CSI = 3 u", () => {
+    dispatch({ type: "write", data: enc("\x1b[=3u") });
+    const flush = lastFlush();
+    expect(flush.modes.kittyFlags).toBe(3);
+  });
+
+  it("flush includes syncedOutput=true after DECSET 2026", () => {
+    dispatch({ type: "write", data: enc("\x1b[?2026h") });
+    const flush = lastFlush();
+    expect(flush.modes.syncedOutput).toBe(true);
+  });
+
+  it("flush includes syncedOutput=false after DECRST 2026", () => {
+    dispatch({ type: "write", data: enc("\x1b[?2026h") }); // enable
+    dispatch({ type: "write", data: enc("\x1b[?2026l") }); // disable
+    const flush = lastFlush();
+    expect(flush.modes.syncedOutput).toBe(false);
+  });
+
+  it("flush includes all 7 mode fields", () => {
+    dispatch({ type: "write", data: enc("A") });
+    const { modes } = lastFlush();
+    expect(modes).toHaveProperty("applicationCursorKeys");
+    expect(modes).toHaveProperty("bracketedPasteMode");
+    expect(modes).toHaveProperty("mouseProtocol");
+    expect(modes).toHaveProperty("mouseEncoding");
+    expect(modes).toHaveProperty("sendFocusEvents");
+    expect(modes).toHaveProperty("kittyFlags");
+    expect(modes).toHaveProperty("syncedOutput");
+  });
+});
+
 describe("resize message", () => {
   it("resize flush resets cursor to (0, 0) with new dimensions", () => {
     // Advance the cursor first so we can confirm resize resets it

@@ -9,6 +9,8 @@ const DEFAULT_MODES = {
   mouseProtocol: "none",
   mouseEncoding: "default",
   sendFocusEvents: false,
+  kittyFlags: 0,
+  syncedOutput: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -503,6 +505,48 @@ describe("WorkerBridge", () => {
       // Old grid unchanged — still holds space (0x20).
       expect(oldGrid.getCodepoint(0, 0)).toBe(0x20);
       b.dispose();
+    });
+  });
+
+  // ---- Flush modes with kittyFlags and syncedOutput (#149) ----------------
+
+  describe("flush modes with kittyFlags and syncedOutput", () => {
+    it("passes kittyFlags from flush modes to onFlush callback", () => {
+      bridge.start(80, 24, 1000);
+
+      const modesWithKitty = {
+        ...DEFAULT_MODES,
+        kittyFlags: 3,
+      };
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 10,
+        modes: modesWithKitty,
+      });
+
+      expect(flushSpy).toHaveBeenCalledWith(false, modesWithKitty);
+    });
+
+    it("passes syncedOutput from flush modes to onFlush callback", () => {
+      bridge.start(80, 24, 1000);
+
+      const modesWithSync = {
+        ...DEFAULT_MODES,
+        syncedOutput: true,
+      };
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 10,
+        modes: modesWithSync,
+      });
+
+      expect(flushSpy).toHaveBeenCalledWith(false, modesWithSync);
     });
   });
 

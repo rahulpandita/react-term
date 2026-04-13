@@ -383,7 +383,6 @@ export class WebTerminal {
         this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
         (isAlternate, modes) => {
-          this._isAlternate = isAlternate;
           // Sync parser modes from worker to main-thread InputHandler
           if (modes) {
             this.inputHandler.setApplicationCursorKeys(modes.applicationCursorKeys);
@@ -391,7 +390,44 @@ export class WebTerminal {
             this.inputHandler.setMouseProtocol(modes.mouseProtocol);
             this.inputHandler.setMouseEncoding(modes.mouseEncoding);
             this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
+            this.inputHandler.setKittyFlags(modes.kittyFlags);
+
+            // Synchronized output mode 2026: gate the main-thread render loop.
+            if (modes.syncedOutput !== this._syncedOutput) {
+              this._syncedOutput = modes.syncedOutput;
+              if (!this.renderBridge) {
+                if (modes.syncedOutput) {
+                  this.renderer.stopRenderLoop();
+                } else {
+                  this.renderer.startRenderLoop();
+                  this.renderer.render();
+                }
+              }
+            }
           }
+
+          // #150: Sync bufferSet.active so main-thread consumers (resize,
+          // getRowTexts, selection, accessibility) read the correct buffer.
+          const altChanged = isAlternate !== this._isAlternate;
+          this._isAlternate = isAlternate;
+          if (altChanged) {
+            if (isAlternate) {
+              this.bufferSet.activateAlternate();
+            } else {
+              this.bufferSet.activateNormal();
+            }
+            this.inputHandler.setGrid(this.bufferSet.active.grid);
+            this.accessibilityManager?.setGrid(
+              this.bufferSet.active.grid,
+              this.bufferSet.active.grid.rows,
+              this.bufferSet.active.grid.cols,
+            );
+          }
+
+          // #151: When the user is scrolled back, don't overwrite the display
+          // with the live grid — preserve the scroll position.
+          if (this.viewportOffset > 0) return;
+
           // When the alternate buffer is toggled the renderer needs to
           // know which grid to read from.
           const activeGrid = isAlternate
