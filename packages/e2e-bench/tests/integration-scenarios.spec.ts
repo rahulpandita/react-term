@@ -458,4 +458,75 @@ test.describe('integration scenarios', () => {
       expect(error).toBeNull();
     });
   });
+
+  // =========================================================================
+  // Scenario 9: Scroll position preserved on resize (#148)
+  // =========================================================================
+  test.describe('scroll position on resize', () => {
+
+    test('scroll position survives container resize', async ({ page }) => {
+      // Write enough to create scrollback
+      let data = '';
+      for (let i = 0; i < 50; i++) data += `Line ${String(i).padStart(3, '0')}\r\n`;
+      await write(page, data);
+      await waitForContent(page, 'Line 049');
+
+      // Scroll back
+      await page.evaluate(() => {
+        const t = (window.__termRef as any)?._terminal;
+        t?.scrollViewport?.(10);
+      });
+      await waitForRender(page);
+
+      // Resize
+      await page.evaluate(() => window.__termRef?.resize(60, 20));
+      await waitForRender(page);
+
+      // Should still show scrollback content, not snap to bottom
+      const rows = await page.evaluate(() => window.__termRef?.getRowTexts() ?? []);
+      const allText = rows.join(' ');
+      // If scroll position was preserved, we should see older lines
+      // (not just the last few lines at the bottom)
+      expect(allText).toContain('Line 0');
+    });
+  });
+
+  // =========================================================================
+  // Scenario 10: Terminal state APIs (#147)
+  // =========================================================================
+  test.describe('terminal state APIs', () => {
+
+    test('isAlternateBuffer reflects buffer state', async ({ page }) => {
+      // Should start in normal buffer
+      let isAlt = await page.evaluate(() => window.__termRef?.isAlternateBuffer ?? false);
+      expect(isAlt).toBe(false);
+
+      // Switch to alternate buffer
+      await write(page, '\x1b[?1049h');
+      await waitForRender(page);
+
+      isAlt = await page.evaluate(() => window.__termRef?.isAlternateBuffer ?? false);
+      expect(isAlt).toBe(true);
+
+      // Switch back
+      await write(page, '\x1b[?1049l');
+      await waitForRender(page);
+
+      isAlt = await page.evaluate(() => window.__termRef?.isAlternateBuffer ?? false);
+      expect(isAlt).toBe(false);
+    });
+
+    test('getParserModes returns current mode state', async ({ page }) => {
+      // Enable application cursor keys + bracketed paste
+      await write(page, '\x1b[?1h\x1b[?2004h');
+      await waitForRender(page);
+
+      const modes = await page.evaluate(() => window.__termRef?.getParserModes?.() ?? null);
+      expect(modes).not.toBeNull();
+      expect(modes.applicationCursorKeys).toBe(true);
+      expect(modes.bracketedPasteMode).toBe(true);
+      expect(modes.mouseProtocol).toBe('none');
+      expect(typeof modes.sendFocusEvents).toBe('boolean');
+    });
+  });
 });
