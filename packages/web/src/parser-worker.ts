@@ -58,6 +58,14 @@ export interface FlushMessage {
   isAlternate: boolean;
   /** Number of bytes that were processed in the write that triggered this flush. */
   bytesProcessed: number;
+  /** Parser mode state — synced to main thread so getParserModes() works. */
+  modes: {
+    applicationCursorKeys: boolean;
+    bracketedPasteMode: boolean;
+    mouseProtocol: "none" | "x10" | "vt200" | "drag" | "any";
+    mouseEncoding: "default" | "sgr";
+    sendFocusEvents: boolean;
+  };
   // ---- non-SAB fallback only ----
   /** Full cell data (Transferable). Only present in non-SAB mode. */
   cellData?: ArrayBuffer;
@@ -110,6 +118,13 @@ function buildFlush(bytesProcessed: number): FlushMessage {
     },
     isAlternate: bufferSet.isAlternate,
     bytesProcessed,
+    modes: {
+      applicationCursorKeys: parser.applicationCursorKeys,
+      bracketedPasteMode: parser.bracketedPasteMode,
+      mouseProtocol: parser.mouseProtocol,
+      mouseEncoding: parser.mouseEncoding,
+      sendFocusEvents: parser.sendFocusEvents,
+    },
   };
 
   if (!usingSAB) {

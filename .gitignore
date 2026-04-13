@@ -149,3 +149,4 @@ vite.config.ts.timestamp-*
 # Playwright MCP
 .playwright-mcp/
 *.png.claude/scheduled_tasks.lock
+*.last-run.json

@@ -87,6 +87,37 @@ describe("CellGrid", () => {
     expect(grid.getCodepoint(0, 1)).toBe(0x42);
   });
 
+  it("copyRow preserves cell data including RGB flag bits", () => {
+    const grid = new CellGrid(10, 5);
+    // Write a cell with RGB flags set
+    grid.setCell(0, 3, 0x41, 0, 0, 0, true, true);
+
+    const row = grid.copyRow(0);
+    grid.clearRow(2);
+    grid.pasteRow(2, row);
+
+    // Cell data including RGB flag bits should be preserved
+    expect(grid.getCodepoint(2, 3)).toBe(0x41);
+    expect(grid.isFgRGB(2, 3)).toBe(true);
+    expect(grid.isBgRGB(2, 3)).toBe(true);
+  });
+
+  it("copyRow does NOT preserve rgbColors table (known limitation #146)", () => {
+    // rgbColors is a shared per-grid column-indexed table, not per-row.
+    // Proper truecolor preservation requires cell format expansion.
+    const grid = new CellGrid(10, 5);
+    grid.setCell(0, 3, 0x41, 0, 0, 0, true, true);
+    grid.rgbColors[3] = 0xff8040;
+
+    const row = grid.copyRow(0);
+    grid.rgbColors[3] = 0x000000; // clear the shared table
+    grid.pasteRow(2, row);
+
+    // RGB flag is set but the actual color value is NOT restored
+    expect(grid.isFgRGB(2, 3)).toBe(true);
+    expect(grid.rgbColors[3]).toBe(0x000000); // NOT 0xff8040
+  });
+
   it("reports whether SharedArrayBuffer is used", () => {
     const grid = new CellGrid(10, 5);
     // In Node/vitest SAB may or may not be available

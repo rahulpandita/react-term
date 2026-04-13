@@ -3,6 +3,14 @@ import { CELL_SIZE, CellGrid } from "@next_term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkerBridge } from "../worker-bridge.js";
 
+const DEFAULT_MODES = {
+  applicationCursorKeys: false,
+  bracketedPasteMode: false,
+  mouseProtocol: "none",
+  mouseEncoding: "default",
+  sendFocusEvents: false,
+};
+
 // ---------------------------------------------------------------------------
 // Mock Worker
 // ---------------------------------------------------------------------------
@@ -172,13 +180,14 @@ describe("WorkerBridge", () => {
       cursor: { row: 5, col: 10, visible: false, style: "underline" },
       isAlternate: false,
       bytesProcessed: 100,
+      modes: DEFAULT_MODES,
     });
 
     expect(cursor.row).toBe(5);
     expect(cursor.col).toBe(10);
     expect(cursor.visible).toBe(false);
     expect(cursor.style).toBe("underline");
-    expect(flushSpy).toHaveBeenCalledWith(false);
+    expect(flushSpy).toHaveBeenCalledWith(false, DEFAULT_MODES);
   });
 
   it("calls onFlush with isAlternate=true when worker signals alternate buffer", () => {
@@ -189,9 +198,10 @@ describe("WorkerBridge", () => {
       cursor: { row: 0, col: 0, visible: true, style: "block" },
       isAlternate: true,
       bytesProcessed: 0,
+      modes: DEFAULT_MODES,
     });
 
-    expect(flushSpy).toHaveBeenCalledWith(true);
+    expect(flushSpy).toHaveBeenCalledWith(true, DEFAULT_MODES);
   });
 
   // ---- error handling -----------------------------------------------------
@@ -268,6 +278,7 @@ describe("WorkerBridge", () => {
         cursor: { row: 0, col: 0, visible: true, style: "block" },
         isAlternate: false,
         bytesProcessed: 2 * 1024 * 1024, // flush all of the big chunk
+        modes: DEFAULT_MODES,
       });
 
       // Should be unpaused now and the queued write should have been sent.
@@ -350,6 +361,7 @@ describe("WorkerBridge", () => {
         cursor: { row: 0, col: 0, visible: true, style: "block" },
         isAlternate: false,
         bytesProcessed: 10,
+        modes: DEFAULT_MODES,
         cellData: cellData.buffer,
         dirtyRows: dirtyRows.buffer,
         rowOffset,

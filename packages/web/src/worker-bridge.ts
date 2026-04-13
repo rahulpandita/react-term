@@ -35,7 +35,7 @@ export class WorkerBridge {
   private grid: CellGrid;
   private altGrid: CellGrid;
   private cursor: CursorState;
-  private onFlush: (isAlternate: boolean) => void;
+  private onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void;
   private onError: ((message: string) => void) | null;
 
   // Flow control
@@ -50,7 +50,7 @@ export class WorkerBridge {
     grid: CellGrid,
     altGrid: CellGrid,
     cursor: CursorState,
-    onFlush: (isAlternate: boolean) => void,
+    onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void,
     onError?: (message: string) => void,
   ) {
     this.grid = grid;
@@ -260,7 +260,7 @@ export class WorkerBridge {
       this.drainQueue();
     }
 
-    // Notify the caller so it can trigger a render.
-    this.onFlush(msg.isAlternate);
+    // Notify the caller so it can trigger a render and sync modes.
+    this.onFlush(msg.isAlternate, msg.modes);
   }
 }

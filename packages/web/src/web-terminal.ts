@@ -13,7 +13,7 @@
  * RenderBridge, leaving the main thread free for DOM event handling only.
  */
 
-import type { CursorState, Theme } from "@next_term/core";
+import type { CursorState, MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
 import { BufferSet, CellGrid, DEFAULT_THEME, VTParser } from "@next_term/core";
 import { AccessibilityManager } from "./accessibility.js";
 import type { ITerminalAddon } from "./addon.js";
@@ -144,6 +144,8 @@ export class WebTerminal {
   private wasAlternate = false;
   /** Track sync output mode to detect transitions. */
   private _syncedOutput = false;
+  /** Track alternate buffer state (synced from worker flush). */
+  private _isAlternate = false;
 
   // Scrollback viewport: 0 = live (bottom), positive = lines scrolled back
   private viewportOffset = 0;
@@ -380,7 +382,16 @@ export class WebTerminal {
         this.bufferSet.normal.grid,
         this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
-        (isAlternate: boolean) => {
+        (isAlternate, modes) => {
+          this._isAlternate = isAlternate;
+          // Sync parser modes from worker to main-thread InputHandler
+          if (modes) {
+            this.inputHandler.setApplicationCursorKeys(modes.applicationCursorKeys);
+            this.inputHandler.setBracketedPasteMode(modes.bracketedPasteMode);
+            this.inputHandler.setMouseProtocol(modes.mouseProtocol);
+            this.inputHandler.setMouseEncoding(modes.mouseEncoding);
+            this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
+          }
           // When the alternate buffer is toggled the renderer needs to
           // know which grid to read from.
           const activeGrid = isAlternate
@@ -564,9 +575,9 @@ export class WebTerminal {
     // Guard against bad values
     if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 1) return;
 
-    // Reset scroll state — the display grid has stale dimensions and
-    // viewportOffset may be invalid for the new scrollback layout.
-    this.viewportOffset = 0;
+    // Clear the stale display grid (wrong dimensions), but preserve
+    // viewportOffset — we'll clamp it to the new scrollback length below.
+    const wasScrolledBack = this.viewportOffset > 0;
     this.displayGrid = null;
     const MAX_COLS = 500;
     const MAX_ROWS = 500;
@@ -614,6 +625,18 @@ export class WebTerminal {
     // Copy scrollback
     this.bufferSet.scrollback = oldBufferSet.scrollback;
 
+    // Preserve scroll position: clamp viewportOffset to the new scrollback size.
+    // If the user was scrolled back, keep them at the same (or nearest valid) position.
+    if (wasScrolledBack) {
+      const maxOffset = this.bufferSet.scrollback.length;
+      this.viewportOffset = Math.min(this.viewportOffset, maxOffset);
+      if (this.viewportOffset > 0) {
+        this.buildDisplayGrid();
+      }
+    } else {
+      this.viewportOffset = 0;
+    }
+
     newGrid.markAllDirty();
 
     if (this.workerBridge) {
@@ -632,22 +655,27 @@ export class WebTerminal {
     }
 
     if (this.sharedContext && this.paneId) {
-      // Update the shared context with the new grid/cursor after resize
-      this.sharedContext.updateTerminal(
-        this.paneId,
-        this.bufferSet.active.grid,
-        this.bufferSet.active.cursor,
-      );
+      // Update the shared context with the appropriate grid after resize.
+      // If scrolled back, buildDisplayGrid already called updateTerminal above.
+      if (this.viewportOffset === 0) {
+        this.sharedContext.updateTerminal(
+          this.paneId,
+          this.bufferSet.active.grid,
+          this.bufferSet.active.cursor,
+        );
+      }
     } else if (this.renderBridge) {
-      // Notify render worker of resize with new SAB
-      this.renderBridge.resize(
-        cols,
-        rows,
-        this.bufferSet.active.grid.getBuffer() as SharedArrayBuffer,
-      );
+      // Notify render worker of resize with new SAB.
+      // If scrolled back, send the display grid's buffer instead.
+      const resizeGrid =
+        this.viewportOffset > 0 && this.displayGrid ? this.displayGrid : this.bufferSet.active.grid;
+      this.renderBridge.resize(cols, rows, resizeGrid.getBuffer() as SharedArrayBuffer);
     } else {
-      // Re-attach renderer with new grid
-      this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
+      // Re-attach renderer with the appropriate grid.
+      // If scrolled back, buildDisplayGrid already attached the display grid above.
+      if (this.viewportOffset === 0) {
+        this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
+      }
       this.renderer.resize(cols, rows);
     }
 
@@ -793,6 +821,30 @@ export class WebTerminal {
   getCursorPosition(): { row: number; col: number } {
     const c = this.bufferSet.active.cursor;
     return { row: c.row, col: c.col };
+  }
+
+  /** Query whether the alternate buffer is currently active. */
+  get isAlternateBuffer(): boolean {
+    // In worker mode, bufferSet.isAlternate is never toggled on the main thread.
+    // Use the tracked flag synced from worker flush callbacks instead.
+    return this.workerBridge ? this._isAlternate : this.bufferSet.isAlternate;
+  }
+
+  /**
+   * Get current parser/input mode state for save/restore scenarios.
+   * Useful when moving a terminal between DOM containers.
+   *
+   * In worker mode, parser modes are synced from the worker via flush
+   * messages. Values reflect the most recent flush.
+   */
+  getParserModes(): {
+    applicationCursorKeys: boolean;
+    bracketedPasteMode: boolean;
+    mouseProtocol: MouseProtocol;
+    mouseEncoding: MouseEncoding;
+    sendFocusEvents: boolean;
+  } {
+    return this.inputHandler.getModes();
   }
 
   onData(callback: (data: Uint8Array) => void): void {

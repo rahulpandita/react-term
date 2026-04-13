@@ -739,19 +739,39 @@ describe("WebTerminal", () => {
       term.dispose();
     });
 
-    it("resize while scrolled back resets scroll state", () => {
+    it("resize while scrolled back preserves scroll position", () => {
       const term = make3();
       writeLines(term, 5);
 
       // Scroll back
       (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
       expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
-      expect((term as unknown as Record<string, unknown>).displayGrid).not.toBeNull();
 
-      // Resize — should reset scroll state
+      // Resize — scroll position should be preserved exactly
       term.resize(40, 5);
-      expect((term as unknown as Record<string, number>).viewportOffset).toBe(0);
-      expect((term as unknown as Record<string, unknown>).displayGrid).toBeNull();
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
+
+      term.dispose();
+    });
+
+    it("resize clamps viewportOffset to scrollback length", () => {
+      const term = make3({ scrollback: 3 });
+      writeLines(term, 8); // push into scrollback (only 3 kept)
+
+      // Scroll back to maximum (3 lines)
+      (term as unknown as Record<string, (n: number) => void>).scrollViewport(100);
+      const offsetBefore = (term as unknown as Record<string, number>).viewportOffset;
+      expect(offsetBefore).toBe(3); // clamped to scrollback.length
+
+      // Set a large offset artificially to test clamping
+      (term as unknown as Record<string, number>).viewportOffset = 999;
+
+      // Resize — should clamp to actual scrollback length
+      term.resize(40, 5);
+      const newOffset = (term as unknown as Record<string, number>).viewportOffset;
+      const bs = (term as unknown as Record<string, { scrollback: unknown[] }>).bufferSet;
+      expect(newOffset).toBeLessThanOrEqual(bs.scrollback.length);
+      expect(newOffset).toBeLessThan(999);
 
       term.dispose();
     });
@@ -797,6 +817,45 @@ describe("WebTerminal", () => {
       const allText = rows.join(" ");
       // Should show latest content, not scrollback
       expect(allText).toContain("LINE4");
+      term.dispose();
+    });
+  });
+
+  // ---- Public API for buffer/mode state (#147) ----------------------------
+
+  describe("buffer and mode state API", () => {
+    it("isAlternateBuffer returns false by default", () => {
+      const term = make(container);
+      expect(term.isAlternateBuffer).toBe(false);
+      term.dispose();
+    });
+
+    it("isAlternateBuffer returns true after DECSET 1049", () => {
+      const term = make(container);
+      const enc = new TextEncoder();
+      term.write(enc.encode("\x1b[?1049h"));
+      expect(term.isAlternateBuffer).toBe(true);
+      term.write(enc.encode("\x1b[?1049l"));
+      expect(term.isAlternateBuffer).toBe(false);
+      term.dispose();
+    });
+
+    it("getParserModes returns current mode state", () => {
+      const term = make(container);
+      const enc = new TextEncoder();
+
+      // Enable application cursor keys
+      term.write(enc.encode("\x1b[?1h"));
+      // Enable bracketed paste
+      term.write(enc.encode("\x1b[?2004h"));
+
+      const modes = term.getParserModes();
+      expect(modes.applicationCursorKeys).toBe(true);
+      expect(modes.bracketedPasteMode).toBe(true);
+      expect(modes.mouseProtocol).toBe("none");
+      expect(modes.mouseEncoding).toBe("default");
+      expect(modes.sendFocusEvents).toBe(false);
+
       term.dispose();
     });
   });

@@ -377,6 +377,23 @@ export class InputHandler {
     this.sendFocusEvents = enabled;
   }
 
+  /** Get current mode state for save/restore. */
+  getModes(): {
+    applicationCursorKeys: boolean;
+    bracketedPasteMode: boolean;
+    mouseProtocol: MouseProtocol;
+    mouseEncoding: MouseEncoding;
+    sendFocusEvents: boolean;
+  } {
+    return {
+      applicationCursorKeys: this.applicationCursorKeys,
+      bracketedPasteMode: this.bracketedPasteMode,
+      mouseProtocol: this.mouseProtocol,
+      mouseEncoding: this.mouseEncoding,
+      sendFocusEvents: this.sendFocusEvents,
+    };
+  }
+
   setKittyFlags(flags: number): void {
     this.kittyFlags = flags;
   }
