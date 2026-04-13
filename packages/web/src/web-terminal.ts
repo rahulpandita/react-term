@@ -382,8 +382,16 @@ export class WebTerminal {
         this.bufferSet.normal.grid,
         this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
-        (isAlternate: boolean) => {
+        (isAlternate, modes) => {
           this._isAlternate = isAlternate;
+          // Sync parser modes from worker to main-thread InputHandler
+          if (modes) {
+            this.inputHandler.setApplicationCursorKeys(modes.applicationCursorKeys);
+            this.inputHandler.setBracketedPasteMode(modes.bracketedPasteMode);
+            this.inputHandler.setMouseProtocol(modes.mouseProtocol as MouseProtocol);
+            this.inputHandler.setMouseEncoding(modes.mouseEncoding as MouseEncoding);
+            this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
+          }
           // When the alternate buffer is toggled the renderer needs to
           // know which grid to read from.
           const activeGrid = isAlternate
@@ -826,9 +834,8 @@ export class WebTerminal {
    * Get current parser/input mode state for save/restore scenarios.
    * Useful when moving a terminal between DOM containers.
    *
-   * Note: in worker mode, parser modes are NOT currently synced from the
-   * worker. Values reflect the main-thread InputHandler defaults until
-   * worker-to-main mode sync is implemented. Known limitation.
+   * In worker mode, parser modes are synced from the worker via flush
+   * messages. Values reflect the most recent flush.
    */
   getParserModes(): {
     applicationCursorKeys: boolean;
