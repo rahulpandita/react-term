@@ -388,8 +388,8 @@ export class WebTerminal {
           if (modes) {
             this.inputHandler.setApplicationCursorKeys(modes.applicationCursorKeys);
             this.inputHandler.setBracketedPasteMode(modes.bracketedPasteMode);
-            this.inputHandler.setMouseProtocol(modes.mouseProtocol as MouseProtocol);
-            this.inputHandler.setMouseEncoding(modes.mouseEncoding as MouseEncoding);
+            this.inputHandler.setMouseProtocol(modes.mouseProtocol);
+            this.inputHandler.setMouseEncoding(modes.mouseEncoding);
             this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
           }
           // When the alternate buffer is toggled the renderer needs to

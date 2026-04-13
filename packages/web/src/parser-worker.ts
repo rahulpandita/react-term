@@ -62,8 +62,8 @@ export interface FlushMessage {
   modes: {
     applicationCursorKeys: boolean;
     bracketedPasteMode: boolean;
-    mouseProtocol: string;
-    mouseEncoding: string;
+    mouseProtocol: "none" | "x10" | "vt200" | "drag" | "any";
+    mouseEncoding: "default" | "sgr";
     sendFocusEvents: boolean;
   };
   // ---- non-SAB fallback only ----
