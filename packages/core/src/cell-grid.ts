@@ -381,6 +381,8 @@ export function extractText(
 
     let line = "";
     for (let col = colStart; col <= colEnd; col++) {
+      // Skip spacer cells (right half of wide characters)
+      if (grid.isSpacerCell(row, col)) continue;
       const cp = grid.getCodepoint(row, col);
       line += cp > 0x20 ? String.fromCodePoint(cp) : " ";
     }

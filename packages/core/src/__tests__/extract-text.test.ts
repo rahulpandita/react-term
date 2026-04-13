@@ -79,4 +79,71 @@ describe("extractText", () => {
     expect(text).toContain("Hello");
     expect(text).toContain("World");
   });
+
+  // ---- Wide character selection (#142) ------------------------------------
+
+  describe("wide characters", () => {
+    const ATTR_WIDE = 0x80;
+
+    /** Helper: write a wide character (e.g. CJK) at (row, col) spanning 2 cells. */
+    function setWide(grid: CellGrid, row: number, col: number, cp: number): void {
+      grid.setCell(row, col, cp, 7, 0, ATTR_WIDE);
+      grid.setCell(row, col + 1, 0, 7, 0, 0); // spacer
+    }
+
+    it("skips spacer cells for wide characters", () => {
+      const grid = new CellGrid(10, 1);
+      // Write "中文" — two CJK chars, each occupying 2 cells
+      setWide(grid, 0, 0, 0x4e2d); // 中
+      setWide(grid, 0, 2, 0x6587); // 文
+      const text = extractText(grid, 0, 0, 0, 3);
+      expect(text).toBe("中文");
+    });
+
+    it("handles mixed ASCII and wide characters", () => {
+      const grid = new CellGrid(10, 1);
+      grid.setCell(0, 0, 0x41, 7, 0, 0); // A
+      setWide(grid, 0, 1, 0x4e2d); // 中 at cols 1-2
+      grid.setCell(0, 3, 0x42, 7, 0, 0); // B
+      const text = extractText(grid, 0, 0, 0, 3);
+      expect(text).toBe("A中B");
+    });
+
+    it("handles selection starting on spacer cell (right half of wide char)", () => {
+      const grid = new CellGrid(10, 1);
+      setWide(grid, 0, 0, 0x4e2d); // 中 at cols 0-1
+      grid.setCell(0, 2, 0x41, 7, 0, 0); // A
+      // Selection starts at col 1 (spacer) — should skip it
+      const text = extractText(grid, 0, 1, 0, 2);
+      expect(text).toBe("A");
+    });
+
+    it("handles selection ending on spacer cell", () => {
+      const grid = new CellGrid(10, 1);
+      grid.setCell(0, 0, 0x41, 7, 0, 0); // A
+      setWide(grid, 0, 1, 0x4e2d); // 中 at cols 1-2
+      // Selection from A to spacer at col 2
+      const text = extractText(grid, 0, 0, 0, 2);
+      expect(text).toBe("A中");
+    });
+
+    it("handles row of wide characters", () => {
+      const grid = new CellGrid(10, 1);
+      setWide(grid, 0, 0, 0x4e2d); // 中
+      setWide(grid, 0, 2, 0x6587); // 文
+      setWide(grid, 0, 4, 0x5b57); // 字
+      const text = extractText(grid, 0, 0, 0, 5);
+      expect(text).toBe("中文字");
+    });
+
+    it("handles multi-row selection with wide characters", () => {
+      const grid = new CellGrid(10, 2);
+      setWide(grid, 0, 0, 0x4e2d); // 中
+      grid.setCell(0, 2, 0x41, 7, 0, 0); // A
+      setWide(grid, 1, 0, 0x6587); // 文
+      grid.setCell(1, 2, 0x42, 7, 0, 0); // B
+      const text = extractText(grid, 0, 0, 1, 2);
+      expect(text).toBe("中A\n文B");
+    });
+  });
 });
