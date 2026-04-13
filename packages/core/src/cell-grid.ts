@@ -236,59 +236,28 @@ export class CellGrid {
     this.markAllDirty();
   }
 
-  /**
-   * Copy a logical row of cell data + RGB colors into a Uint32Array.
-   *
-   * Layout: [cell0_w0, cell0_w1, cell1_w0, cell1_w1, ..., fgRGB0, fgRGB1, ..., bgRGB0, bgRGB1, ...]
-   * Total length: cols * CELL_SIZE + cols * 2 (fg + bg RGB per column)
-   */
+  /** Copy a logical row of cell data into a new Uint32Array. */
   copyRow(row: number): Uint32Array {
     const start = this.rowStart(row);
-    const cellLen = this.cols * CELL_SIZE;
-    const result = new Uint32Array(cellLen + this.cols * 2);
-    // Copy cell data
-    for (let i = 0; i < cellLen; i++) result[i] = this.data[start + i];
-    // Copy RGB colors for this row
-    for (let c = 0; c < this.cols; c++) {
-      result[cellLen + c] = this.rgbColors[c]; // fg
-      result[cellLen + this.cols + c] = this.rgbColors[256 + c]; // bg
-    }
-    return result;
+    return new Uint32Array(this.data.slice(start, start + this.cols * CELL_SIZE));
   }
 
   /** Copy a logical row into an existing buffer (avoids allocation). */
   copyRowInto(row: number, dest: Uint32Array): void {
     const start = this.rowStart(row);
-    const cellLen = this.cols * CELL_SIZE;
-    for (let i = 0; i < cellLen; i++) dest[i] = this.data[start + i];
-    // Copy RGB colors if dest has room
-    if (dest.length >= cellLen + this.cols * 2) {
-      for (let c = 0; c < this.cols; c++) {
-        dest[cellLen + c] = this.rgbColors[c];
-        dest[cellLen + this.cols + c] = this.rgbColors[256 + c];
-      }
-    }
+    const len = this.cols * CELL_SIZE;
+    for (let i = 0; i < len; i++) dest[i] = this.data[start + i];
   }
 
-  /**
-   * Overwrite a logical row from a previously copied Uint32Array.
-   * Restores RGB colors if the source includes them.
-   */
+  /** Overwrite a logical row from a previously copied Uint32Array. */
   pasteRow(row: number, src: Uint32Array): void {
     const start = this.rowStart(row);
     const rowLen = this.cols * CELL_SIZE;
     if (src.length <= rowLen) {
       this.data.set(src, start);
     } else {
-      // Source may be wider or include RGB data — copy cell data first
+      // Source row is wider than this grid — only copy what fits
       this.data.set(src.subarray(0, rowLen), start);
-    }
-    // Restore RGB colors if present in src
-    if (src.length >= rowLen + this.cols * 2) {
-      for (let c = 0; c < this.cols; c++) {
-        this.rgbColors[c] = src[rowLen + c]; // fg
-        this.rgbColors[256 + c] = src[rowLen + this.cols + c]; // bg
-      }
     }
     this.markDirty(row);
   }

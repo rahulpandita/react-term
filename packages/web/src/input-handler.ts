@@ -381,8 +381,8 @@ export class InputHandler {
   getModes(): {
     applicationCursorKeys: boolean;
     bracketedPasteMode: boolean;
-    mouseProtocol: string;
-    mouseEncoding: string;
+    mouseProtocol: MouseProtocol;
+    mouseEncoding: MouseEncoding;
   } {
     return {
       applicationCursorKeys: this.applicationCursorKeys,

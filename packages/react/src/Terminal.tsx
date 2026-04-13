@@ -43,6 +43,15 @@ export interface TerminalHandle {
   getRowTexts?(): string[];
   /** Get current cursor position (for testing). */
   getCursorPosition?(): { row: number; col: number };
+  /** Whether the alternate buffer is active (vim, htop, etc.). */
+  readonly isAlternateBuffer?: boolean;
+  /** Get current parser/input mode state for save/restore. */
+  getParserModes?(): {
+    applicationCursorKeys: boolean;
+    bracketedPasteMode: boolean;
+    mouseProtocol: string;
+    mouseEncoding: string;
+  };
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(props, ref) {
@@ -121,6 +130,20 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         const terminal = termRef.current;
         if (!terminal) return { row: 0, col: 0 };
         return terminal.getCursorPosition();
+      },
+      get isAlternateBuffer() {
+        return termRef.current?.isAlternateBuffer ?? false;
+      },
+      getParserModes() {
+        const terminal = termRef.current;
+        if (!terminal)
+          return {
+            applicationCursorKeys: false,
+            bracketedPasteMode: false,
+            mouseProtocol: "none",
+            mouseEncoding: "default",
+          };
+        return terminal.getParserModes();
       },
     }),
     [],

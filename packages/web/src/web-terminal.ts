@@ -13,7 +13,7 @@
  * RenderBridge, leaving the main thread free for DOM event handling only.
  */
 
-import type { CursorState, Theme } from "@next_term/core";
+import type { CursorState, MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
 import { BufferSet, CellGrid, DEFAULT_THEME, VTParser } from "@next_term/core";
 import { AccessibilityManager } from "./accessibility.js";
 import type { ITerminalAddon } from "./addon.js";
@@ -144,6 +144,8 @@ export class WebTerminal {
   private wasAlternate = false;
   /** Track sync output mode to detect transitions. */
   private _syncedOutput = false;
+  /** Track alternate buffer state (synced from worker flush). */
+  private _isAlternate = false;
 
   // Scrollback viewport: 0 = live (bottom), positive = lines scrolled back
   private viewportOffset = 0;
@@ -381,6 +383,7 @@ export class WebTerminal {
         this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
         (isAlternate: boolean) => {
+          this._isAlternate = isAlternate;
           // When the alternate buffer is toggled the renderer needs to
           // know which grid to read from.
           const activeGrid = isAlternate
@@ -644,12 +647,15 @@ export class WebTerminal {
     }
 
     if (this.sharedContext && this.paneId) {
-      // Update the shared context with the new grid/cursor after resize
-      this.sharedContext.updateTerminal(
-        this.paneId,
-        this.bufferSet.active.grid,
-        this.bufferSet.active.cursor,
-      );
+      // Update the shared context with the appropriate grid after resize.
+      // If scrolled back, buildDisplayGrid already called updateTerminal above.
+      if (this.viewportOffset === 0) {
+        this.sharedContext.updateTerminal(
+          this.paneId,
+          this.bufferSet.active.grid,
+          this.bufferSet.active.cursor,
+        );
+      }
     } else if (this.renderBridge) {
       // Notify render worker of resize with new SAB
       this.renderBridge.resize(
@@ -658,8 +664,11 @@ export class WebTerminal {
         this.bufferSet.active.grid.getBuffer() as SharedArrayBuffer,
       );
     } else {
-      // Re-attach renderer with new grid
-      this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
+      // Re-attach renderer with the appropriate grid.
+      // If scrolled back, buildDisplayGrid already attached the display grid above.
+      if (this.viewportOffset === 0) {
+        this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
+      }
       this.renderer.resize(cols, rows);
     }
 
@@ -809,7 +818,9 @@ export class WebTerminal {
 
   /** Query whether the alternate buffer is currently active. */
   get isAlternateBuffer(): boolean {
-    return this.bufferSet.isAlternate;
+    // In worker mode, bufferSet.isAlternate is never toggled on the main thread.
+    // Use the tracked flag synced from worker flush callbacks instead.
+    return this.workerBridge ? this._isAlternate : this.bufferSet.isAlternate;
   }
 
   /**
@@ -819,8 +830,8 @@ export class WebTerminal {
   getParserModes(): {
     applicationCursorKeys: boolean;
     bracketedPasteMode: boolean;
-    mouseProtocol: string;
-    mouseEncoding: string;
+    mouseProtocol: MouseProtocol;
+    mouseEncoding: MouseEncoding;
   } {
     return this.inputHandler.getModes();
   }
