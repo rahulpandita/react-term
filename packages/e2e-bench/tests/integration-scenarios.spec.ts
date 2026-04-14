@@ -489,6 +489,41 @@ test.describe('integration scenarios', () => {
       // (not just the last few lines at the bottom)
       expect(allText).toContain('Line 0');
     });
+
+    test('resize shrink pushes overflow rows to scrollback (#162)', async ({ page }) => {
+      // Write enough content to fill more than the post-resize viewport
+      let data = '';
+      for (let i = 0; i < 30; i++) data += `OVERFLOW${String(i).padStart(2, '0')}\r\n`;
+      await write(page, data);
+      await waitForContent(page, 'OVERFLOW29');
+
+      // Resize to much fewer rows — overflow should go to scrollback
+      await page.evaluate(() => window.__termRef?.resize(80, 5));
+      await waitForRender(page);
+
+      // The viewport should show the bottom rows (near the cursor)
+      const liveRows = await readRows(page);
+      const liveText = liveRows.join(' ');
+      expect(liveText).toContain('OVERFLOW');
+
+      // Scroll up via mouse wheel to verify overflow rows are in scrollback
+      const terminal = page.locator('[data-testid="terminal"]').first();
+      // If no data-testid, fall back to the canvas or container
+      const target = (await terminal.count()) > 0
+        ? terminal
+        : page.locator('canvas').first();
+      // Scroll up (negative deltaY = scroll toward older content)
+      for (let i = 0; i < 15; i++) {
+        await target.dispatchEvent('wheel', { deltaY: -100 });
+        await page.waitForTimeout(30);
+      }
+      await waitForRender(page);
+
+      const scrolledRows = await readRows(page);
+      const scrolledText = scrolledRows.join(' ');
+      // Should see early overflow rows that were pushed to scrollback
+      expect(scrolledText).toContain('OVERFLOW0');
+    });
   });
 
   // =========================================================================
