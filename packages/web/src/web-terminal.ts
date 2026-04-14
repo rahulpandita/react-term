@@ -523,6 +523,11 @@ export class WebTerminal {
     return this.bufferSet.active.cursor;
   }
 
+  /** Current scroll offset (0 = live/bottom, positive = lines scrolled back). */
+  get scrollOffset(): number {
+    return this.viewportOffset;
+  }
+
   /** The container element. */
   get element(): HTMLElement {
     return this.container;
@@ -637,12 +642,23 @@ export class WebTerminal {
       srcStartRow = oldCursor.row - rows + 1;
     }
 
+    // Transfer existing scrollback first, then push overflow rows.
+    this.bufferSet.scrollback = oldBufferSet.scrollback;
+
+    // Push overflow rows (above the viewport) into scrollback so the
+    // user can scroll up to see them (#162). Only for the normal buffer
+    // — alt screen doesn't have scrollback.
+    if (srcStartRow > 0 && !oldBufferSet.isAlternate) {
+      for (let r = 0; r < srcStartRow; r++) {
+        const rowData = oldGrid.copyRow(r);
+        this.bufferSet.pushScrollback(rowData);
+      }
+    }
+
     for (let r = 0; r < copyRows; r++) {
       const srcRow = srcStartRow + r;
       if (srcRow >= oldRows) break;
       const rowData = oldGrid.copyRow(srcRow);
-      // If old cols > new cols, the row data is wider — pasteRow handles truncation
-      // If old cols < new cols, extra cells remain at default
       newGrid.pasteRow(r, rowData);
     }
 
@@ -652,9 +668,6 @@ export class WebTerminal {
     newCursor.col = Math.min(oldCursor.col, cols - 1);
     newCursor.visible = oldCursor.visible;
     newCursor.style = oldCursor.style;
-
-    // Copy scrollback
-    this.bufferSet.scrollback = oldBufferSet.scrollback;
 
     // Preserve scroll position: clamp viewportOffset to the new scrollback size.
     // If the user was scrolled back, keep them at the same (or nearest valid) position.
