@@ -11,6 +11,7 @@ import type {
   RenderWorkerFontMessage,
   RenderWorkerInitMessage,
   RenderWorkerResizeMessage,
+  RenderWorkerSyncedOutputMessage,
   RenderWorkerThemeMessage,
   RenderWorkerUpdateMessage,
 } from "./render-worker.js";
@@ -176,6 +177,19 @@ export class RenderBridge {
       fontFamily,
       fontWeight: fontWeight ?? 400,
       fontWeightBold: fontWeightBold ?? 700,
+    };
+    this.worker.postMessage(msg);
+  }
+
+  /**
+   * Gate the render loop for synchronized output (DECSET ?2026).
+   */
+  setSyncedOutput(enabled: boolean): void {
+    if (this.disposed || !this.worker) return;
+
+    const msg: RenderWorkerSyncedOutputMessage = {
+      type: "syncedOutput",
+      enabled,
     };
     this.worker.postMessage(msg);
   }

@@ -394,15 +394,13 @@ export class WebTerminal {
             this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
             this.inputHandler.setKittyFlags(modes.kittyFlags ?? 0);
 
-            // Synchronized output mode 2026: gate the main-thread render loop.
-            // TODO: When renderBridge is active (offscreen mode), the render
-            // worker runs its own rAF loop with no pause mechanism. A "pause"
-            // message in the render-worker protocol would be needed to support
-            // DECSET ?2026 in offscreen mode.
+            // Synchronized output mode 2026: gate the render loop.
             const synced = modes.syncedOutput ?? false;
             if (synced !== this._syncedOutput) {
               this._syncedOutput = synced;
-              if (!this.renderBridge) {
+              if (this.renderBridge) {
+                this.renderBridge.setSyncedOutput(synced);
+              } else {
                 if (synced) {
                   this.renderer.stopRenderLoop();
                 } else {
@@ -590,12 +588,13 @@ export class WebTerminal {
     this.inputHandler.setSendFocusEvents(this.parser.sendFocusEvents);
     this.inputHandler.setKittyFlags(this.parser.kittyFlags);
 
-    // Synchronized output mode 2026: gate the main-thread render loop.
-    // The offscreen render worker has its own loop and is not gated here.
+    // Synchronized output mode 2026: gate the render loop.
     const isSynced = this.parser.syncedOutput;
     if (isSynced !== this._syncedOutput) {
       this._syncedOutput = isSynced;
-      if (!this.renderBridge) {
+      if (this.renderBridge) {
+        this.renderBridge.setSyncedOutput(isSynced);
+      } else {
         if (isSynced) {
           this.renderer.stopRenderLoop();
         } else {

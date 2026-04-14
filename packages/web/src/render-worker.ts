@@ -75,6 +75,11 @@ export interface RenderWorkerFontMessage {
   fontWeightBold: number;
 }
 
+export interface RenderWorkerSyncedOutputMessage {
+  type: "syncedOutput";
+  enabled: boolean;
+}
+
 export interface RenderWorkerDisposeMessage {
   type: "dispose";
 }
@@ -85,6 +90,7 @@ export type RenderWorkerInboundMessage =
   | RenderWorkerResizeMessage
   | RenderWorkerThemeMessage
   | RenderWorkerFontMessage
+  | RenderWorkerSyncedOutputMessage
   | RenderWorkerDisposeMessage;
 
 export interface RenderWorkerFrameMessage {
@@ -1067,6 +1073,17 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       syncCanvasSize();
       ensureInstanceBuffers();
       if (grid) grid.markAllDirty();
+      break;
+    }
+
+    case "syncedOutput": {
+      // DECSET ?2026: gate the render loop for synchronized updates.
+      if (msg.enabled) {
+        stopRenderLoop();
+      } else {
+        if (grid) grid.markAllDirty();
+        startRenderLoop();
+      }
       break;
     }
 
