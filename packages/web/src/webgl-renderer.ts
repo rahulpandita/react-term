@@ -309,22 +309,16 @@ export class GlyphAtlas {
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 
+    // Upload the atlas canvas directly to the GPU. Using texImage2D with
+    // the canvas source avoids the getImageData() CPU readback that was
+    // the primary bottleneck for unicode-heavy workloads.
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
     if (this.needsFullUpload) {
-      // Full upload: first frame, after resize, or context restore
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       this.needsFullUpload = false;
-    } else {
-      // Incremental upload: only the dirty sub-region
-      const x = this.dirtyMinX;
-      const y = this.dirtyMinY;
-      const w = this.dirtyMaxX - x;
-      const h = this.dirtyMaxY - y;
-      const pixels = this.ctx.getImageData(x, y, w, h);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     }
 
     this.hasDirtyRegion = false;
