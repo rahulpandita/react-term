@@ -244,6 +244,14 @@ export class WorkerBridge {
       const dirtyView = new Int32Array(msg.dirtyRows);
       const cols = targetGrid.cols;
       const rows = targetGrid.rows;
+
+      // Validate that transferred data matches the target grid dimensions.
+      // A resize between the worker write and this flush can cause a mismatch.
+      const expectedCells = cols * rows * CELL_SIZE;
+      if (cellView.length < expectedCells || dirtyView.length < rows) {
+        return; // stale flush for a previous grid size — discard
+      }
+
       const rowOffset = modPositive(msg.rowOffset ?? 0, rows);
 
       // Sync circular buffer row offset so physical layout matches the worker's.

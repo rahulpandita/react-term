@@ -883,6 +883,7 @@ function drawCursor(): void {
 
 function startRenderLoop(): void {
   if (disposed) return;
+  if (rafId !== null) return; // already running — prevent stacking
   lastFpsTime = performance.now();
   frameCount = 0;
 
