@@ -394,20 +394,7 @@ export class WebTerminal {
             this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
             this.inputHandler.setKittyFlags(modes.kittyFlags ?? 0);
 
-            // Synchronized output mode 2026: gate the render loop.
-            const synced = modes.syncedOutput ?? false;
-            if (synced !== this._syncedOutput) {
-              this._syncedOutput = synced;
-              if (this.renderBridge) {
-                this.renderBridge.setSyncedOutput(synced);
-              } else {
-                if (synced) {
-                  this.renderer.stopRenderLoop();
-                } else {
-                  this.renderer.startRenderLoop();
-                }
-              }
-            }
+            this.applySyncedOutput(modes.syncedOutput ?? false);
           }
 
           // #150: Sync bufferSet.active so main-thread consumers (resize,
@@ -445,29 +432,18 @@ export class WebTerminal {
             );
           }
 
-          const activeGrid = isAlternate
-            ? this.bufferSet.alternate.grid
-            : this.bufferSet.normal.grid;
-          const activeCursor = isAlternate
-            ? this.bufferSet.alternate.cursor
-            : this.bufferSet.normal.cursor;
-
           // #151: When the user is scrolled back, skip renderer re-attach
           // for normal data flushes — but always re-attach on buffer switch
           // so the renderer shows the correct buffer (#4).
           if (this.viewportOffset > 0 && !altChanged) return;
 
+          const { grid, cursor } = this.bufferSet.active;
           if (this.sharedContext && this.paneId) {
-            this.sharedContext.updateTerminal(this.paneId, activeGrid, activeCursor);
+            this.sharedContext.updateTerminal(this.paneId, grid, cursor);
           } else if (this.renderBridge) {
-            // In offscreen mode, update the render worker's SAB reference
-            this.renderBridge.resize(
-              activeGrid.cols,
-              activeGrid.rows,
-              activeGrid.getBuffer() as SharedArrayBuffer,
-            );
+            this.renderBridge.resize(grid.cols, grid.rows, grid.getBuffer() as SharedArrayBuffer);
           } else {
-            this.renderer.attach(this.canvas, activeGrid, activeCursor);
+            this.renderer.attach(this.canvas, grid, cursor);
           }
         },
         (message: string) => {
@@ -577,6 +553,19 @@ export class WebTerminal {
     this.accessibilityManager?.update();
   }
 
+  /** Gate the render loop for synchronized output (DECSET ?2026). */
+  private applySyncedOutput(synced: boolean): void {
+    if (synced === this._syncedOutput) return;
+    this._syncedOutput = synced;
+    if (this.renderBridge) {
+      this.renderBridge.setSyncedOutput(synced);
+    } else if (synced) {
+      this.renderer.stopRenderLoop();
+    } else {
+      this.renderer.startRenderLoop();
+    }
+  }
+
   /** Sync parser mode flags to the input handler, and detect buffer switches. */
   private syncParserModes(): void {
     if (!this.parser) return;
@@ -587,20 +576,7 @@ export class WebTerminal {
     this.inputHandler.setSendFocusEvents(this.parser.sendFocusEvents);
     this.inputHandler.setKittyFlags(this.parser.kittyFlags);
 
-    // Synchronized output mode 2026: gate the render loop.
-    const isSynced = this.parser.syncedOutput;
-    if (isSynced !== this._syncedOutput) {
-      this._syncedOutput = isSynced;
-      if (this.renderBridge) {
-        this.renderBridge.setSyncedOutput(isSynced);
-      } else {
-        if (isSynced) {
-          this.renderer.stopRenderLoop();
-        } else {
-          this.renderer.startRenderLoop();
-        }
-      }
-    }
+    this.applySyncedOutput(this.parser.syncedOutput);
 
     // Detect alternate buffer switch and re-attach renderer
     const isAlt = this.bufferSet.isAlternate;

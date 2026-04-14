@@ -1,14 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CellGrid, extractText } from "../index.js";
+import { ATTR_WIDE, setWide } from "./test-utils.js";
 
 describe("extractText edge cases", () => {
-  const ATTR_WIDE = 0x80;
-
-  function setWide(grid: CellGrid, row: number, col: number, cp: number): void {
-    grid.setCell(row, col, cp, 7, 0, ATTR_WIDE);
-    grid.setCell(row, col + 1, 0, 7, 0, 0); // spacer
-  }
-
   describe("isSpacerCell edge cases", () => {
     it("returns false for orphaned codepoint=0 at column 0", () => {
       const grid = new CellGrid(10, 1);

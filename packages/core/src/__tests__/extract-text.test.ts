@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CellGrid, extractText, normalizeSelection } from "../index.js";
+import { setWide } from "./test-utils.js";
 
 describe("normalizeSelection", () => {
   it("returns same order when start is before end", () => {
@@ -83,14 +84,6 @@ describe("extractText", () => {
   // ---- Wide character selection (#142) ------------------------------------
 
   describe("wide characters", () => {
-    const ATTR_WIDE = 0x80;
-
-    /** Helper: write a wide character (e.g. CJK) at (row, col) spanning 2 cells. */
-    function setWide(grid: CellGrid, row: number, col: number, cp: number): void {
-      grid.setCell(row, col, cp, 7, 0, ATTR_WIDE);
-      grid.setCell(row, col + 1, 0, 7, 0, 0); // spacer
-    }
-
     it("skips spacer cells for wide characters", () => {
       const grid = new CellGrid(10, 1);
       // Write "中文" — two CJK chars, each occupying 2 cells
