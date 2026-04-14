@@ -971,7 +971,6 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       grid = createGridFromSAB(msg.sharedBuffer, cols, rows);
 
       atlas = new GlyphAtlas(Math.round(fontSize * dpr), fontFamily, fontWeight, fontWeightBold);
-      atlas.prewarmASCII();
 
       gl = canvas.getContext("webgl2", {
         alpha: false,
@@ -1017,6 +1016,7 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       syncCanvasSize();
       initGLResources();
       ensureInstanceBuffers();
+      atlas.prewarmASCII();
       grid.markAllDirty();
       startRenderLoop();
       break;

@@ -228,6 +228,8 @@ export class GlyphAtlas {
     if (this.ctx && this.canvas) {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
+    // Re-warm ASCII so common characters are immediately available
+    this.prewarmASCII();
   }
 
   /**
