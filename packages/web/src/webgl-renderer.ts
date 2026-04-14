@@ -23,6 +23,13 @@ const _ATTR_UNDERLINE = 0x04;
 const _ATTR_STRIKETHROUGH = 0x08;
 const ATTR_INVERSE = 0x40;
 
+/**
+ * When the dirty region exceeds 1/FULL_UPLOAD_THRESHOLD_INV of the atlas area,
+ * use texImage2D(canvas) (no CPU readback) instead of getImageData +
+ * texSubImage2D. Value of 4 means >25% dirty triggers full upload.
+ */
+const FULL_UPLOAD_THRESHOLD_INV = 4;
+
 // ---------------------------------------------------------------------------
 // Color helpers
 // ---------------------------------------------------------------------------
@@ -309,32 +316,25 @@ export class GlyphAtlas {
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 
-    if (this.needsFullUpload || !this.hasDirtyRegion) {
-      // Full upload: first frame, resize, context restore, or no
-      // dirty region (shouldn't reach here, but defensive).
+    if (this.needsFullUpload) {
+      // Full upload: first frame, resize, or context restore.
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
-      if (this.needsFullUpload) {
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        this.needsFullUpload = false;
-      }
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      this.needsFullUpload = false;
     } else {
-      // Incremental: choose between full canvas upload (no CPU readback)
-      // and dirty-rect upload (CPU readback but less data). Full canvas
-      // upload is faster for small atlases; dirty-rect is better for
-      // large atlases where the dirty region is a small fraction.
+      // Incremental: use full canvas upload (no CPU readback) for small
+      // atlases or large dirty regions. Fall back to getImageData +
+      // texSubImage2D only when the dirty rect is a small fraction of
+      // a large atlas, where uploading the full texture is wasteful.
       const dirtyArea = (this.dirtyMaxX - this.dirtyMinX) * (this.dirtyMaxY - this.dirtyMinY);
       const totalArea = this.width * this.height;
 
-      if (dirtyArea * 4 > totalArea) {
-        // Dirty region is >25% of atlas — full upload is cheaper
-        // (avoids getImageData CPU readback overhead)
+      if (dirtyArea * FULL_UPLOAD_THRESHOLD_INV > totalArea) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
       } else {
-        // Dirty region is small — sub-image upload avoids touching
-        // the rest of the (large) texture
         const x = this.dirtyMinX;
         const y = this.dirtyMinY;
         const w = this.dirtyMaxX - x;
