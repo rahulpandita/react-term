@@ -204,6 +204,7 @@ export class WorkerBridge {
   };
 
   private handleWorkerMessage = (event: MessageEvent<OutboundMessage>): void => {
+    if (this.disposed) return;
     const msg = event.data;
 
     if (msg.type === "error") {

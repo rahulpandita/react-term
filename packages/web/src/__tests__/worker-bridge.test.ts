@@ -570,5 +570,64 @@ describe("WorkerBridge", () => {
       bridge.dispose();
       expect(() => bridge.start(80, 24, 1000)).not.toThrow();
     });
+
+    it("flush after dispose does not invoke onFlush or throw (#9)", () => {
+      bridge.start(80, 24, 1000);
+      bridge.dispose();
+      // Simulate a delayed flush arriving after dispose
+      expect(() =>
+        mockWorkerInstance.simulateMessage({
+          type: "flush",
+          cursor: { row: 0, col: 0, visible: true, style: "block" },
+          isAlternate: false,
+          bytesProcessed: 10,
+          modes: DEFAULT_MODES,
+        }),
+      ).not.toThrow();
+      // onFlush should not have been called
+      expect(flushSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---- Cursor retargeting after updateGrid (#2) ---------------------------
+
+  describe("cursor retargeting after updateGrid", () => {
+    it("flush writes to the new cursor after updateGrid", () => {
+      const cols = 2,
+        rows = 2;
+      const normalGrid = new CellGrid(cols, rows);
+      const altGrid = new CellGrid(cols, rows);
+      const normalCursor = makeCursor();
+      const altCursor: CursorState = {
+        row: 0,
+        col: 0,
+        visible: true,
+        style: "block",
+        wrapPending: false,
+      };
+
+      const b = new WorkerBridge(normalGrid, altGrid, normalCursor, vi.fn());
+      b.start(cols, rows, 100);
+
+      // Simulate switching to alt buffer: retarget to altCursor
+      b.updateGrid(normalGrid, altGrid, altCursor);
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 1, col: 1, visible: false, style: "underline" },
+        isAlternate: true,
+        bytesProcessed: 5,
+        modes: DEFAULT_MODES,
+      });
+
+      // Alt cursor should be updated
+      expect(altCursor.row).toBe(1);
+      expect(altCursor.col).toBe(1);
+      expect(altCursor.visible).toBe(false);
+      // Normal cursor should be unchanged
+      expect(normalCursor.row).toBe(0);
+      expect(normalCursor.col).toBe(0);
+      b.dispose();
+    });
   });
 });

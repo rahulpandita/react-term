@@ -860,6 +860,55 @@ describe("WebTerminal", () => {
     });
   });
 
+  // ---- Alt buffer content preservation ------------------------------------
+
+  describe("alt buffer content preservation", () => {
+    it("content written to alt screen is readable via getRowTexts", () => {
+      const t = make(container, { cols: 20, rows: 5 });
+      t.write("\x1b[?1049h"); // enter alt screen
+      t.write("ALT CONTENT");
+      const rows = t.getRowTexts();
+      expect(rows[0]).toContain("ALT CONTENT");
+      t.dispose();
+    });
+
+    it("switching back to normal buffer shows normal content, not alt content", () => {
+      const t = make(container, { cols: 20, rows: 5 });
+      t.write("NORMAL");
+      t.write("\x1b[?1049h"); // enter alt
+      t.write("ALT");
+      t.write("\x1b[?1049l"); // exit alt
+      const rows = t.getRowTexts();
+      expect(rows[0]).toContain("NORMAL");
+      expect(rows[0]).not.toContain("ALT");
+      t.dispose();
+    });
+
+    it("activeGrid reflects the correct buffer after switch", () => {
+      const t = make(container, { cols: 20, rows: 5 });
+      t.write("NORMAL TEXT");
+      const normalGrid = t.activeGrid;
+      t.write("\x1b[?1049h"); // enter alt
+      const altGrid = t.activeGrid;
+      expect(altGrid).not.toBe(normalGrid);
+      t.write("\x1b[?1049l"); // exit alt
+      expect(t.activeGrid).toBe(normalGrid);
+      t.dispose();
+    });
+
+    it("buffer switch while scrolled back still updates activeGrid", () => {
+      const t = make(container, { cols: 10, rows: 3, scrollback: 100 });
+      for (let i = 0; i < 10; i++) t.write(`line ${i}\r\n`);
+      // Scroll back
+      (t as unknown as Record<string, (n: number) => void>).scrollViewport(3);
+      expect((t as unknown as Record<string, number>).viewportOffset).toBe(3);
+      // Enter alt screen — should update the active buffer regardless of scroll
+      t.write("\x1b[?1049h");
+      expect(t.isAlternateBuffer).toBe(true);
+      t.dispose();
+    });
+  });
+
   // ---- Parser mode sync --------------------------------------------------
 
   describe("parser mode sync", () => {
@@ -1196,11 +1245,12 @@ describe("WebTerminal", () => {
       for (let i = 0; i < 10; i++) {
         t.write(`line ${i}\r\n`);
       }
-      // Scroll back (private method, access via write triggering snap)
-      // When new data arrives, write() calls snapToBottom()
+      // Scroll back into history
+      (t as unknown as Record<string, (n: number) => void>).scrollViewport(5);
+      expect((t as unknown as Record<string, number>).viewportOffset).toBe(5);
+      // Writing new data should snap to bottom (viewportOffset → 0)
       t.write("NEW DATA");
-      // Cursor should be at bottom, not scrolled back
-      expect(t.activeCursor.row).toBeGreaterThanOrEqual(0);
+      expect((t as unknown as Record<string, number>).viewportOffset).toBe(0);
       t.dispose();
     });
 

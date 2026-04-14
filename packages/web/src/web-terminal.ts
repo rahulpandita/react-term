@@ -383,20 +383,23 @@ export class WebTerminal {
         this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
         (isAlternate, modes) => {
-          // Sync parser modes from worker to main-thread InputHandler
+          // Sync parser modes from worker to main-thread InputHandler.
+          // Use ?? defaults for backward compat with cached worker scripts
+          // that may not include kittyFlags/syncedOutput (#7).
           if (modes) {
             this.inputHandler.setApplicationCursorKeys(modes.applicationCursorKeys);
             this.inputHandler.setBracketedPasteMode(modes.bracketedPasteMode);
             this.inputHandler.setMouseProtocol(modes.mouseProtocol);
             this.inputHandler.setMouseEncoding(modes.mouseEncoding);
             this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
-            this.inputHandler.setKittyFlags(modes.kittyFlags);
+            this.inputHandler.setKittyFlags(modes.kittyFlags ?? 0);
 
             // Synchronized output mode 2026: gate the main-thread render loop.
-            if (modes.syncedOutput !== this._syncedOutput) {
-              this._syncedOutput = modes.syncedOutput;
+            const synced = modes.syncedOutput ?? false;
+            if (synced !== this._syncedOutput) {
+              this._syncedOutput = synced;
               if (!this.renderBridge) {
-                if (modes.syncedOutput) {
+                if (synced) {
                   this.renderer.stopRenderLoop();
                 } else {
                   this.renderer.startRenderLoop();
@@ -408,14 +411,24 @@ export class WebTerminal {
 
           // #150: Sync bufferSet.active so main-thread consumers (resize,
           // getRowTexts, selection, accessibility) read the correct buffer.
+          // IMPORTANT: Do NOT call activateAlternate() — it calls grid.clear()
+          // which would destroy SAB data the worker just wrote. Directly
+          // assign bufferSet.active instead.
           const altChanged = isAlternate !== this._isAlternate;
           this._isAlternate = isAlternate;
           if (altChanged) {
-            if (isAlternate) {
-              this.bufferSet.activateAlternate();
-            } else {
-              this.bufferSet.activateNormal();
+            this.bufferSet.active = isAlternate ? this.bufferSet.alternate : this.bufferSet.normal;
+
+            // Retarget WorkerBridge cursor so applyFlush writes to the
+            // correct buffer's cursor (#2).
+            if (this.workerBridge) {
+              this.workerBridge.updateGrid(
+                this.bufferSet.normal.grid,
+                this.bufferSet.alternate.grid,
+                this.bufferSet.active.cursor,
+              );
             }
+
             this.inputHandler.setGrid(this.bufferSet.active.grid);
             this.accessibilityManager?.setGrid(
               this.bufferSet.active.grid,
@@ -424,18 +437,17 @@ export class WebTerminal {
             );
           }
 
-          // #151: When the user is scrolled back, don't overwrite the display
-          // with the live grid — preserve the scroll position.
-          if (this.viewportOffset > 0) return;
-
-          // When the alternate buffer is toggled the renderer needs to
-          // know which grid to read from.
           const activeGrid = isAlternate
             ? this.bufferSet.alternate.grid
             : this.bufferSet.normal.grid;
           const activeCursor = isAlternate
             ? this.bufferSet.alternate.cursor
             : this.bufferSet.normal.cursor;
+
+          // #151: When the user is scrolled back, skip renderer re-attach
+          // for normal data flushes — but always re-attach on buffer switch
+          // so the renderer shows the correct buffer (#4).
+          if (this.viewportOffset > 0 && !altChanged) return;
 
           if (this.sharedContext && this.paneId) {
             this.sharedContext.updateTerminal(this.paneId, activeGrid, activeCursor);

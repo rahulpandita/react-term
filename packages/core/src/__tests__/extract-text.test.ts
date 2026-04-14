@@ -109,13 +109,13 @@ describe("extractText", () => {
       expect(text).toBe("A中B");
     });
 
-    it("handles selection starting on spacer cell (right half of wide char)", () => {
+    it("selection starting on spacer snaps to leading cell of wide char", () => {
       const grid = new CellGrid(10, 1);
       setWide(grid, 0, 0, 0x4e2d); // 中 at cols 0-1
       grid.setCell(0, 2, 0x41, 7, 0, 0); // A
-      // Selection starts at col 1 (spacer) — should skip it
+      // Selection starts at col 1 (spacer) — should snap back to include 中
       const text = extractText(grid, 0, 1, 0, 2);
-      expect(text).toBe("A");
+      expect(text).toBe("中A");
     });
 
     it("handles selection ending on spacer cell", () => {
