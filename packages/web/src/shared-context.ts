@@ -683,7 +683,12 @@ export class SharedWebGLContext {
   ): { bgCount: number; glyphCount: number } {
     const { grid, viewport } = entry;
     const cols = grid.cols;
-    const rows = grid.rows;
+    // Clamp rows to what fits in the viewport — during resize the grid
+    // may have more rows than the viewport can display (fit() is debounced).
+    // Without clamping, extra rows bleed into adjacent panes (#165).
+    const maxVisibleRows =
+      this.cellHeight > 0 ? Math.ceil(viewport.height / this.cellHeight) : grid.rows;
+    const rows = Math.min(grid.rows, maxVisibleRows);
 
     // Viewport offset in device pixels for canvas-space coordinates
     const vpX = Math.round(viewport.x * this.dpr);
