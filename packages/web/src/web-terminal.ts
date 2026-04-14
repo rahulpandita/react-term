@@ -144,8 +144,6 @@ export class WebTerminal {
   private wasAlternate = false;
   /** Track sync output mode to detect transitions. */
   private _syncedOutput = false;
-  /** Track alternate buffer state (synced from worker flush). */
-  private _isAlternate = false;
 
   // Scrollback viewport: 0 = live (bottom), positive = lines scrolled back
   private viewportOffset = 0;
@@ -397,15 +395,13 @@ export class WebTerminal {
             this.applySyncedOutput(modes.syncedOutput ?? false);
           }
 
-          // #150: Sync bufferSet.active so main-thread consumers (resize,
+          // Sync bufferSet.active so main-thread consumers (resize,
           // getRowTexts, selection, accessibility) read the correct buffer.
-          // IMPORTANT: Do NOT call activateAlternate() — it calls grid.clear()
-          // which would destroy SAB data the worker just wrote. Directly
-          // assign bufferSet.active instead.
-          const altChanged = isAlternate !== this._isAlternate;
-          this._isAlternate = isAlternate;
+          // Use setActive() — NOT activateAlternate() which calls
+          // grid.clear() and would destroy SAB data the worker just wrote.
+          const altChanged = isAlternate !== this.bufferSet.isAlternate;
           if (altChanged) {
-            this.bufferSet.active = isAlternate ? this.bufferSet.alternate : this.bufferSet.normal;
+            this.bufferSet.setActive(isAlternate);
 
             // Retarget WorkerBridge so applyFlush (which runs after this
             // callback returns) writes cursor and cell data to the correct
@@ -857,9 +853,7 @@ export class WebTerminal {
 
   /** Query whether the alternate buffer is currently active. */
   get isAlternateBuffer(): boolean {
-    // In worker mode, bufferSet.isAlternate is never toggled on the main thread.
-    // Use the tracked flag synced from worker flush callbacks instead.
-    return this.workerBridge ? this._isAlternate : this.bufferSet.isAlternate;
+    return this.bufferSet.isAlternate;
   }
 
   /**

@@ -147,6 +147,17 @@ export class BufferSet {
   }
 
   /**
+   * Switch the active buffer pointer without side effects.
+   *
+   * Unlike activateAlternate() which clears the grid and resets the
+   * cursor, this only sets the active reference. Used in worker mode
+   * where the worker has already prepared the buffer content.
+   */
+  setActive(isAlternate: boolean): void {
+    this.active = isAlternate ? this.alternate : this.normal;
+  }
+
+  /**
    * Push a line into scrollback (for the normal buffer).
    *
    * IMPORTANT: push() must happen before shift() — borrowRowBuffer()
