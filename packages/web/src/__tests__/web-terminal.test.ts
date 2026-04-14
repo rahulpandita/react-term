@@ -1260,11 +1260,12 @@ describe("WebTerminal", () => {
     it("scrollback overflow respects maxScrollback capacity", () => {
       const t = make(container, { cols: 10, rows: 5, scrollback: 3 });
       t.write("R0\r\nR1\r\nR2\r\nR3\r\nR4");
-      // Shrink to 2 — 3 overflow rows but maxScrollback is 3
+      // Shrink to 2 — 3 overflow rows, maxScrollback is 3
       t.resize(10, 2);
       const scrollback = (t as unknown as Record<string, { scrollback: Uint32Array[] }>).bufferSet
         .scrollback;
-      expect(scrollback.length).toBeLessThanOrEqual(3);
+      expect(scrollback.length).toBe(3);
+      expect(scrollback.length).toBeGreaterThan(0);
       t.dispose();
     });
 

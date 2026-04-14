@@ -406,11 +406,11 @@ export class WebTerminal {
           // Restore cursor position adjusted by resize(). The worker's
           // resize flush sends cursor (0,0) from its fresh BufferSet,
           // which applyFlush writes after this callback returns.
-          // Schedule the restore as a microtask so it runs after
-          // applyFlush's synchronous cursor write completes.
+          // Keep restoring on every flush until write() clears it —
+          // a stale pre-resize flush may arrive before the resize flush,
+          // consuming a one-shot restore too early.
           if (this.pendingResizeCursor) {
             const saved = this.pendingResizeCursor;
-            this.pendingResizeCursor = null;
             queueMicrotask(() => {
               const cursor = this.bufferSet.active.cursor;
               cursor.row = saved.row;
@@ -562,6 +562,10 @@ export class WebTerminal {
    */
   write(data: string | Uint8Array): void {
     if (this.disposed) return;
+
+    // New data will produce a flush with the correct cursor position,
+    // so the resize cursor override is no longer needed.
+    this.pendingResizeCursor = null;
 
     // New data arrived — snap back to live view
     this.snapToBottom();
