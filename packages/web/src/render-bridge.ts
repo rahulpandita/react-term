@@ -66,7 +66,7 @@ export class RenderBridge {
   start(sharedBuffer: SharedArrayBuffer, cols: number, rows: number): void {
     if (this.disposed) return;
 
-    this.worker = new Worker(new URL("./render-worker.ts", import.meta.url), { type: "module" });
+    this.worker = new Worker(new URL("./render-worker.js", import.meta.url), { type: "module" });
 
     this.worker.addEventListener("message", this.handleWorkerMessage);
     this.worker.addEventListener("error", this.handleWorkerError);

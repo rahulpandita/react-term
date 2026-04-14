@@ -68,7 +68,7 @@ export class WorkerBridge {
   start(cols: number, rows: number, scrollback: number): void {
     if (this.disposed) return;
 
-    this.worker = new Worker(new URL("./parser-worker.ts", import.meta.url), { type: "module" });
+    this.worker = new Worker(new URL("./parser-worker.js", import.meta.url), { type: "module" });
 
     this.worker.addEventListener("message", this.handleWorkerMessage);
     this.worker.addEventListener("error", this.handleWorkerError);
