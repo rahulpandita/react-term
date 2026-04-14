@@ -405,7 +405,6 @@ export class WebTerminal {
                   this.renderer.stopRenderLoop();
                 } else {
                   this.renderer.startRenderLoop();
-                  this.renderer.render();
                 }
               }
             }
@@ -599,7 +598,6 @@ export class WebTerminal {
           this.renderer.stopRenderLoop();
         } else {
           this.renderer.startRenderLoop();
-          this.renderer.render();
         }
       }
     }

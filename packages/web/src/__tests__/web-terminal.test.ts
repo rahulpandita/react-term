@@ -515,14 +515,16 @@ describe("WebTerminal", () => {
       t.dispose();
     });
 
-    it("calls render() immediately when sync output ends (frame flush)", () => {
+    it("does not call render() synchronously when sync output ends (defers to rAF)", () => {
       patchCanvas();
       const t = make(container);
       const renderSpy = vi.spyOn(Canvas2DRenderer.prototype, "render");
       t.write("\x1b[?2026h");
       renderSpy.mockClear();
       t.write("\x1b[?2026l");
-      expect(renderSpy).toHaveBeenCalledTimes(1);
+      // No immediate render — startRenderLoop schedules the next rAF
+      // which will draw with up-to-date data.
+      expect(renderSpy).not.toHaveBeenCalled();
       t.dispose();
     });
 
