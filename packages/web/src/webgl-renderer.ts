@@ -23,6 +23,13 @@ const _ATTR_UNDERLINE = 0x04;
 const _ATTR_STRIKETHROUGH = 0x08;
 const ATTR_INVERSE = 0x40;
 
+/**
+ * When the dirty region exceeds 1/FULL_UPLOAD_THRESHOLD_INV of the atlas area,
+ * use texImage2D(canvas) (no CPU readback) instead of getImageData +
+ * texSubImage2D. Value of 4 means >25% dirty triggers full upload.
+ */
+const FULL_UPLOAD_THRESHOLD_INV = 4;
+
 // ---------------------------------------------------------------------------
 // Color helpers
 // ---------------------------------------------------------------------------
@@ -158,7 +165,14 @@ export class GlyphAtlas {
   private rowHeight = 0;
   width: number;
   height: number;
-  private dirty = false;
+  /** Full re-upload needed (first upload, resize, context restore). */
+  private needsFullUpload = true;
+  /** Dirty sub-region for incremental texSubImage2D uploads. */
+  private dirtyMinX = 0;
+  private dirtyMinY = 0;
+  private dirtyMaxX = 0;
+  private dirtyMaxY = 0;
+  private hasDirtyRegion = false;
 
   private fontSize: number;
   private fontFamily: string;
@@ -196,7 +210,8 @@ export class GlyphAtlas {
     this.nextX = 0;
     this.nextY = 0;
     this.rowHeight = 0;
-    this.dirty = true;
+    this.needsFullUpload = true;
+    this.hasDirtyRegion = false;
     // Clear the atlas canvas
     if (this.ctx && this.canvas) {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -262,9 +277,25 @@ export class GlyphAtlas {
     };
 
     this.cache.set(key, info);
+
+    // Track dirty sub-region for incremental upload
+    const glyphX = this.nextX;
+    const glyphY = this.nextY;
+    if (this.hasDirtyRegion) {
+      this.dirtyMinX = Math.min(this.dirtyMinX, glyphX);
+      this.dirtyMinY = Math.min(this.dirtyMinY, glyphY);
+      this.dirtyMaxX = Math.max(this.dirtyMaxX, glyphX + pw);
+      this.dirtyMaxY = Math.max(this.dirtyMaxY, glyphY + ph);
+    } else {
+      this.dirtyMinX = glyphX;
+      this.dirtyMinY = glyphY;
+      this.dirtyMaxX = glyphX + pw;
+      this.dirtyMaxY = glyphY + ph;
+      this.hasDirtyRegion = true;
+    }
+
     this.nextX += pw;
     this.rowHeight = Math.max(this.rowHeight, ph);
-    this.dirty = true;
 
     return info;
   }
@@ -273,23 +304,47 @@ export class GlyphAtlas {
    * Upload the atlas texture to GPU. Call once per frame if dirty.
    */
   upload(gl: WebGL2RenderingContext): void {
-    if (!this.canvas) return;
+    if (!this.canvas || !this.ctx) return;
 
     if (!this.texture) {
       this.texture = gl.createTexture();
+      this.needsFullUpload = true;
     }
 
-    if (!this.dirty && this.texture) return;
+    if (!this.needsFullUpload && !this.hasDirtyRegion) return;
 
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-    this.dirty = false;
+    if (this.needsFullUpload) {
+      // Full upload: first frame, resize, or context restore.
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      this.needsFullUpload = false;
+    } else {
+      // Incremental: use full canvas upload (no CPU readback) for small
+      // atlases or large dirty regions. Fall back to getImageData +
+      // texSubImage2D only when the dirty rect is a small fraction of
+      // a large atlas, where uploading the full texture is wasteful.
+      const dirtyArea = (this.dirtyMaxX - this.dirtyMinX) * (this.dirtyMaxY - this.dirtyMinY);
+      const totalArea = this.width * this.height;
+
+      if (dirtyArea * FULL_UPLOAD_THRESHOLD_INV > totalArea) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
+      } else {
+        const x = this.dirtyMinX;
+        const y = this.dirtyMinY;
+        const w = this.dirtyMaxX - x;
+        const h = this.dirtyMaxY - y;
+        const pixels = this.ctx.getImageData(x, y, w, h);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      }
+    }
+
+    this.hasDirtyRegion = false;
   }
 
   getTexture(): WebGLTexture | null {
@@ -299,7 +354,8 @@ export class GlyphAtlas {
   /** Recreate GL texture (for context restore). */
   recreateTexture(): void {
     this.texture = null;
-    this.dirty = true;
+    this.needsFullUpload = true;
+    this.hasDirtyRegion = false;
   }
 
   dispose(gl: WebGL2RenderingContext | null): void {
@@ -345,7 +401,8 @@ export class GlyphAtlas {
       info.h = info.ph / newHeight;
     }
 
-    this.dirty = true;
+    this.needsFullUpload = true;
+    this.hasDirtyRegion = false;
   }
 }
 

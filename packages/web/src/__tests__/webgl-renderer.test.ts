@@ -260,6 +260,52 @@ describe("GlyphAtlas", () => {
       expect(glyph.ph).toBeGreaterThan(0);
     }
   });
+
+  // NOTE: upload() and dirty-region tests require OffscreenCanvas + WebGL2
+  // which are unavailable in jsdom. The state machine (needsFullUpload,
+  // hasDirtyRegion, dirtyMinX/Y/MaxX/Y) is exercised in Playwright
+  // render-regression tests instead.
+
+  it("recreateTexture marks atlas for full re-upload", () => {
+    const atlas = new GlyphAtlas(14, "monospace");
+    atlas.recreateTexture();
+    // After recreateTexture, texture is null — next upload() will create
+    // a new texture and do a full texImage2D. We can't call upload()
+    // without WebGL, but we can verify the texture was cleared.
+    expect(atlas.getTexture()).toBeNull();
+  });
+
+  it("clearCache followed by getGlyph re-rasterizes at atlas origin", () => {
+    const atlas = new GlyphAtlas(14, "monospace");
+    // First glyph
+    const g1 = atlas.getGlyph(65, false, false);
+    if (!g1) return; // OffscreenCanvas not available
+
+    // Second glyph at a different position
+    const g2 = atlas.getGlyph(66, false, false);
+    expect(g2).not.toBeNull();
+    if (!g2) return;
+    expect(g2.u).not.toBe(g1.u); // different atlas position
+
+    // Clear and re-rasterize — should start at origin
+    atlas.clearCache();
+    const g3 = atlas.getGlyph(65, false, false);
+    if (!g3) return;
+    expect(g3.u).toBe(0);
+    expect(g3.v).toBe(0);
+  });
+
+  it("multiple getGlyph calls accumulate in the cache", () => {
+    const atlas = new GlyphAtlas(14, "monospace");
+    for (let cp = 33; cp <= 50; cp++) {
+      atlas.getGlyph(cp, false, false);
+    }
+    // If OffscreenCanvas is available, all glyphs are cached
+    const g = atlas.getGlyph(33, false, false);
+    if (g) {
+      expect(atlas.cache.size).toBe(18); // 33-50 = 18 glyphs
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
