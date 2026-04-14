@@ -9,6 +9,8 @@ const DEFAULT_MODES = {
   mouseProtocol: "none",
   mouseEncoding: "default",
   sendFocusEvents: false,
+  kittyFlags: 0,
+  syncedOutput: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -506,6 +508,48 @@ describe("WorkerBridge", () => {
     });
   });
 
+  // ---- Flush modes with kittyFlags and syncedOutput (#149) ----------------
+
+  describe("flush modes with kittyFlags and syncedOutput", () => {
+    it("passes kittyFlags from flush modes to onFlush callback", () => {
+      bridge.start(80, 24, 1000);
+
+      const modesWithKitty = {
+        ...DEFAULT_MODES,
+        kittyFlags: 3,
+      };
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 10,
+        modes: modesWithKitty,
+      });
+
+      expect(flushSpy).toHaveBeenCalledWith(false, modesWithKitty);
+    });
+
+    it("passes syncedOutput from flush modes to onFlush callback", () => {
+      bridge.start(80, 24, 1000);
+
+      const modesWithSync = {
+        ...DEFAULT_MODES,
+        syncedOutput: true,
+      };
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 10,
+        modes: modesWithSync,
+      });
+
+      expect(flushSpy).toHaveBeenCalledWith(false, modesWithSync);
+    });
+  });
+
   // ---- Guard conditions ---------------------------------------------------
 
   describe("guard conditions", () => {
@@ -525,6 +569,231 @@ describe("WorkerBridge", () => {
       bridge.start(80, 24, 1000);
       bridge.dispose();
       expect(() => bridge.start(80, 24, 1000)).not.toThrow();
+    });
+
+    it("flush after dispose does not invoke onFlush or throw (#9)", () => {
+      bridge.start(80, 24, 1000);
+      bridge.dispose();
+      // Simulate a delayed flush arriving after dispose
+      expect(() =>
+        mockWorkerInstance.simulateMessage({
+          type: "flush",
+          cursor: { row: 0, col: 0, visible: true, style: "block" },
+          isAlternate: false,
+          bytesProcessed: 10,
+          modes: DEFAULT_MODES,
+        }),
+      ).not.toThrow();
+      // onFlush should not have been called
+      expect(flushSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---- onFlush-then-write ordering (A, B from review) --------------------
+
+  describe("applyFlush ordering: onFlush before cursor/data writes", () => {
+    it("onFlush callback can retarget cursor before applyFlush writes it", () => {
+      const cols = 2,
+        rows = 2;
+      const normalGrid = new CellGrid(cols, rows);
+      const altGrid = new CellGrid(cols, rows);
+      const normalCursor = makeCursor();
+      const altCursor: CursorState = {
+        row: 0,
+        col: 0,
+        visible: true,
+        style: "block",
+        wrapPending: false,
+      };
+
+      // onFlush retargets the bridge to altCursor when isAlternate=true
+      // (mirrors production: web-terminal calls updateGrid in onFlush)
+      const onFlush = vi.fn((isAlternate: boolean) => {
+        if (isAlternate) {
+          b.updateGrid(normalGrid, altGrid, altCursor);
+        }
+      });
+
+      const b = new WorkerBridge(normalGrid, altGrid, normalCursor, onFlush);
+      b.start(cols, rows, 100);
+
+      // Flush with isAlternate=true — onFlush fires first, retargets,
+      // then applyFlush writes cursor to the retargeted altCursor.
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 1, col: 1, visible: false, style: "underline" },
+        isAlternate: true,
+        bytesProcessed: 5,
+        modes: DEFAULT_MODES,
+      });
+
+      // onFlush was called
+      expect(onFlush).toHaveBeenCalledWith(true, DEFAULT_MODES);
+      // Alt cursor receives the values (not normal cursor)
+      expect(altCursor.row).toBe(1);
+      expect(altCursor.col).toBe(1);
+      expect(altCursor.visible).toBe(false);
+      // Normal cursor untouched
+      expect(normalCursor.row).toBe(0);
+      expect(normalCursor.col).toBe(0);
+      b.dispose();
+    });
+
+    it("applyFlush routes cell data to altGrid when isAlternate=true (non-SAB)", () => {
+      const cols = 2,
+        rows = 2;
+      const normalGrid = new CellGrid(cols, rows);
+      const altGrid = new CellGrid(cols, rows);
+      const normalCursor = makeCursor();
+
+      const b = new WorkerBridge(normalGrid, altGrid, normalCursor, vi.fn());
+      b.start(cols, rows, 100);
+
+      // Build cell data with 'X' at (0,0)
+      const cellData = new Uint32Array(cols * rows * CELL_SIZE);
+      cellData[0] = 0x58 | (7 << 23); // 'X'
+      const dirtyRows = new Int32Array(rows);
+      dirtyRows[0] = 1;
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 1, visible: true, style: "block" },
+        isAlternate: true,
+        bytesProcessed: 1,
+        modes: DEFAULT_MODES,
+        cellData: cellData.buffer,
+        dirtyRows: dirtyRows.buffer,
+        rowOffset: 0,
+      });
+
+      // Cell data should land in altGrid (not normalGrid)
+      expect(altGrid.getCodepoint(0, 0)).toBe(0x58); // 'X'
+      // normalGrid should still have default content
+      expect(normalGrid.getCodepoint(0, 0)).toBe(0x20); // space
+      b.dispose();
+    });
+
+    it("applyFlush routes cell data to normal grid when isAlternate=false (non-SAB)", () => {
+      const cols = 2,
+        rows = 2;
+      const normalGrid = new CellGrid(cols, rows);
+      const altGrid = new CellGrid(cols, rows);
+
+      const b = new WorkerBridge(normalGrid, altGrid, makeCursor(), vi.fn());
+      b.start(cols, rows, 100);
+
+      const cellData = new Uint32Array(cols * rows * CELL_SIZE);
+      cellData[0] = 0x59 | (7 << 23); // 'Y'
+      const dirtyRows = new Int32Array(rows);
+      dirtyRows[0] = 1;
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 1, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 1,
+        modes: DEFAULT_MODES,
+        cellData: cellData.buffer,
+        dirtyRows: dirtyRows.buffer,
+        rowOffset: 0,
+      });
+
+      expect(normalGrid.getCodepoint(0, 0)).toBe(0x59); // 'Y'
+      expect(altGrid.getCodepoint(0, 0)).toBe(0x20); // space
+      b.dispose();
+    });
+
+    it("onFlush fires before flow control update", () => {
+      bridge.start(80, 24, 1000);
+
+      // Push past high watermark
+      const bigChunk = new Uint8Array(2 * 1024 * 1024);
+      bridge.write(bigChunk);
+      expect(bridge.isPaused).toBe(true);
+
+      // Track when onFlush fires relative to pause state
+      let pausedDuringFlush: boolean | null = null;
+      flushSpy.mockImplementation(() => {
+        pausedDuringFlush = bridge.isPaused;
+      });
+
+      // Flush enough to unpause
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 2 * 1024 * 1024,
+        modes: DEFAULT_MODES,
+      });
+
+      // onFlush should have been called while still paused (before
+      // flow control update)
+      expect(pausedDuringFlush).toBe(true);
+      // After full applyFlush, should be unpaused
+      expect(bridge.isPaused).toBe(false);
+    });
+
+    it("discards non-SAB flush when cellData is oversized (shrink resize)", () => {
+      const cols = 4,
+        rows = 2;
+      const normalGrid = new CellGrid(cols, rows);
+      const altGrid = new CellGrid(cols, rows);
+      const b = new WorkerBridge(normalGrid, altGrid, makeCursor(), vi.fn());
+      b.start(cols, rows, 100);
+
+      // Stale flush from old 8x4 grid — oversized for current 4x2
+      const oldCols = 8,
+        oldRows = 4;
+      const cellData = new Uint32Array(oldCols * oldRows * CELL_SIZE);
+      cellData[0] = 0x5a | (7 << 23); // 'Z'
+      const dirtyRows = new Int32Array(oldRows);
+      dirtyRows[0] = 1;
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 1,
+        modes: DEFAULT_MODES,
+        cellData: cellData.buffer,
+        dirtyRows: dirtyRows.buffer,
+        rowOffset: 0,
+      });
+
+      // Grid should NOT have been updated — stale flush discarded
+      expect(normalGrid.getCodepoint(0, 0)).toBe(0x20); // still space
+      b.dispose();
+    });
+
+    it("discards non-SAB flush when cellData is undersized (grow resize)", () => {
+      const cols = 8,
+        rows = 4;
+      const normalGrid = new CellGrid(cols, rows);
+      const altGrid = new CellGrid(cols, rows);
+      const b = new WorkerBridge(normalGrid, altGrid, makeCursor(), vi.fn());
+      b.start(cols, rows, 100);
+
+      // Stale flush from old 4x2 grid — undersized for current 8x4
+      const oldCols = 4,
+        oldRows = 2;
+      const cellData = new Uint32Array(oldCols * oldRows * CELL_SIZE);
+      const dirtyRows = new Int32Array(oldRows);
+      dirtyRows[0] = 1;
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 1,
+        modes: DEFAULT_MODES,
+        cellData: cellData.buffer,
+        dirtyRows: dirtyRows.buffer,
+        rowOffset: 0,
+      });
+
+      // Grid should NOT have been updated — stale flush discarded
+      expect(normalGrid.getCodepoint(0, 0)).toBe(0x20);
+      b.dispose();
     });
   });
 });

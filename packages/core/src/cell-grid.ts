@@ -379,8 +379,16 @@ export function extractText(
     if (row === sr) colStart = Math.max(0, sel.startCol);
     if (row === er) colEnd = Math.min(grid.cols - 1, sel.endCol);
 
+    // Snap selection start to the leading cell of a wide character so
+    // clicking on the right half still includes the full character (#6).
+    if (colStart > 0 && grid.isSpacerCell(row, colStart)) {
+      colStart--;
+    }
+
     let line = "";
     for (let col = colStart; col <= colEnd; col++) {
+      // Skip spacer cells (right half of wide characters)
+      if (grid.isSpacerCell(row, col)) continue;
       const cp = grid.getCodepoint(row, col);
       line += cp > 0x20 ? String.fromCodePoint(cp) : " ";
     }

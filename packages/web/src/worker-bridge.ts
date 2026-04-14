@@ -204,6 +204,7 @@ export class WorkerBridge {
   };
 
   private handleWorkerMessage = (event: MessageEvent<OutboundMessage>): void => {
+    if (this.disposed) return;
     const msg = event.data;
 
     if (msg.type === "error") {
@@ -221,22 +222,42 @@ export class WorkerBridge {
   };
 
   private applyFlush(msg: FlushMessage): void {
-    // Update cursor on main thread.
+    // Notify the caller FIRST so it can retarget grid/cursor references
+    // when the active buffer changes (e.g., alt screen switch via
+    // updateGrid). This ensures the cursor and cell-data writes below
+    // land on the correct buffer.
+    this.onFlush(msg.isAlternate, msg.modes);
+
+    // Update cursor on main thread (targets the active buffer after
+    // any retargeting by onFlush).
     this.cursor.row = msg.cursor.row;
     this.cursor.col = msg.cursor.col;
     this.cursor.visible = msg.cursor.visible;
     this.cursor.style = msg.cursor.style as CursorState["style"];
 
-    // In non-SAB mode, apply transferred cell data to the main-thread grid.
+    // In non-SAB mode, apply transferred cell data to the correct
+    // main-thread grid. The worker always sends the active buffer's data;
+    // select the target grid based on isAlternate.
     if (msg.cellData && msg.dirtyRows) {
+      const targetGrid = msg.isAlternate ? this.altGrid : this.grid;
       const cellView = new Uint32Array(msg.cellData);
       const dirtyView = new Int32Array(msg.dirtyRows);
-      const cols = this.grid.cols;
-      const rows = this.grid.rows;
+      const cols = targetGrid.cols;
+      const rows = targetGrid.rows;
+
+      // Validate that transferred data matches the target grid dimensions.
+      // A resize between the worker write and this flush can cause a
+      // mismatch in either direction (grow or shrink). An oversized stale
+      // flush would be read with the wrong row stride, causing garbled output.
+      const expectedCells = cols * rows * CELL_SIZE;
+      if (cellView.length !== expectedCells || dirtyView.length !== rows) {
+        return; // stale flush for a different grid size — discard
+      }
+
       const rowOffset = modPositive(msg.rowOffset ?? 0, rows);
 
       // Sync circular buffer row offset so physical layout matches the worker's.
-      this.grid.rowOffsetData[0] = rowOffset;
+      targetGrid.rowOffsetData[0] = rowOffset;
 
       // Only copy rows that were marked dirty by the worker.
       // Dirty flags are indexed by logical row; map to physical positions
@@ -247,8 +268,8 @@ export class WorkerBridge {
           const physRow = modPositive(r + rowOffset, rows);
           const start = physRow * rowLen;
           const end = start + rowLen;
-          this.grid.data.set(cellView.subarray(start, end), start);
-          this.grid.markDirty(r);
+          targetGrid.data.set(cellView.subarray(start, end), start);
+          targetGrid.markDirty(r);
         }
       }
     }
@@ -259,8 +280,5 @@ export class WorkerBridge {
       this.paused = false;
       this.drainQueue();
     }
-
-    // Notify the caller so it can trigger a render and sync modes.
-    this.onFlush(msg.isAlternate, msg.modes);
   }
 }

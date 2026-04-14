@@ -65,6 +65,8 @@ export interface FlushMessage {
     mouseProtocol: "none" | "x10" | "vt200" | "drag" | "any";
     mouseEncoding: "default" | "sgr";
     sendFocusEvents: boolean;
+    kittyFlags: number;
+    syncedOutput: boolean;
   };
   // ---- non-SAB fallback only ----
   /** Full cell data (Transferable). Only present in non-SAB mode. */
@@ -124,6 +126,8 @@ function buildFlush(bytesProcessed: number): FlushMessage {
       mouseProtocol: parser.mouseProtocol,
       mouseEncoding: parser.mouseEncoding,
       sendFocusEvents: parser.sendFocusEvents,
+      kittyFlags: parser.kittyFlags,
+      syncedOutput: parser.syncedOutput,
     },
   };
 

@@ -144,8 +144,6 @@ export class WebTerminal {
   private wasAlternate = false;
   /** Track sync output mode to detect transitions. */
   private _syncedOutput = false;
-  /** Track alternate buffer state (synced from worker flush). */
-  private _isAlternate = false;
 
   // Scrollback viewport: 0 = live (bottom), positive = lines scrolled back
   private viewportOffset = 0;
@@ -383,35 +381,65 @@ export class WebTerminal {
         this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
         (isAlternate, modes) => {
-          this._isAlternate = isAlternate;
-          // Sync parser modes from worker to main-thread InputHandler
+          // Sync parser modes from worker to main-thread InputHandler.
+          // Use ?? defaults for backward compat with cached worker scripts
+          // that may not include kittyFlags/syncedOutput (#7).
           if (modes) {
             this.inputHandler.setApplicationCursorKeys(modes.applicationCursorKeys);
             this.inputHandler.setBracketedPasteMode(modes.bracketedPasteMode);
             this.inputHandler.setMouseProtocol(modes.mouseProtocol);
             this.inputHandler.setMouseEncoding(modes.mouseEncoding);
             this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
-          }
-          // When the alternate buffer is toggled the renderer needs to
-          // know which grid to read from.
-          const activeGrid = isAlternate
-            ? this.bufferSet.alternate.grid
-            : this.bufferSet.normal.grid;
-          const activeCursor = isAlternate
-            ? this.bufferSet.alternate.cursor
-            : this.bufferSet.normal.cursor;
+            this.inputHandler.setKittyFlags(modes.kittyFlags ?? 0);
 
-          if (this.sharedContext && this.paneId) {
-            this.sharedContext.updateTerminal(this.paneId, activeGrid, activeCursor);
-          } else if (this.renderBridge) {
-            // In offscreen mode, update the render worker's SAB reference
-            this.renderBridge.resize(
-              activeGrid.cols,
-              activeGrid.rows,
-              activeGrid.getBuffer() as SharedArrayBuffer,
+            this.applySyncedOutput(modes.syncedOutput ?? false);
+          }
+
+          // Sync bufferSet.active so main-thread consumers (resize,
+          // getRowTexts, selection, accessibility) read the correct buffer.
+          // Use setActive() — NOT activateAlternate() which calls
+          // grid.clear() and would destroy SAB data the worker just wrote.
+          const altChanged = isAlternate !== this.bufferSet.isAlternate;
+          if (altChanged) {
+            this.bufferSet.setActive(isAlternate);
+
+            // Retarget WorkerBridge so applyFlush (which runs after this
+            // callback returns) writes cursor and cell data to the correct
+            // buffer.
+            if (this.workerBridge) {
+              this.workerBridge.updateGrid(
+                this.bufferSet.normal.grid,
+                this.bufferSet.alternate.grid,
+                this.bufferSet.active.cursor,
+              );
+            }
+
+            // Alt screen has no scrollback — reset scroll state so
+            // subsequent flushes aren't dropped by the viewportOffset
+            // guard, and getRowTexts reads the live grid.
+            this.viewportOffset = 0;
+            this.displayGrid = null;
+
+            this.inputHandler.setGrid(this.bufferSet.active.grid);
+            this.accessibilityManager?.setGrid(
+              this.bufferSet.active.grid,
+              this.bufferSet.active.grid.rows,
+              this.bufferSet.active.grid.cols,
             );
+          }
+
+          // #151: When the user is scrolled back, skip renderer re-attach
+          // for normal data flushes — but always re-attach on buffer switch
+          // so the renderer shows the correct buffer (#4).
+          if (this.viewportOffset > 0 && !altChanged) return;
+
+          const { grid, cursor } = this.bufferSet.active;
+          if (this.sharedContext && this.paneId) {
+            this.sharedContext.updateTerminal(this.paneId, grid, cursor);
+          } else if (this.renderBridge) {
+            this.renderBridge.resize(grid.cols, grid.rows, grid.getBuffer() as SharedArrayBuffer);
           } else {
-            this.renderer.attach(this.canvas, activeGrid, activeCursor);
+            this.renderer.attach(this.canvas, grid, cursor);
           }
         },
         (message: string) => {
@@ -458,7 +486,10 @@ export class WebTerminal {
 
     this.renderer = new Canvas2DRenderer(rendererOpts);
     this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
-    this.renderer.startRenderLoop();
+    // Don't start the render loop if DECSET 2026 synchronized output is active.
+    if (!this._syncedOutput) {
+      this.renderer.startRenderLoop();
+    }
   }
 
   /**
@@ -521,6 +552,19 @@ export class WebTerminal {
     this.accessibilityManager?.update();
   }
 
+  /** Gate the render loop for synchronized output (DECSET ?2026). */
+  private applySyncedOutput(synced: boolean): void {
+    if (synced === this._syncedOutput) return;
+    this._syncedOutput = synced;
+    if (this.renderBridge) {
+      this.renderBridge.setSyncedOutput(synced);
+    } else if (synced) {
+      this.renderer.stopRenderLoop();
+    } else {
+      this.renderer.startRenderLoop();
+    }
+  }
+
   /** Sync parser mode flags to the input handler, and detect buffer switches. */
   private syncParserModes(): void {
     if (!this.parser) return;
@@ -531,20 +575,7 @@ export class WebTerminal {
     this.inputHandler.setSendFocusEvents(this.parser.sendFocusEvents);
     this.inputHandler.setKittyFlags(this.parser.kittyFlags);
 
-    // Synchronized output mode 2026: gate the main-thread render loop.
-    // The offscreen render worker has its own loop and is not gated here.
-    const isSynced = this.parser.syncedOutput;
-    if (isSynced !== this._syncedOutput) {
-      this._syncedOutput = isSynced;
-      if (!this.renderBridge) {
-        if (isSynced) {
-          this.renderer.stopRenderLoop();
-        } else {
-          this.renderer.startRenderLoop();
-          this.renderer.render();
-        }
-      }
-    }
+    this.applySyncedOutput(this.parser.syncedOutput);
 
     // Detect alternate buffer switch and re-attach renderer
     const isAlt = this.bufferSet.isAlternate;
@@ -825,9 +856,7 @@ export class WebTerminal {
 
   /** Query whether the alternate buffer is currently active. */
   get isAlternateBuffer(): boolean {
-    // In worker mode, bufferSet.isAlternate is never toggled on the main thread.
-    // Use the tracked flag synced from worker flush callbacks instead.
-    return this.workerBridge ? this._isAlternate : this.bufferSet.isAlternate;
+    return this.bufferSet.isAlternate;
   }
 
   /**

@@ -273,6 +273,31 @@ describe("RenderBridge", () => {
     );
   });
 
+  // ---- setSyncedOutput -----------------------------------------------------
+
+  it("sends syncedOutput message to the worker", () => {
+    bridge.start(makeSharedBuffer(), 10, 5);
+    bridge.setSyncedOutput(true);
+
+    const calls = mockWorkerInstance.postMessage.mock.calls.filter(
+      (c) => c[0]?.type === "syncedOutput",
+    );
+    expect(calls.length).toBe(1);
+    expect(calls[0][0]).toEqual({ type: "syncedOutput", enabled: true });
+  });
+
+  it("sends syncedOutput=false to resume the render loop", () => {
+    bridge.start(makeSharedBuffer(), 10, 5);
+    bridge.setSyncedOutput(true);
+    bridge.setSyncedOutput(false);
+
+    const calls = mockWorkerInstance.postMessage.mock.calls.filter(
+      (c) => c[0]?.type === "syncedOutput",
+    );
+    expect(calls.length).toBe(2);
+    expect(calls[1][0]).toEqual({ type: "syncedOutput", enabled: false });
+  });
+
   // ---- dispose ------------------------------------------------------------
 
   it("sends a dispose message and terminates the worker", () => {
@@ -296,6 +321,7 @@ describe("RenderBridge", () => {
     bridge.resize(80, 24, makeSharedBuffer());
     bridge.setTheme(DEFAULT_THEME);
     bridge.setFont(14, "monospace");
+    bridge.setSyncedOutput(true);
 
     expect(mockWorkerInstance.postMessage).not.toHaveBeenCalled();
   });
