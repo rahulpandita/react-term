@@ -14,7 +14,7 @@
  */
 
 import type { CursorState, MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
-import { BufferSet, CellGrid, DEFAULT_THEME, VTParser } from "@next_term/core";
+import { BufferSet, CELL_SIZE, CellGrid, DEFAULT_THEME, VTParser } from "@next_term/core";
 import { AccessibilityManager } from "./accessibility.js";
 import type { ITerminalAddon } from "./addon.js";
 import { calculateFit } from "./fit.js";
@@ -152,6 +152,7 @@ export class WebTerminal {
    * and re-apply in onFlush.
    */
   private pendingResizeCursor: { row: number; col: number } | null = null;
+  private resizeCursorQueued = false;
 
   // Scrollback viewport: 0 = live (bottom), positive = lines scrolled back
   private viewportOffset = 0;
@@ -407,14 +408,18 @@ export class WebTerminal {
           // resize flush sends cursor (0,0) from its fresh BufferSet,
           // which applyFlush writes after this callback returns.
           // Keep restoring on every flush until write() clears it —
-          // a stale pre-resize flush may arrive before the resize flush,
-          // consuming a one-shot restore too early.
-          if (this.pendingResizeCursor) {
+          // a stale pre-resize flush may arrive before the resize flush.
+          // Only queue one microtask at a time to avoid unbounded growth.
+          if (this.pendingResizeCursor && !this.resizeCursorQueued) {
+            this.resizeCursorQueued = true;
             const saved = this.pendingResizeCursor;
             queueMicrotask(() => {
-              const cursor = this.bufferSet.active.cursor;
-              cursor.row = saved.row;
-              cursor.col = saved.col;
+              this.resizeCursorQueued = false;
+              if (this.pendingResizeCursor === saved) {
+                const cursor = this.bufferSet.active.cursor;
+                cursor.row = saved.row;
+                cursor.col = saved.col;
+              }
             });
           }
 
@@ -677,9 +682,11 @@ export class WebTerminal {
     // — alt screen doesn't have scrollback. Skip when scrollback is
     // disabled (maxScrollback === 0) to avoid wasteful copying.
     if (srcStartRow > 0 && !oldBufferSet.isAlternate && scrollback > 0) {
+      const rowSize = oldGrid.cols * CELL_SIZE;
       for (let r = 0; r < srcStartRow; r++) {
-        const rowData = oldGrid.copyRow(r);
-        this.bufferSet.pushScrollback(rowData);
+        const buf = this.bufferSet.borrowRowBuffer(rowSize);
+        oldGrid.copyRowInto(r, buf);
+        this.bufferSet.pushScrollback(buf);
       }
     }
 
