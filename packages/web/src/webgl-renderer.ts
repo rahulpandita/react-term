@@ -309,16 +309,39 @@ export class GlyphAtlas {
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 
-    // Upload the atlas canvas directly to the GPU. Using texImage2D with
-    // the canvas source avoids the getImageData() CPU readback that was
-    // the primary bottleneck for unicode-heavy workloads.
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
-    if (this.needsFullUpload) {
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      this.needsFullUpload = false;
+    if (this.needsFullUpload || !this.hasDirtyRegion) {
+      // Full upload: first frame, resize, context restore, or no
+      // dirty region (shouldn't reach here, but defensive).
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
+      if (this.needsFullUpload) {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        this.needsFullUpload = false;
+      }
+    } else {
+      // Incremental: choose between full canvas upload (no CPU readback)
+      // and dirty-rect upload (CPU readback but less data). Full canvas
+      // upload is faster for small atlases; dirty-rect is better for
+      // large atlases where the dirty region is a small fraction.
+      const dirtyArea = (this.dirtyMaxX - this.dirtyMinX) * (this.dirtyMaxY - this.dirtyMinY);
+      const totalArea = this.width * this.height;
+
+      if (dirtyArea * 4 > totalArea) {
+        // Dirty region is >25% of atlas — full upload is cheaper
+        // (avoids getImageData CPU readback overhead)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.canvas);
+      } else {
+        // Dirty region is small — sub-image upload avoids touching
+        // the rest of the (large) texture
+        const x = this.dirtyMinX;
+        const y = this.dirtyMinY;
+        const w = this.dirtyMaxX - x;
+        const h = this.dirtyMaxY - y;
+        const pixels = this.ctx.getImageData(x, y, w, h);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      }
     }
 
     this.hasDirtyRegion = false;
