@@ -53,6 +53,8 @@ export interface TerminalHandle {
     mouseEncoding: MouseEncoding;
     sendFocusEvents: boolean;
   };
+  /** Current scroll offset (0 = live/bottom, positive = lines scrolled back). */
+  readonly scrollOffset?: number;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(props, ref) {
@@ -134,6 +136,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       },
       get isAlternateBuffer() {
         return termRef.current?.isAlternateBuffer ?? false;
+      },
+      get scrollOffset() {
+        return termRef.current?.scrollOffset ?? 0;
       },
       getParserModes() {
         const terminal = termRef.current;

@@ -1238,7 +1238,7 @@ describe("WebTerminal", () => {
       t.dispose();
     });
 
-    it("preserves existing scrollback when pushing overflow rows", () => {
+    it("preserves existing scrollback content when pushing overflow rows", () => {
       const t = make(container, { cols: 10, rows: 3, scrollback: 100 });
       // Generate some scrollback first
       for (let i = 0; i < 5; i++) t.write(`OLD${i}\r\n`);
@@ -1250,6 +1250,66 @@ describe("WebTerminal", () => {
       const scrollbackAfter = (t as unknown as Record<string, { scrollback: Uint32Array[] }>)
         .bufferSet.scrollback.length;
       expect(scrollbackAfter).toBeGreaterThan(scrollbackBefore);
+      // Scroll all the way back and verify OLD content is first
+      (t as unknown as Record<string, (n: number) => void>).scrollViewport(999);
+      const rows = t.getRowTexts();
+      expect(rows[0]).toContain("OLD0");
+      t.dispose();
+    });
+
+    it("scrollback overflow respects maxScrollback capacity", () => {
+      const t = make(container, { cols: 10, rows: 5, scrollback: 3 });
+      t.write("R0\r\nR1\r\nR2\r\nR3\r\nR4");
+      // Shrink to 2 — 3 overflow rows but maxScrollback is 3
+      t.resize(10, 2);
+      const scrollback = (t as unknown as Record<string, { scrollback: Uint32Array[] }>).bufferSet
+        .scrollback;
+      expect(scrollback.length).toBeLessThanOrEqual(3);
+      t.dispose();
+    });
+
+    it("does not push overflow when maxScrollback is 0", () => {
+      const t = make(container, { cols: 10, rows: 5, scrollback: 0 });
+      t.write("R0\r\nR1\r\nR2\r\nR3\r\nR4");
+      t.resize(10, 2);
+      const scrollback = (t as unknown as Record<string, { scrollback: Uint32Array[] }>).bufferSet
+        .scrollback;
+      expect(scrollback.length).toBe(0);
+      t.dispose();
+    });
+
+    it("shrink-grow-shrink preserves scrollback across multiple resizes", () => {
+      const t = make(container, { cols: 10, rows: 5, scrollback: 100 });
+      t.write("A0\r\nA1\r\nA2\r\nA3\r\nA4");
+      // First shrink — 3 rows overflow
+      t.resize(10, 2);
+      const afterFirst = (t as unknown as Record<string, { scrollback: Uint32Array[] }>).bufferSet
+        .scrollback.length;
+      expect(afterFirst).toBe(3); // A0, A1, A2
+      // Grow back — no new scrollback
+      t.resize(10, 5);
+      const afterGrow = (t as unknown as Record<string, { scrollback: Uint32Array[] }>).bufferSet
+        .scrollback.length;
+      expect(afterGrow).toBe(afterFirst); // same scrollback preserved
+      // Write more and shrink again
+      t.write("B0\r\nB1\r\nB2\r\nB3\r\nB4");
+      t.resize(10, 2);
+      const afterSecond = (t as unknown as Record<string, { scrollback: Uint32Array[] }>).bufferSet
+        .scrollback.length;
+      expect(afterSecond).toBeGreaterThan(afterFirst);
+      t.dispose();
+    });
+
+    it("shrink to 1 row pushes all other rows to scrollback", () => {
+      const t = make(container, { cols: 10, rows: 5, scrollback: 100 });
+      t.write("A\r\nB\r\nC\r\nD\r\nE");
+      expect(t.activeCursor.row).toBe(4);
+      // Shrink to 1 row — rows 0-3 overflow, only row 4 (E) stays
+      t.resize(10, 1);
+      expect(extractText(t.activeGrid, 0, 0, 0, 0).trim()).toBe("E");
+      const scrollback = (t as unknown as Record<string, { scrollback: Uint32Array[] }>).bufferSet
+        .scrollback;
+      expect(scrollback.length).toBe(4); // A, B, C, D
       t.dispose();
     });
 

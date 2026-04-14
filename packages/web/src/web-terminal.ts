@@ -145,6 +145,14 @@ export class WebTerminal {
   /** Track sync output mode to detect transitions. */
   private _syncedOutput = false;
 
+  /**
+   * Cursor position to restore after the worker's resize flush.
+   * The worker creates a fresh BufferSet on resize (cursor 0,0) and
+   * sends it back, overwriting our adjusted cursor. We save it here
+   * and re-apply in onFlush.
+   */
+  private pendingResizeCursor: { row: number; col: number } | null = null;
+
   // Scrollback viewport: 0 = live (bottom), positive = lines scrolled back
   private viewportOffset = 0;
   /** Temporary display grid used when scrolled into scrollback. */
@@ -393,6 +401,21 @@ export class WebTerminal {
             this.inputHandler.setKittyFlags(modes.kittyFlags ?? 0);
 
             this.applySyncedOutput(modes.syncedOutput ?? false);
+          }
+
+          // Restore cursor position adjusted by resize(). The worker's
+          // resize flush sends cursor (0,0) from its fresh BufferSet,
+          // which applyFlush writes after this callback returns.
+          // Schedule the restore as a microtask so it runs after
+          // applyFlush's synchronous cursor write completes.
+          if (this.pendingResizeCursor) {
+            const saved = this.pendingResizeCursor;
+            this.pendingResizeCursor = null;
+            queueMicrotask(() => {
+              const cursor = this.bufferSet.active.cursor;
+              cursor.row = saved.row;
+              cursor.col = saved.col;
+            });
           }
 
           // Sync bufferSet.active so main-thread consumers (resize,
@@ -647,8 +670,9 @@ export class WebTerminal {
 
     // Push overflow rows (above the viewport) into scrollback so the
     // user can scroll up to see them (#162). Only for the normal buffer
-    // — alt screen doesn't have scrollback.
-    if (srcStartRow > 0 && !oldBufferSet.isAlternate) {
+    // — alt screen doesn't have scrollback. Skip when scrollback is
+    // disabled (maxScrollback === 0) to avoid wasteful copying.
+    if (srcStartRow > 0 && !oldBufferSet.isAlternate && scrollback > 0) {
       for (let r = 0; r < srcStartRow; r++) {
         const rowData = oldGrid.copyRow(r);
         this.bufferSet.pushScrollback(rowData);
@@ -684,6 +708,9 @@ export class WebTerminal {
     newGrid.markAllDirty();
 
     if (this.workerBridge) {
+      // Save adjusted cursor — the worker's resize flush will send
+      // cursor (0,0) from its fresh BufferSet, overwriting ours.
+      this.pendingResizeCursor = { row: newCursor.row, col: newCursor.col };
       // Update the bridge's grid reference and notify the worker.
       this.workerBridge.updateGrid(
         this.bufferSet.normal.grid,
