@@ -14,7 +14,7 @@
  */
 
 import type { CursorState, MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
-import { BufferSet, CellGrid, DEFAULT_THEME, VTParser } from "@next_term/core";
+import { BufferSet, CELL_SIZE, CellGrid, DEFAULT_THEME, VTParser } from "@next_term/core";
 import { AccessibilityManager } from "./accessibility.js";
 import type { ITerminalAddon } from "./addon.js";
 import { calculateFit } from "./fit.js";
@@ -144,6 +144,15 @@ export class WebTerminal {
   private wasAlternate = false;
   /** Track sync output mode to detect transitions. */
   private _syncedOutput = false;
+
+  /**
+   * Cursor position to restore after the worker's resize flush.
+   * The worker creates a fresh BufferSet on resize (cursor 0,0) and
+   * sends it back, overwriting our adjusted cursor. We save it here
+   * and re-apply in onFlush.
+   */
+  private pendingResizeCursor: { row: number; col: number } | null = null;
+  private resizeCursorQueued = false;
 
   // Scrollback viewport: 0 = live (bottom), positive = lines scrolled back
   private viewportOffset = 0;
@@ -395,6 +404,25 @@ export class WebTerminal {
             this.applySyncedOutput(modes.syncedOutput ?? false);
           }
 
+          // Restore cursor position adjusted by resize(). The worker's
+          // resize flush sends cursor (0,0) from its fresh BufferSet,
+          // which applyFlush writes after this callback returns.
+          // Keep restoring on every flush until write() clears it —
+          // a stale pre-resize flush may arrive before the resize flush.
+          // Only queue one microtask at a time to avoid unbounded growth.
+          if (this.pendingResizeCursor && !this.resizeCursorQueued) {
+            this.resizeCursorQueued = true;
+            const saved = this.pendingResizeCursor;
+            queueMicrotask(() => {
+              this.resizeCursorQueued = false;
+              if (this.pendingResizeCursor === saved) {
+                const cursor = this.bufferSet.active.cursor;
+                cursor.row = saved.row;
+                cursor.col = saved.col;
+              }
+            });
+          }
+
           // Sync bufferSet.active so main-thread consumers (resize,
           // getRowTexts, selection, accessibility) read the correct buffer.
           // Use setActive() — NOT activateAlternate() which calls
@@ -523,6 +551,11 @@ export class WebTerminal {
     return this.bufferSet.active.cursor;
   }
 
+  /** Current scroll offset (0 = live/bottom, positive = lines scrolled back). */
+  get scrollOffset(): number {
+    return this.viewportOffset;
+  }
+
   /** The container element. */
   get element(): HTMLElement {
     return this.container;
@@ -534,6 +567,10 @@ export class WebTerminal {
    */
   write(data: string | Uint8Array): void {
     if (this.disposed) return;
+
+    // New data will produce a flush with the correct cursor position,
+    // so the resize cursor override is no longer needed.
+    this.pendingResizeCursor = null;
 
     // New data arrived — snap back to live view
     this.snapToBottom();
@@ -637,12 +674,26 @@ export class WebTerminal {
       srcStartRow = oldCursor.row - rows + 1;
     }
 
+    // Transfer existing scrollback first, then push overflow rows.
+    this.bufferSet.scrollback = oldBufferSet.scrollback;
+
+    // Push overflow rows (above the viewport) into scrollback so the
+    // user can scroll up to see them (#162). Only for the normal buffer
+    // — alt screen doesn't have scrollback. Skip when scrollback is
+    // disabled (maxScrollback === 0) to avoid wasteful copying.
+    if (srcStartRow > 0 && !oldBufferSet.isAlternate && scrollback > 0) {
+      const rowSize = oldGrid.cols * CELL_SIZE;
+      for (let r = 0; r < srcStartRow; r++) {
+        const buf = this.bufferSet.borrowRowBuffer(rowSize);
+        oldGrid.copyRowInto(r, buf);
+        this.bufferSet.pushScrollback(buf);
+      }
+    }
+
     for (let r = 0; r < copyRows; r++) {
       const srcRow = srcStartRow + r;
       if (srcRow >= oldRows) break;
       const rowData = oldGrid.copyRow(srcRow);
-      // If old cols > new cols, the row data is wider — pasteRow handles truncation
-      // If old cols < new cols, extra cells remain at default
       newGrid.pasteRow(r, rowData);
     }
 
@@ -652,9 +703,6 @@ export class WebTerminal {
     newCursor.col = Math.min(oldCursor.col, cols - 1);
     newCursor.visible = oldCursor.visible;
     newCursor.style = oldCursor.style;
-
-    // Copy scrollback
-    this.bufferSet.scrollback = oldBufferSet.scrollback;
 
     // Preserve scroll position: clamp viewportOffset to the new scrollback size.
     // If the user was scrolled back, keep them at the same (or nearest valid) position.
@@ -671,6 +719,9 @@ export class WebTerminal {
     newGrid.markAllDirty();
 
     if (this.workerBridge) {
+      // Save adjusted cursor — the worker's resize flush will send
+      // cursor (0,0) from its fresh BufferSet, overwriting ours.
+      this.pendingResizeCursor = { row: newCursor.row, col: newCursor.col };
       // Update the bridge's grid reference and notify the worker.
       this.workerBridge.updateGrid(
         this.bufferSet.normal.grid,
