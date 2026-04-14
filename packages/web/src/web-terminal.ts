@@ -395,6 +395,10 @@ export class WebTerminal {
             this.inputHandler.setKittyFlags(modes.kittyFlags ?? 0);
 
             // Synchronized output mode 2026: gate the main-thread render loop.
+            // TODO: When renderBridge is active (offscreen mode), the render
+            // worker runs its own rAF loop with no pause mechanism. A "pause"
+            // message in the render-worker protocol would be needed to support
+            // DECSET ?2026 in offscreen mode.
             const synced = modes.syncedOutput ?? false;
             if (synced !== this._syncedOutput) {
               this._syncedOutput = synced;
@@ -419,8 +423,9 @@ export class WebTerminal {
           if (altChanged) {
             this.bufferSet.active = isAlternate ? this.bufferSet.alternate : this.bufferSet.normal;
 
-            // Retarget WorkerBridge cursor so applyFlush writes to the
-            // correct buffer's cursor (#2).
+            // Retarget WorkerBridge so applyFlush (which runs after this
+            // callback returns) writes cursor and cell data to the correct
+            // buffer.
             if (this.workerBridge) {
               this.workerBridge.updateGrid(
                 this.bufferSet.normal.grid,
@@ -428,6 +433,12 @@ export class WebTerminal {
                 this.bufferSet.active.cursor,
               );
             }
+
+            // Alt screen has no scrollback — reset scroll state so
+            // subsequent flushes aren't dropped by the viewportOffset
+            // guard, and getRowTexts reads the live grid.
+            this.viewportOffset = 0;
+            this.displayGrid = null;
 
             this.inputHandler.setGrid(this.bufferSet.active.grid);
             this.accessibilityManager?.setGrid(
