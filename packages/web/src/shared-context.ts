@@ -334,6 +334,13 @@ export class SharedWebGLContext {
   }
 
   setViewport(id: string, x: number, y: number, width: number, height: number): void {
+    if (
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height)
+    )
+      return;
     const entry = this.terminals.get(id);
     if (entry) {
       const vp = entry.viewport;
@@ -682,13 +689,18 @@ export class SharedWebGLContext {
     entry: TerminalEntry,
   ): { bgCount: number; glyphCount: number } {
     const { grid, viewport } = entry;
-    const cols = grid.cols;
-    // Clamp rows to what fits in the viewport — during resize the grid
-    // may have more rows than the viewport can display (fit() is debounced).
-    // Without clamping, extra rows bleed into adjacent panes (#165).
-    const maxVisibleRows =
-      this.cellHeight > 0 ? Math.ceil(viewport.height / this.cellHeight) : grid.rows;
-    const rows = Math.min(grid.rows, maxVisibleRows);
+    // Clamp rows and cols to what fits in the viewport — during resize
+    // the grid may be larger than the viewport (fit() is debounced).
+    // Use floor so partial rows/cols that would bleed past the viewport
+    // boundary are excluded (Phase 3 draws without scissor).
+    const rows =
+      this.cellHeight > 0
+        ? Math.min(grid.rows, Math.floor(viewport.height / this.cellHeight))
+        : grid.rows;
+    const cols =
+      this.cellWidth > 0
+        ? Math.min(grid.cols, Math.floor(viewport.width / this.cellWidth))
+        : grid.cols;
 
     // Viewport offset in device pixels for canvas-space coordinates
     const vpX = Math.round(viewport.x * this.dpr);
@@ -903,6 +915,13 @@ export class SharedWebGLContext {
         rowGlyphCounts[row] = rowGlyph;
         grid.clearDirty(row);
       }
+    }
+
+    // Clear dirty flags for overflow rows that were skipped by the
+    // clamped loop — otherwise they stay dirty and force a full rebuild
+    // every frame during the resize debounce window.
+    for (let row = rows; row < grid.rows; row++) {
+      grid.clearDirty(row);
     }
 
     this.terminalBgCounts.set(id, bgCount);
