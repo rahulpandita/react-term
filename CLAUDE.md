@@ -20,7 +20,7 @@ react-term — Modern terminal emulator for React/React Native
 - Dirty tracking: Int32Array with Atomics (NOT Uint8Array — Atomics requires >=32-bit)
 - Default fg=7 (white), default bg=0 (black) — always set in clear/erase operations
 - SAB feature detection: `typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated`
-- Worker instantiation: `new Worker(new URL('./file.ts', import.meta.url), { type: 'module' })`
+- Worker instantiation: `new Worker(new URL('./file.js', import.meta.url), { type: 'module' })`
 - Demo Vite config has COOP/COEP headers for SAB support
 
 ## Testing
