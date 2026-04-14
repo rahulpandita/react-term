@@ -732,5 +732,68 @@ describe("WorkerBridge", () => {
       // After full applyFlush, should be unpaused
       expect(bridge.isPaused).toBe(false);
     });
+
+    it("discards non-SAB flush when cellData is oversized (shrink resize)", () => {
+      const cols = 4,
+        rows = 2;
+      const normalGrid = new CellGrid(cols, rows);
+      const altGrid = new CellGrid(cols, rows);
+      const b = new WorkerBridge(normalGrid, altGrid, makeCursor(), vi.fn());
+      b.start(cols, rows, 100);
+
+      // Stale flush from old 8x4 grid — oversized for current 4x2
+      const oldCols = 8,
+        oldRows = 4;
+      const cellData = new Uint32Array(oldCols * oldRows * CELL_SIZE);
+      cellData[0] = 0x5a | (7 << 23); // 'Z'
+      const dirtyRows = new Int32Array(oldRows);
+      dirtyRows[0] = 1;
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 1,
+        modes: DEFAULT_MODES,
+        cellData: cellData.buffer,
+        dirtyRows: dirtyRows.buffer,
+        rowOffset: 0,
+      });
+
+      // Grid should NOT have been updated — stale flush discarded
+      expect(normalGrid.getCodepoint(0, 0)).toBe(0x20); // still space
+      b.dispose();
+    });
+
+    it("discards non-SAB flush when cellData is undersized (grow resize)", () => {
+      const cols = 8,
+        rows = 4;
+      const normalGrid = new CellGrid(cols, rows);
+      const altGrid = new CellGrid(cols, rows);
+      const b = new WorkerBridge(normalGrid, altGrid, makeCursor(), vi.fn());
+      b.start(cols, rows, 100);
+
+      // Stale flush from old 4x2 grid — undersized for current 8x4
+      const oldCols = 4,
+        oldRows = 2;
+      const cellData = new Uint32Array(oldCols * oldRows * CELL_SIZE);
+      const dirtyRows = new Int32Array(oldRows);
+      dirtyRows[0] = 1;
+
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 1,
+        modes: DEFAULT_MODES,
+        cellData: cellData.buffer,
+        dirtyRows: dirtyRows.buffer,
+        rowOffset: 0,
+      });
+
+      // Grid should NOT have been updated — stale flush discarded
+      expect(normalGrid.getCodepoint(0, 0)).toBe(0x20);
+      b.dispose();
+    });
   });
 });

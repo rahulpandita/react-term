@@ -486,7 +486,10 @@ export class WebTerminal {
 
     this.renderer = new Canvas2DRenderer(rendererOpts);
     this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
-    this.renderer.startRenderLoop();
+    // Don't start the render loop if DECSET 2026 synchronized output is active.
+    if (!this._syncedOutput) {
+      this.renderer.startRenderLoop();
+    }
   }
 
   /**

@@ -898,15 +898,17 @@ describe("WebTerminal", () => {
       t.dispose();
     });
 
-    it("buffer switch while scrolled back still updates activeGrid", () => {
+    it("buffer switch while scrolled back resets viewportOffset and updates activeGrid", () => {
       const t = make(container, { cols: 10, rows: 3, scrollback: 100 });
       for (let i = 0; i < 10; i++) t.write(`line ${i}\r\n`);
       // Scroll back
       (t as unknown as Record<string, (n: number) => void>).scrollViewport(3);
       expect((t as unknown as Record<string, number>).viewportOffset).toBe(3);
-      // Enter alt screen — should update the active buffer regardless of scroll
+      // Enter alt screen — should update the active buffer and reset scroll
       t.write("\x1b[?1049h");
       expect(t.isAlternateBuffer).toBe(true);
+      // Alt screen has no scrollback — viewportOffset must be reset
+      expect((t as unknown as Record<string, number>).viewportOffset).toBe(0);
       t.dispose();
     });
   });

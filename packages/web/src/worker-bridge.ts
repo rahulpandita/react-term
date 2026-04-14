@@ -246,10 +246,12 @@ export class WorkerBridge {
       const rows = targetGrid.rows;
 
       // Validate that transferred data matches the target grid dimensions.
-      // A resize between the worker write and this flush can cause a mismatch.
+      // A resize between the worker write and this flush can cause a
+      // mismatch in either direction (grow or shrink). An oversized stale
+      // flush would be read with the wrong row stride, causing garbled output.
       const expectedCells = cols * rows * CELL_SIZE;
-      if (cellView.length < expectedCells || dirtyView.length < rows) {
-        return; // stale flush for a previous grid size — discard
+      if (cellView.length !== expectedCells || dirtyView.length !== rows) {
+        return; // stale flush for a different grid size — discard
       }
 
       const rowOffset = modPositive(msg.rowOffset ?? 0, rows);
