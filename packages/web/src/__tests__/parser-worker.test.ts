@@ -54,7 +54,7 @@ function lastFlush(): FlushMessage {
  * Read the codepoint stored at a logical cell position from a transferred
  * cellData ArrayBuffer.
  *
- * Cell layout (matches cell-grid.ts): 2 × uint32 per cell; the codepoint
+ * Cell layout (matches cell-grid.ts): 4 × uint32 per cell; the codepoint
  * occupies the low 21 bits of word 0.  The grid uses a circular row buffer
  * rotated by `rowOffset` (from the flush message; 0 on a freshly initialised
  * terminal).
@@ -67,7 +67,7 @@ function getCellCodepoint(
   rowOffset: number,
   rows: number,
 ): number {
-  const CELL_SIZE = 2;
+  const CELL_SIZE = 4;
   const physRow = (row + rowOffset) % rows;
   const uint32 = new Uint32Array(cellData);
   return uint32[(physRow * cols + col) * CELL_SIZE] & 0x1fffff;

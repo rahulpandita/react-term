@@ -5,6 +5,7 @@ export {
   CellGrid,
   DEFAULT_CELL_W0,
   DEFAULT_CELL_W1,
+  expandCompactRow,
   extractText,
   modPositive,
   normalizeSelection,

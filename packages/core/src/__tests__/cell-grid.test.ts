@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CELL_SIZE, CellGrid } from "../cell-grid.js";
+import { CELL_SIZE, CellGrid, expandCompactRow } from "../cell-grid.js";
 
 describe("CellGrid", () => {
   it("creates a grid with correct dimensions", () => {
@@ -102,20 +102,75 @@ describe("CellGrid", () => {
     expect(grid.isBgRGB(2, 3)).toBe(true);
   });
 
-  it("copyRow does NOT preserve rgbColors table (known limitation #146)", () => {
-    // rgbColors is a shared per-grid column-indexed table, not per-row.
-    // Proper truecolor preservation requires cell format expansion.
+  it("copyRow preserves inline RGB values (#146)", () => {
     const grid = new CellGrid(10, 5);
-    grid.setCell(0, 3, 0x41, 0, 0, 0, true, true);
-    grid.rgbColors[3] = 0xff8040;
+    grid.setCell(0, 3, 0x41, 0, 0, 0, true, true, 0xff8040, 0x00cc55);
 
     const row = grid.copyRow(0);
-    grid.rgbColors[3] = 0x000000; // clear the shared table
+    grid.clearRow(2);
     grid.pasteRow(2, row);
 
-    // RGB flag is set but the actual color value is NOT restored
+    // RGB flags AND actual color values are preserved through copy/paste
     expect(grid.isFgRGB(2, 3)).toBe(true);
-    expect(grid.rgbColors[3]).toBe(0x000000); // NOT 0xff8040
+    expect(grid.isBgRGB(2, 3)).toBe(true);
+    expect(grid.getFgRGB(2, 3)).toBe(0xff8040);
+    expect(grid.getBgRGB(2, 3)).toBe(0x00cc55);
+  });
+
+  it("cross-row RGB: different rows preserve independent RGB values (#146)", () => {
+    const grid = new CellGrid(10, 5);
+    grid.setCell(0, 2, 0x41, 0, 0, 0, true, false, 0xff0000);
+    grid.setCell(1, 2, 0x42, 0, 0, 0, true, false, 0x00ff00);
+
+    // Each row stores its own RGB value inline — no cross-row clobbering
+    expect(grid.getFgRGB(0, 2)).toBe(0xff0000);
+    expect(grid.getFgRGB(1, 2)).toBe(0x00ff00);
+
+    // Copy row 0 to row 3, row 1 to row 4
+    const row0 = grid.copyRow(0);
+    const row1 = grid.copyRow(1);
+    grid.pasteRow(3, row0);
+    grid.pasteRow(4, row1);
+
+    // Both rows preserve their own RGB values
+    expect(grid.getFgRGB(3, 2)).toBe(0xff0000);
+    expect(grid.getFgRGB(4, 2)).toBe(0x00ff00);
+  });
+
+  it("copyRowCompact returns 2 words/cell for non-RGB rows", () => {
+    const grid = new CellGrid(10, 5);
+    grid.setCell(0, 0, 0x41, 7, 0, 0);
+    grid.setCell(0, 1, 0x42, 1, 2, 0);
+    const compact = grid.copyRowCompact(0);
+    // 10 cols × 2 words/cell = 20 words
+    expect(compact.length).toBe(10 * 2);
+    expect(compact[0] & 0x1fffff).toBe(0x41);
+    expect(compact[2] & 0x1fffff).toBe(0x42);
+  });
+
+  it("copyRowCompact returns 4 words/cell for RGB rows", () => {
+    const grid = new CellGrid(10, 5);
+    grid.setCell(0, 3, 0x41, 0, 0, 0, true, false, 0xff0000);
+    const full = grid.copyRowCompact(0);
+    expect(full.length).toBe(10 * CELL_SIZE);
+    // RGB value at word 2
+    expect(full[3 * CELL_SIZE + 2]).toBe(0xff0000);
+  });
+
+  it("compact round-trip through expandCompactRow preserves cell data", () => {
+    const grid = new CellGrid(10, 5);
+    grid.setCell(0, 0, 0x41, 3, 5, 0x01); // 'A', fg=3, bg=5, bold
+    grid.setCell(0, 9, 0x5a, 7, 0, 0); // 'Z' at last col
+    const compact = grid.copyRowCompact(0);
+    expect(compact.length).toBe(10 * 2); // non-RGB → compact
+    const expanded = expandCompactRow(compact, 10);
+    expect(expanded.length).toBe(10 * CELL_SIZE);
+    grid.pasteRow(2, expanded);
+    expect(grid.getCodepoint(2, 0)).toBe(0x41);
+    expect(grid.getFgIndex(2, 0)).toBe(3);
+    expect(grid.getBgIndex(2, 0)).toBe(5);
+    expect(grid.isBold(2, 0)).toBe(true);
+    expect(grid.getCodepoint(2, 9)).toBe(0x5a);
   });
 
   it("reports whether SharedArrayBuffer is used", () => {

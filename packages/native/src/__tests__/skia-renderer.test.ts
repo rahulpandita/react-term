@@ -532,9 +532,9 @@ describe("SkiaRenderer", () => {
       const renderer = createRenderer();
       const grid = new CellGrid(5, 1);
 
-      // fgIsRGB=true; rgbColors[col] holds the packed 24-bit value
-      grid.setCell(0, 0, 0x41, 0, 0, 0, true, false); // 'A', fgIsRGB=true
-      grid.rgbColors[0] = (255 << 16) | (128 << 8) | 0; // rgb(255,128,0)
+      // fgIsRGB=true; RGB stored inline in cell word 2
+      const fgRGB = (255 << 16) | (128 << 8) | 0; // rgb(255,128,0)
+      grid.setCell(0, 0, 0x41, 0, 0, 0, true, false, fgRGB);
 
       const cursor: CursorState = {
         row: 0,
@@ -555,9 +555,9 @@ describe("SkiaRenderer", () => {
       const renderer = createRenderer();
       const grid = new CellGrid(5, 1);
 
-      // bgIsRGB=true; rgbColors[256 + col] holds the packed 24-bit value
-      grid.setCell(0, 0, 0x41, 7, 0, 0, false, true); // 'A', bgIsRGB=true
-      grid.rgbColors[256 + 0] = (0 << 16) | (0 << 8) | 200; // rgb(0,0,200)
+      // bgIsRGB=true; RGB stored inline in cell word 3
+      const bgRGB = (0 << 16) | (0 << 8) | 200; // rgb(0,0,200)
+      grid.setCell(0, 0, 0x41, 7, 0, 0, false, true, 0, bgRGB);
 
       const cursor: CursorState = {
         row: 0,
@@ -580,8 +580,8 @@ describe("SkiaRenderer", () => {
 
       // fgIsRGB=true, attrs=0x40 (inverse).
       // After swap: bg = rgb(200,50,10), text = theme.background.
-      grid.setCell(0, 0, 0x43, 0, 0, 0x40, true, false); // 'C', fgIsRGB, inverse
-      grid.rgbColors[0] = (200 << 16) | (50 << 8) | 10; // rgb(200,50,10)
+      const fgRGB2 = (200 << 16) | (50 << 8) | 10; // rgb(200,50,10)
+      grid.setCell(0, 0, 0x43, 0, 0, 0x40, true, false, fgRGB2); // 'C', fgIsRGB, inverse
 
       const cursor: CursorState = {
         row: 0,
@@ -612,8 +612,8 @@ describe("SkiaRenderer", () => {
       // resolveColor(7, false) → theme.foreground
       // resolveColor(0, true)  → rgb(100,200,50) from rgbColors[256+col]
       // After swap: fg = rgb(100,200,50), bg = theme.foreground
-      grid.setCell(0, 0, 0x44, 7, 0, 0x40, false, true); // 'D', bgIsRGB, inverse
-      grid.rgbColors[256 + 0] = (100 << 16) | (200 << 8) | 50; // rgb(100,200,50)
+      const bgRGB2 = (100 << 16) | (200 << 8) | 50; // rgb(100,200,50)
+      grid.setCell(0, 0, 0x44, 7, 0, 0x40, false, true, 0, bgRGB2); // 'D', bgIsRGB, inverse
 
       const cursor: CursorState = {
         row: 0,

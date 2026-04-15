@@ -112,6 +112,8 @@ export class BufferSet {
   scrollback: Uint32Array[];
   /** Per-line wrap flag for scrollback (parallel to scrollback[]). */
   scrollbackWrap: boolean[];
+  /** True if the corresponding scrollback row uses compact (2 word/cell) format. */
+  scrollbackCompact: boolean[];
   readonly maxScrollback: number;
 
   constructor(
@@ -130,6 +132,7 @@ export class BufferSet {
     this.active = this.normal;
     this.scrollback = [];
     this.scrollbackWrap = [];
+    this.scrollbackCompact = [];
     this.maxScrollback = maxScrollback;
   }
 
@@ -169,12 +172,14 @@ export class BufferSet {
    * returns scrollback[0] which the caller fills before calling this.
    * Reversing the order would evict the buffer before it's appended.
    */
-  pushScrollback(line: Uint32Array, wrapped = false): void {
+  pushScrollback(line: Uint32Array, wrapped = false, compact = false): void {
     this.scrollback.push(line);
     this.scrollbackWrap.push(wrapped);
+    this.scrollbackCompact.push(compact);
     if (this.scrollback.length > this.maxScrollback) {
       this.scrollback.shift();
       this.scrollbackWrap.shift();
+      this.scrollbackCompact.shift();
     }
   }
 
@@ -196,11 +201,21 @@ export class BufferSet {
   scrollUpWithHistory(): void {
     if (this.maxScrollback > 0 && this.active === this.normal && this.active.scrollTop === 0) {
       const grid = this.active.grid;
-      const rowSize = grid.cols * CELL_SIZE;
+      const hasRgb = grid.rowHasRgb(0);
+      const rowSize = hasRgb ? grid.cols * CELL_SIZE : grid.cols * 2;
       const dest = this.borrowRowBuffer(rowSize);
-      grid.copyRowInto(0, dest);
+      if (hasRgb) {
+        grid.copyRowInto(0, dest);
+      } else {
+        // Compact: copy only words 0,1 per cell
+        const start = grid.rowStart(0);
+        for (let c = 0; c < grid.cols; c++) {
+          dest[c * 2] = grid.data[start + c * CELL_SIZE];
+          dest[c * 2 + 1] = grid.data[start + c * CELL_SIZE + 1];
+        }
+      }
       const wasWrapped = grid.isWrapped(0);
-      this.pushScrollback(dest, wasWrapped);
+      this.pushScrollback(dest, wasWrapped, !hasRgb);
     }
     this.active.scrollUp();
   }

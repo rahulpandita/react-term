@@ -19,6 +19,7 @@ import {
   CELL_SIZE,
   CellGrid,
   DEFAULT_THEME,
+  expandCompactRow,
   reflowRows,
   VTParser,
 } from "@next_term/core";
@@ -675,10 +676,13 @@ export class WebTerminal {
       // 1. Collect all rows: scrollback + viewport
       const allRows: RowData[] = [];
 
-      // Scrollback rows
+      // Scrollback rows (expand compact rows to full format for reflow)
       for (let i = 0; i < oldBufferSet.scrollback.length; i++) {
+        const cells = oldBufferSet.scrollbackCompact[i]
+          ? expandCompactRow(oldBufferSet.scrollback[i], oldBufferSet.cols)
+          : oldBufferSet.scrollback[i];
         allRows.push({
-          cells: oldBufferSet.scrollback[i],
+          cells,
           wrapped: oldBufferSet.scrollbackWrap[i] ?? false,
         });
       }
@@ -760,17 +764,20 @@ export class WebTerminal {
       // Transfer existing scrollback first, then push overflow rows.
       this.bufferSet.scrollback = oldBufferSet.scrollback;
       this.bufferSet.scrollbackWrap = oldBufferSet.scrollbackWrap;
+      this.bufferSet.scrollbackCompact = oldBufferSet.scrollbackCompact;
 
       // Push overflow rows (above the viewport) into scrollback so the
       // user can scroll up to see them (#162). Only for the normal buffer
       // — alt screen doesn't have scrollback. Skip when scrollback is
       // disabled (maxScrollback === 0) to avoid wasteful copying.
       if (srcStartRow > 0 && !oldBufferSet.isAlternate && scrollback > 0) {
-        const rowSize = oldGrid.cols * CELL_SIZE;
         for (let r = 0; r < srcStartRow; r++) {
-          const buf = this.bufferSet.borrowRowBuffer(rowSize);
-          oldGrid.copyRowInto(r, buf);
-          this.bufferSet.pushScrollback(buf, oldGrid.isWrapped(r));
+          const compact = oldGrid.copyRowCompact(r);
+          this.bufferSet.pushScrollback(
+            compact,
+            oldGrid.isWrapped(r),
+            compact.length < oldGrid.cols * CELL_SIZE,
+          );
         }
       }
 
@@ -1183,12 +1190,11 @@ export class WebTerminal {
         // Before scrollback — show empty
         this.displayGrid.clearRow(r);
       } else if (virtualLine < scrollback.length) {
-        // From scrollback
-        this.displayGrid.pasteRow(
-          r,
-          scrollback[virtualLine],
-          this.bufferSet.scrollbackWrap[virtualLine] ?? false,
-        );
+        // From scrollback (expand compact rows to full format for the grid)
+        const sbRow = this.bufferSet.scrollbackCompact[virtualLine]
+          ? expandCompactRow(scrollback[virtualLine], cols)
+          : scrollback[virtualLine];
+        this.displayGrid.pasteRow(r, sbRow, this.bufferSet.scrollbackWrap[virtualLine] ?? false);
       } else {
         // From live buffer
         const bufRow = virtualLine - scrollback.length;

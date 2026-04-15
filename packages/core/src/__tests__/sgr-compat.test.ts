@@ -228,20 +228,20 @@ describe("SGR Compatibility Tests (ported from xterm.js / ghostty)", () => {
       expect(grid().isFgRGB(0, 0)).toBe(true);
       // The packed RGB value: (255 << 16) | (0 << 8) | 0 = 0xFF0000
       // The fg index field stores the low byte of fgRGB
-      // Full RGB is stored in rgbColors
-      expect(grid().rgbColors[0]).toBe(0xff0000);
+      // Full RGB is stored inline in cell word 2
+      expect(grid().getFgRGB(0, 0)).toBe(0xff0000);
     });
 
     it("48;2;0;255;0 sets bg to green RGB", () => {
       writeCharWithSGR("\x1b[48;2;0;255;0m");
       expect(grid().isBgRGB(0, 0)).toBe(true);
-      expect(grid().rgbColors[256 + 0]).toBe(0x00ff00);
+      expect(grid().getBgRGB(0, 0)).toBe(0x00ff00);
     });
 
     it("38;2;100;150;200 sets fg to custom RGB", () => {
       writeCharWithSGR("\x1b[38;2;100;150;200m");
       expect(grid().isFgRGB(0, 0)).toBe(true);
-      expect(grid().rgbColors[0]).toBe((100 << 16) | (150 << 8) | 200);
+      expect(grid().getFgRGB(0, 0)).toBe((100 << 16) | (150 << 8) | 200);
     });
   });
 

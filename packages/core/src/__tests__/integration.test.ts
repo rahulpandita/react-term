@@ -66,9 +66,9 @@ describe("24-bit RGB foreground", () => {
 
     expect(grid.getCodepoint(0, 0)).toBe(0x52); // 'R'
     expect(grid.isFgRGB(0, 0)).toBe(true);
-    // rgbColors[col] holds packed RGB for foreground
+    // Inline word 2 holds packed RGB for foreground
     const expectedRGB = (100 << 16) | (200 << 8) | 50;
-    expect(grid.rgbColors[0]).toBe(expectedRGB);
+    expect(grid.getFgRGB(0, 0)).toBe(expectedRGB);
   });
 });
 
@@ -111,7 +111,7 @@ describe("RGB background", () => {
     expect(grid.getCodepoint(0, 0)).toBe(0x44); // 'D'
     expect(grid.isBgRGB(0, 0)).toBe(true);
     const expectedRGB = (10 << 16) | (20 << 8) | 30;
-    expect(grid.rgbColors[256 + 0]).toBe(expectedRGB);
+    expect(grid.getBgRGB(0, 0)).toBe(expectedRGB);
   });
 });
 

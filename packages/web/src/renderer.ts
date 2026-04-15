@@ -216,8 +216,8 @@ export class Canvas2DRenderer implements IRenderer {
         const effWidth = wide ? cellWidth * 2 : cellWidth;
 
         // Resolve colors
-        let fg = this.resolveCellColor(fgIdx, fgIsRGB, grid, col, true);
-        let bg = this.resolveCellColor(bgIdx, bgIsRGB, grid, col, false);
+        let fg = this.resolveCellColor(fgIdx, fgIsRGB, grid.getFgRGB(row, col), true);
+        let bg = this.resolveCellColor(bgIdx, bgIsRGB, grid.getBgRGB(row, col), false);
 
         // Handle inverse
         if (attrs & ATTR_INVERSE) {
@@ -446,22 +446,18 @@ export class Canvas2DRenderer implements IRenderer {
    * For indexed colors (fgIsRGB/bgIsRGB = false), colorIdx is the 256-color
    * palette index. Default foreground is index 7, default background is 0.
    *
-   * For RGB colors, the actual RGB value is stored in grid.rgbColors.
+   * For RGB colors, rgbValue contains the packed 24-bit color from cell word 2/3.
    */
   private resolveCellColor(
     colorIdx: number,
     isRGB: boolean,
-    grid: CellGrid,
-    col: number,
+    rgbValue: number,
     isForeground: boolean,
   ): string {
     if (isRGB) {
-      // Look up full RGB from the rgbColors table
-      const offset = isForeground ? col : 256 + col;
-      const rgb = grid.rgbColors[offset];
-      const r = (rgb >> 16) & 0xff;
-      const g = (rgb >> 8) & 0xff;
-      const b = rgb & 0xff;
+      const r = (rgbValue >> 16) & 0xff;
+      const g = (rgbValue >> 8) & 0xff;
+      const b = rgbValue & 0xff;
       return `rgb(${r},${g},${b})`;
     }
 
