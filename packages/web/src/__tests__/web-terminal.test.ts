@@ -765,9 +765,14 @@ describe("WebTerminal", () => {
       (term as unknown as Record<string, (n: number) => void>).scrollViewport(2);
       expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
 
-      // Resize — scroll position should be preserved exactly
+      // Resize — with reflow (cols changed 80->40), scrollback is
+      // recalculated. Growing from 3 to 5 rows absorbs scrollback
+      // lines into the screen, so viewportOffset is clamped to the
+      // new (smaller) scrollback length.
       term.resize(40, 5);
-      expect((term as unknown as Record<string, number>).viewportOffset).toBe(2);
+      // 6 total rows (3 scrollback + 3 screen) -> 5 screen + 1 scrollback,
+      // so max viewportOffset is 1 (clamped from 2).
+      expect((term as unknown as Record<string, number>).viewportOffset).toBe(1);
 
       term.dispose();
     });

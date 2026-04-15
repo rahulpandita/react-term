@@ -608,6 +608,7 @@ export class VTParser {
           if (cursor.wrapPending) {
             cursor.wrapPending = false;
             if (this.autoWrapMode) {
+              grid.setWrapped(cachedRow, true);
               grid.markDirty(cachedRow);
               cursor.col = 0;
               cursor.row++;
@@ -626,6 +627,7 @@ export class VTParser {
             // Fill current cell with space, then wrap
             gridData[cellIdx] = 0x20 | word0Base;
             gridData[cellIdx + 1] = word1;
+            grid.setWrapped(cachedRow, true);
             grid.markDirty(cachedRow);
             cursor.col = 0;
             cursor.row++;
@@ -848,6 +850,7 @@ export class VTParser {
     if (cursor.wrapPending) {
       cursor.wrapPending = false;
       if (this.autoWrapMode) {
+        grid.setWrapped(cursor.row, true);
         cursor.col = 0;
         cursor.row++;
         if (cursor.row > buf.scrollBottom) {
@@ -872,6 +875,7 @@ export class VTParser {
         0x20 | (this.fgIsRGB ? 1 << 21 : 0) | (this.bgIsRGB ? 1 << 22 : 0) | ((fgVal & 0xff) << 23);
       grid.data[idx + 1] =
         ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
+      grid.setWrapped(cursor.row, true);
       grid.markDirty(cursor.row);
 
       cursor.col = 0;
@@ -977,7 +981,8 @@ export class VTParser {
         const rowSize = grid.cols * CELL_SIZE;
         const dest = this.bufferSet.borrowRowBuffer(rowSize);
         grid.copyRowInto(0, dest);
-        this.bufferSet.pushScrollback(dest);
+        const wasWrapped = grid.isWrapped(0);
+        this.bufferSet.pushScrollback(dest, wasWrapped);
       }
       grid.rotateUp();
       grid.clearRowRaw(buf.scrollBottom);
@@ -1872,6 +1877,7 @@ export class VTParser {
       const src = grid.rowStart(r - n);
       const dst = grid.rowStart(r);
       grid.data.copyWithin(dst, src, src + rowSize);
+      grid.setWrapped(r, grid.isWrapped(r - n));
     }
     // Clear the n inserted rows
     for (let r = cursor.row; r < cursor.row + n; r++) {
@@ -1892,6 +1898,7 @@ export class VTParser {
       const src = grid.rowStart(r + n);
       const dst = grid.rowStart(r);
       grid.data.copyWithin(dst, src, src + rowSize);
+      grid.setWrapped(r, grid.isWrapped(r + n));
     }
     // Clear the n vacated rows at the bottom
     for (let r = this.buf.scrollBottom - n + 1; r <= this.buf.scrollBottom; r++) {

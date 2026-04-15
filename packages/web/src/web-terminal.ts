@@ -13,8 +13,15 @@
  * RenderBridge, leaving the main thread free for DOM event handling only.
  */
 
-import type { CursorState, MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
-import { BufferSet, CELL_SIZE, CellGrid, DEFAULT_THEME, VTParser } from "@next_term/core";
+import type { CursorState, MouseEncoding, MouseProtocol, RowData, Theme } from "@next_term/core";
+import {
+  BufferSet,
+  CELL_SIZE,
+  CellGrid,
+  DEFAULT_THEME,
+  reflowRows,
+  VTParser,
+} from "@next_term/core";
 import { AccessibilityManager } from "./accessibility.js";
 import type { ITerminalAddon } from "./addon.js";
 import { calculateFit } from "./fit.js";
@@ -642,6 +649,8 @@ export class WebTerminal {
     if (this.disposed) return;
     // Guard against bad values
     if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 1) return;
+    // No-op when dimensions haven't changed — avoids destroying wrap flags
+    if (cols === this.bufferSet.cols && rows === this.bufferSet.rows) return;
 
     // Clear the stale display grid (wrong dimensions), but preserve
     // viewportOffset — we'll clamp it to the new scrollback length below.
@@ -658,54 +667,150 @@ export class WebTerminal {
     const oldCursor = oldBufferSet.active.cursor;
     const oldRows = oldBufferSet.rows;
 
-    // Create new buffer set
-    this.bufferSet = new BufferSet(cols, rows, scrollback);
+    const isAlt = oldBufferSet.isAlternate;
+    const colsChanged = cols !== oldBufferSet.cols;
 
-    // Copy content from old grid to new grid.
-    // When rows shrink, keep the bottom portion (where the cursor is).
-    // When rows grow, content stays at the top.
-    const newGrid = this.bufferSet.active.grid;
-    const copyRows = Math.min(oldRows, rows);
+    if (colsChanged && !isAlt) {
+      // ---- REFLOW PATH ----
+      // 1. Collect all rows: scrollback + viewport
+      const allRows: RowData[] = [];
 
-    // Determine source start row: if cursor was below the new row count,
-    // shift content up so cursor remains visible.
-    let srcStartRow = 0;
-    if (oldCursor.row >= rows) {
-      srcStartRow = oldCursor.row - rows + 1;
-    }
-
-    // Transfer existing scrollback first, then push overflow rows.
-    this.bufferSet.scrollback = oldBufferSet.scrollback;
-
-    // Push overflow rows (above the viewport) into scrollback so the
-    // user can scroll up to see them (#162). Only for the normal buffer
-    // — alt screen doesn't have scrollback. Skip when scrollback is
-    // disabled (maxScrollback === 0) to avoid wasteful copying.
-    if (srcStartRow > 0 && !oldBufferSet.isAlternate && scrollback > 0) {
-      const rowSize = oldGrid.cols * CELL_SIZE;
-      for (let r = 0; r < srcStartRow; r++) {
-        const buf = this.bufferSet.borrowRowBuffer(rowSize);
-        oldGrid.copyRowInto(r, buf);
-        this.bufferSet.pushScrollback(buf);
+      // Scrollback rows
+      for (let i = 0; i < oldBufferSet.scrollback.length; i++) {
+        allRows.push({
+          cells: oldBufferSet.scrollback[i],
+          wrapped: oldBufferSet.scrollbackWrap[i] ?? false,
+        });
       }
+
+      // Viewport rows
+      for (let r = 0; r < oldRows; r++) {
+        allRows.push({
+          cells: oldGrid.copyRow(r),
+          wrapped: oldGrid.isWrapped(r),
+        });
+      }
+
+      // 2. Compute cursor absolute position
+      const cursorAbsRow = oldBufferSet.scrollback.length + oldCursor.row;
+
+      // 3. Run reflow
+      const { reflowed, newCursorRow, newCursorCol } = reflowRows(
+        allRows,
+        oldBufferSet.cols,
+        cols,
+        cursorAbsRow,
+        oldCursor.col,
+      );
+
+      // 4. Create new BufferSet
+      this.bufferSet = new BufferSet(cols, rows, scrollback);
+      const newGrid = this.bufferSet.active.grid;
+
+      // 5. Split reflowed rows into scrollback vs screen
+      const totalReflowed = reflowed.length;
+      // Keep cursor at the same screen-relative position when possible.
+      // If cursor is near the top (newCursorRow < rows), keep it at that
+      // row on screen (screenStart = 0 in most cases). If cursor is below
+      // the visible area, place it at the bottom row of the screen.
+      const desiredScreenRow = Math.min(newCursorRow, rows - 1);
+      const screenStart = Math.max(
+        0,
+        Math.min(newCursorRow - desiredScreenRow, totalReflowed - rows),
+      );
+
+      // Scrollback: everything before screenStart.
+      // Reflowed rows are already at newCols width with defaults filled.
+      for (let i = 0; i < screenStart; i++) {
+        this.bufferSet.pushScrollback(reflowed[i].cells, reflowed[i].wrapped);
+      }
+
+      // Screen rows
+      for (let r = 0; r < rows; r++) {
+        const srcIdx = screenStart + r;
+        if (srcIdx < totalReflowed) {
+          const row = reflowed[srcIdx];
+          newGrid.pasteRow(r, row.cells, row.wrapped);
+        }
+      }
+
+      // Set cursor row/col (path-specific calculation)
+      const newCursor = this.bufferSet.active.cursor;
+      newCursor.row = Math.max(0, Math.min(newCursorRow - screenStart, rows - 1));
+      newCursor.col = Math.min(newCursorCol, cols - 1);
+      newCursor.wrapPending = false;
+    } else {
+      // ---- EXISTING TRUNCATION PATH (for alt screen or same-cols resize) ----
+      // Create new buffer set
+      this.bufferSet = new BufferSet(cols, rows, scrollback);
+
+      // Copy content from old grid to new grid.
+      // When rows shrink, keep the bottom portion (where the cursor is).
+      // When rows grow, content stays at the top.
+      const newGrid = this.bufferSet.active.grid;
+      const copyRows = Math.min(oldRows, rows);
+
+      // Determine source start row: if cursor was below the new row count,
+      // shift content up so cursor remains visible.
+      let srcStartRow = 0;
+      if (oldCursor.row >= rows) {
+        srcStartRow = oldCursor.row - rows + 1;
+      }
+
+      // Transfer existing scrollback first, then push overflow rows.
+      this.bufferSet.scrollback = oldBufferSet.scrollback;
+      this.bufferSet.scrollbackWrap = oldBufferSet.scrollbackWrap;
+
+      // Push overflow rows (above the viewport) into scrollback so the
+      // user can scroll up to see them (#162). Only for the normal buffer
+      // — alt screen doesn't have scrollback. Skip when scrollback is
+      // disabled (maxScrollback === 0) to avoid wasteful copying.
+      if (srcStartRow > 0 && !oldBufferSet.isAlternate && scrollback > 0) {
+        const rowSize = oldGrid.cols * CELL_SIZE;
+        for (let r = 0; r < srcStartRow; r++) {
+          const buf = this.bufferSet.borrowRowBuffer(rowSize);
+          oldGrid.copyRowInto(r, buf);
+          this.bufferSet.pushScrollback(buf, oldGrid.isWrapped(r));
+        }
+      }
+
+      for (let r = 0; r < copyRows; r++) {
+        const srcRow = srcStartRow + r;
+        if (srcRow >= oldRows) break;
+        const rowData = oldGrid.copyRow(srcRow);
+        newGrid.pasteRow(r, rowData, oldGrid.isWrapped(srcRow));
+      }
+
+      // When in alt-screen, also preserve the inactive normal buffer's
+      // grid content so it's not blank when the user exits alt mode.
+      if (isAlt) {
+        const oldNormalGrid = oldBufferSet.normal.grid;
+        const newNormalGrid = this.bufferSet.normal.grid;
+        const normalCopyRows = Math.min(oldBufferSet.rows, rows);
+        for (let r = 0; r < normalCopyRows; r++) {
+          const rowData = oldNormalGrid.copyRow(r);
+          newNormalGrid.pasteRow(r, rowData, oldNormalGrid.isWrapped(r));
+        }
+        // Preserve normal buffer's cursor
+        const oldNormalCursor = oldBufferSet.normal.cursor;
+        const newNormalCursor = this.bufferSet.normal.cursor;
+        newNormalCursor.row = Math.min(oldNormalCursor.row, rows - 1);
+        newNormalCursor.col = Math.min(oldNormalCursor.col, cols - 1);
+        newNormalCursor.visible = oldNormalCursor.visible;
+        newNormalCursor.style = oldNormalCursor.style;
+      }
+
+      // Adjust cursor position for the new dimensions
+      const newCursor = this.bufferSet.active.cursor;
+      newCursor.row = Math.max(0, Math.min(oldCursor.row - srcStartRow, rows - 1));
+      newCursor.col = Math.min(oldCursor.col, cols - 1);
     }
 
-    for (let r = 0; r < copyRows; r++) {
-      const srcRow = srcStartRow + r;
-      if (srcRow >= oldRows) break;
-      const rowData = oldGrid.copyRow(srcRow);
-      newGrid.pasteRow(r, rowData);
-    }
+    // Common post-resize: preserve cursor appearance, clamp scroll, mark dirty.
+    const finalCursor = this.bufferSet.active.cursor;
+    finalCursor.visible = oldCursor.visible;
+    finalCursor.style = oldCursor.style;
 
-    // Adjust cursor position for the new dimensions
-    const newCursor = this.bufferSet.active.cursor;
-    newCursor.row = Math.max(0, Math.min(oldCursor.row - srcStartRow, rows - 1));
-    newCursor.col = Math.min(oldCursor.col, cols - 1);
-    newCursor.visible = oldCursor.visible;
-    newCursor.style = oldCursor.style;
-
-    // Preserve scroll position: clamp viewportOffset to the new scrollback size.
-    // If the user was scrolled back, keep them at the same (or nearest valid) position.
     if (wasScrolledBack) {
       const maxOffset = this.bufferSet.scrollback.length;
       this.viewportOffset = Math.min(this.viewportOffset, maxOffset);
@@ -716,19 +821,18 @@ export class WebTerminal {
       this.viewportOffset = 0;
     }
 
-    newGrid.markAllDirty();
-
+    this.bufferSet.active.grid.markAllDirty();
     if (this.workerBridge) {
       // Save adjusted cursor — the worker's resize flush will send
       // cursor (0,0) from its fresh BufferSet, overwriting ours.
-      this.pendingResizeCursor = { row: newCursor.row, col: newCursor.col };
+      this.pendingResizeCursor = { row: finalCursor.row, col: finalCursor.col };
       // Update the bridge's grid reference and notify the worker.
       this.workerBridge.updateGrid(
         this.bufferSet.normal.grid,
         this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
       );
-      this.workerBridge.resize(cols, rows, scrollback);
+      this.workerBridge.resize(cols, rows, scrollback, finalCursor.row, finalCursor.col);
     } else {
       this.parser = new VTParser(this.bufferSet);
       this.parser.setTitleChangeCallback((title: string) => {
@@ -1080,13 +1184,17 @@ export class WebTerminal {
         this.displayGrid.clearRow(r);
       } else if (virtualLine < scrollback.length) {
         // From scrollback
-        this.displayGrid.pasteRow(r, scrollback[virtualLine]);
+        this.displayGrid.pasteRow(
+          r,
+          scrollback[virtualLine],
+          this.bufferSet.scrollbackWrap[virtualLine] ?? false,
+        );
       } else {
         // From live buffer
         const bufRow = virtualLine - scrollback.length;
         if (bufRow < rows) {
           const rowData = this.bufferSet.active.grid.copyRow(bufRow);
-          this.displayGrid.pasteRow(r, rowData);
+          this.displayGrid.pasteRow(r, rowData, this.bufferSet.active.grid.isWrapped(bufRow));
         } else {
           this.displayGrid.clearRow(r);
         }

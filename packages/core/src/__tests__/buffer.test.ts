@@ -306,3 +306,35 @@ describe("BufferSet scrollback", () => {
     expect(bs.maxScrollback).toBe(10);
   });
 });
+
+// ---------------------------------------------------------------------------
+// BufferSet — scrollbackWrap
+// ---------------------------------------------------------------------------
+describe("BufferSet scrollbackWrap", () => {
+  it("pushScrollback stores wrap flag", () => {
+    const bs = new BufferSet(10, 5, 100);
+    const row = new Uint32Array(20);
+    bs.pushScrollback(row, true);
+    expect(bs.scrollbackWrap[0]).toBe(true);
+  });
+
+  it("pushScrollback defaults wrapped to false", () => {
+    const bs = new BufferSet(10, 5, 100);
+    const row = new Uint32Array(20);
+    bs.pushScrollback(row);
+    expect(bs.scrollbackWrap[0]).toBe(false);
+  });
+
+  it("scrollbackWrap evicted in sync with scrollback", () => {
+    const bs = new BufferSet(10, 5, 3); // max 3
+    bs.pushScrollback(new Uint32Array(20), true); // [true]
+    bs.pushScrollback(new Uint32Array(20), false); // [true, false]
+    bs.pushScrollback(new Uint32Array(20), true); // [true, false, true]
+    bs.pushScrollback(new Uint32Array(20), false); // [false, true, false] — first evicted
+    expect(bs.scrollback.length).toBe(3);
+    expect(bs.scrollbackWrap.length).toBe(3);
+    expect(bs.scrollbackWrap[0]).toBe(false);
+    expect(bs.scrollbackWrap[1]).toBe(true);
+    expect(bs.scrollbackWrap[2]).toBe(false);
+  });
+});
