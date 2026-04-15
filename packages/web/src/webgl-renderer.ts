@@ -202,6 +202,18 @@ export class GlyphAtlas {
   }
 
   /**
+   * Pre-rasterize ASCII printable characters (33-126) in normal and bold
+   * weights so they are atlas-resident before any terminal content arrives.
+   * Eliminates first-frame cache-miss stutter for common text.
+   */
+  prewarmASCII(): void {
+    for (let cp = 33; cp <= 126; cp++) {
+      this.getGlyph(cp, false, false); // normal
+      this.getGlyph(cp, true, false); // bold
+    }
+  }
+
+  /**
    * Clear the glyph cache so all glyphs are re-rasterized on next access.
    * Used when the underlying font changes (e.g., after a web font loads).
    */
@@ -216,6 +228,8 @@ export class GlyphAtlas {
     if (this.ctx && this.canvas) {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
+    // Re-warm ASCII so common characters are immediately available
+    this.prewarmASCII();
   }
 
   /**
@@ -692,6 +706,7 @@ export class WebGLRenderer implements IRenderer {
       this.fontWeight,
       this.fontWeightBold,
     );
+    this.atlas.prewarmASCII();
 
     // Pre-allocate instance buffers for a reasonable default size
     const maxCells = 80 * 24;
@@ -1094,6 +1109,7 @@ export class WebGLRenderer implements IRenderer {
       this.fontWeight,
       this.fontWeightBold,
     );
+    this.atlas.prewarmASCII();
 
     if (this.grid) {
       this.syncCanvasSize();

@@ -1016,6 +1016,7 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       syncCanvasSize();
       initGLResources();
       ensureInstanceBuffers();
+      atlas.prewarmASCII();
       grid.markAllDirty();
       startRenderLoop();
       break;
@@ -1067,6 +1068,7 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
         atlas.dispose(gl);
       }
       atlas = new GlyphAtlas(Math.round(fontSize * dpr), fontFamily, fontWeight, fontWeightBold);
+      atlas.prewarmASCII();
 
       if (gl) {
         initGLResources();

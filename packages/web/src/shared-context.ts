@@ -274,6 +274,7 @@ export class SharedWebGLContext {
       this.fontWeight,
       this.fontWeightBold,
     );
+    this.atlas.prewarmASCII();
 
     // Pre-allocate instance buffers for batched rendering (all terminals combined)
     const maxCells = 80 * 24 * 4; // start with 4 terminals worth

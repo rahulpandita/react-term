@@ -306,6 +306,27 @@ describe("GlyphAtlas", () => {
       expect(atlas.cache.size).toBe(18); // 33-50 = 18 glyphs
     }
   });
+
+  it("prewarmASCII populates cache with 188 glyphs (94 normal + 94 bold)", () => {
+    const atlas = new GlyphAtlas(14, "monospace");
+    atlas.prewarmASCII();
+    // If OffscreenCanvas is available, ASCII 33-126 × 2 weights are cached
+    const g = atlas.getGlyph(65, false, false); // 'A'
+    if (g) {
+      expect(atlas.cache.size).toBe(188);
+    }
+  });
+
+  it("clearCache re-warms ASCII automatically", () => {
+    const atlas = new GlyphAtlas(14, "monospace");
+    atlas.getGlyph(0x4e2d, false, false); // CJK char (not in prewarm set)
+    atlas.clearCache();
+    const g = atlas.getGlyph(65, false, false);
+    if (g) {
+      // Only ASCII prewarm glyphs — CJK was cleared and not re-warmed
+      expect(atlas.cache.size).toBe(188);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
