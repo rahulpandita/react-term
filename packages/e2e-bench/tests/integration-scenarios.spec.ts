@@ -564,4 +564,176 @@ test.describe('integration scenarios', () => {
       expect(typeof modes.sendFocusEvents).toBe('boolean');
     });
   });
+
+  // =========================================================================
+  // Scenario 11: Text reflow on horizontal resize (#170)
+  // =========================================================================
+  test.describe('text reflow', () => {
+
+    test('shrink and expand preserves text via reflow', async ({ page }) => {
+      // Write a line that fills 80 cols
+      const line = 'ABCDEFGHIJ'.repeat(8); // 80 chars
+      await write(page, line + '\r\n');
+      await waitForContent(page, 'ABCDEFGHIJ');
+
+      // Shrink to 40 cols — should wrap into 2 rows
+      await page.evaluate(() => window.__termRef?.resize(40, 24));
+      await waitForRender(page);
+
+      let rows = await readRows(page);
+      let allText = rows.join('');
+      // All 80 characters should still be present (reflowed across rows)
+      expect(allText).toContain('ABCDEFGHIJ'.repeat(8));
+
+      // Expand back to 80 cols — should merge back into 1 row
+      await page.evaluate(() => window.__termRef?.resize(80, 24));
+      await waitForRender(page);
+
+      rows = await readRows(page);
+      allText = rows.join('');
+      expect(allText).toContain('ABCDEFGHIJ'.repeat(8));
+    });
+
+    test('hard newlines are preserved through reflow', async ({ page }) => {
+      await write(page, 'LINE_ONE\r\n');
+      await write(page, 'LINE_TWO\r\n');
+      await write(page, 'LINE_THREE\r\n');
+      await waitForContent(page, 'LINE_THREE');
+
+      // Shrink — short lines should NOT merge
+      await page.evaluate(() => window.__termRef?.resize(40, 24));
+      await waitForRender(page);
+
+      const rows = await readRows(page);
+      // Each line should still be separate (not concatenated)
+      const lineOneRow = rows.findIndex(r => r.includes('LINE_ONE'));
+      const lineTwoRow = rows.findIndex(r => r.includes('LINE_TWO'));
+      const lineThreeRow = rows.findIndex(r => r.includes('LINE_THREE'));
+      expect(lineOneRow).toBeGreaterThanOrEqual(0);
+      expect(lineTwoRow).toBeGreaterThan(lineOneRow);
+      expect(lineThreeRow).toBeGreaterThan(lineTwoRow);
+    });
+
+    test('reflow survives writes between shrink and expand (SIGWINCH sim)', async ({ page }) => {
+      // Simulate what happens with a PTY: output fills the screen, then
+      // the shell sends a prompt redraw after SIGWINCH between resize events.
+      const line = 'ABCDEFGHIJ'.repeat(8); // 80 chars
+      await write(page, line + '\r\n');
+      await write(page, 'SECOND_LINE_HERE\r\n');
+      await waitForContent(page, 'SECOND_LINE');
+
+      // Shrink to 40 cols
+      await page.evaluate(() => window.__termRef?.resize(40, 24));
+      await waitForRender(page);
+
+      // Simulate shell SIGWINCH response: write at cursor position
+      await write(page, 'PROMPT> ');
+      await waitForRender(page);
+
+      // Expand back to 80 cols
+      await page.evaluate(() => window.__termRef?.resize(80, 24));
+      await waitForRender(page);
+
+      const rows = await readRows(page);
+      const allText = rows.join('');
+      // The original 80-char line should be fully restored (rejoined)
+      expect(allText).toContain('ABCDEFGHIJ'.repeat(8));
+      expect(allText).toContain('SECOND_LINE_HERE');
+    });
+
+    test('reflow survives erase-below after shrink (aggressive SIGWINCH)', async ({ page }) => {
+      // Simulate an aggressive shell SIGWINCH: cursor to prompt row + erase below
+      for (let i = 0; i < 10; i++) {
+        await write(page, `LINE_${String(i).padStart(2, '0')}_${'X'.repeat(65)}\r\n`);
+      }
+      await waitForContent(page, 'LINE_09');
+
+      // Shrink to 40 cols — lines wrap (20 physical rows for 10 logical lines)
+      await page.evaluate(() => window.__termRef?.resize(40, 24));
+      await waitForRender(page);
+
+      // Simulate shell: move to bottom, erase from cursor to end of screen
+      // CSI <row>;1H = move to row, col 1
+      // CSI J = erase from cursor to end of display
+      const cursor = await getCursor(page);
+      await write(page, `\x1b[${cursor.row + 1};1H\x1b[JPROMPT> `);
+      await waitForRender(page);
+
+      // Expand back to 80 cols
+      await page.evaluate(() => window.__termRef?.resize(80, 24));
+      await waitForRender(page);
+
+      const rows = await readRows(page);
+      const allText = rows.join(' ');
+      // Lines above the cursor should survive (rejoined on expand)
+      expect(allText).toContain('LINE_00');
+      expect(allText).toContain('LINE_05');
+    });
+
+    test('round-trip 80→40→80 preserves multi-line output', async ({ page }) => {
+      // Write multiple lines of varying length
+      for (let i = 0; i < 10; i++) {
+        await write(page, `ROW_${String(i).padStart(2, '0')}_${'X'.repeat(70)}\r\n`);
+      }
+      await waitForContent(page, 'ROW_09');
+
+      // Shrink to 40 cols
+      await page.evaluate(() => window.__termRef?.resize(40, 24));
+      await waitForRender(page);
+
+      // Expand back to 80 cols
+      await page.evaluate(() => window.__termRef?.resize(80, 24));
+      await waitForRender(page);
+
+      // All rows should still be findable
+      const rows = await readRows(page);
+      const allText = rows.join(' ');
+      for (let i = 0; i < 10; i++) {
+        expect(allText).toContain(`ROW_${String(i).padStart(2, '0')}`);
+      }
+    });
+
+    test('scrollback + viewport round-trip reflow', async ({ page }) => {
+      // Write enough to push content into scrollback (>24 rows)
+      for (let i = 0; i < 40; i++) {
+        await write(page, `SB_${String(i).padStart(2, '0')}_${'Z'.repeat(75)}\r\n`);
+      }
+      await waitForContent(page, 'SB_39');
+
+      // Shrink to 40 cols — all 80-char lines wrap, scrollback grows
+      await page.evaluate(() => window.__termRef?.resize(40, 24));
+      await waitForRender(page);
+
+      // Expand back to 80 cols — should unwrap and recover
+      await page.evaluate(() => window.__termRef?.resize(80, 24));
+      await waitForRender(page);
+
+      // Recent rows should be visible and intact
+      const rows = await readRows(page);
+      const allText = rows.join(' ');
+      expect(allText).toContain('SB_39');
+      expect(allText).toContain('SB_38');
+    });
+
+    test('alt-screen resize preserves normal buffer', async ({ page }) => {
+      // Write content in normal buffer
+      await write(page, 'NORMAL_CONTENT_HERE\r\n');
+      await waitForContent(page, 'NORMAL_CONTENT');
+
+      // Enter alt screen
+      await write(page, '\x1b[?1049h');
+      await waitForRender(page);
+
+      // Resize while in alt screen
+      await page.evaluate(() => window.__termRef?.resize(40, 10));
+      await waitForRender(page);
+      await page.evaluate(() => window.__termRef?.resize(80, 24));
+      await waitForRender(page);
+
+      // Exit alt screen — normal buffer should still have content
+      await write(page, '\x1b[?1049l');
+      const rows = await waitForContent(page, 'NORMAL_CONTENT');
+      expect(rows.some(r => r.includes('NORMAL_CONTENT_HERE'))).toBe(true);
+    });
+  });
 });

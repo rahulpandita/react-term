@@ -43,6 +43,8 @@ export class WorkerBridge {
   private paused = false;
   /** Buffered writes waiting to be sent while paused. */
   private writeQueue: Uint8Array[] = [];
+  /** Skip cell data in pending non-SAB flushes (main thread already has reflowed data). */
+  private skipFlushCellDataCount = 0;
 
   private disposed = false;
 
@@ -102,7 +104,13 @@ export class WorkerBridge {
   /**
    * Notify the worker that the terminal has been resized.
    */
-  resize(cols: number, rows: number, scrollback: number): void {
+  resize(
+    cols: number,
+    rows: number,
+    scrollback: number,
+    cursorRow?: number,
+    cursorCol?: number,
+  ): void {
     if (this.disposed || !this.worker) return;
 
     // Reset flow control on resize — old pending data is irrelevant.
@@ -110,13 +118,43 @@ export class WorkerBridge {
     this.paused = false;
     this.writeQueue.length = 0;
 
-    this.worker.postMessage({
+    // In non-SAB mode, seed the worker with the main thread's reflowed
+    // grid data so the worker's state matches. Also skip the immediate
+    // post-resize flush's cell data (it would be the seeded content
+    // echoed back — wasteful but harmless). Use a counter so rapid
+    // resizes each get their flush skipped.
+    const msg: {
+      type: "resize";
+      cols: number;
+      rows: number;
+      scrollback: number;
+      cursorRow?: number;
+      cursorCol?: number;
+      sharedBuffer?: SharedArrayBuffer;
+      sharedAltBuffer?: SharedArrayBuffer;
+      reflowedCellData?: ArrayBuffer;
+      reflowedWrapFlags?: ArrayBuffer;
+    } = {
       type: "resize",
       cols,
       rows,
       scrollback,
+      cursorRow,
+      cursorCol,
       ...this.getSharedBuffers(),
-    });
+    };
+    const transferables: ArrayBuffer[] = [];
+
+    if (!SAB_AVAILABLE) {
+      this.skipFlushCellDataCount++;
+      const cellCopy = this.grid.data.slice().buffer;
+      const wrapCopy = this.grid.wrapFlags.slice().buffer;
+      msg.reflowedCellData = cellCopy;
+      msg.reflowedWrapFlags = wrapCopy;
+      transferables.push(cellCopy, wrapCopy);
+    }
+
+    this.worker.postMessage(msg, transferables);
   }
 
   /**
@@ -238,7 +276,12 @@ export class WorkerBridge {
     // In non-SAB mode, apply transferred cell data to the correct
     // main-thread grid. The worker always sends the active buffer's data;
     // select the target grid based on isAlternate.
-    if (msg.cellData && msg.dirtyRows) {
+    // Skip post-resize flushes — main thread already has reflowed data.
+    if (this.skipFlushCellDataCount > 0 && msg.cellData) {
+      this.skipFlushCellDataCount--;
+      // Skip cell data AND wrap flags — the worker echoes back the seeded
+      // content, so applying it would be a no-op. Flow control still updates.
+    } else if (msg.cellData && msg.dirtyRows) {
       const targetGrid = msg.isAlternate ? this.altGrid : this.grid;
       const cellView = new Uint32Array(msg.cellData);
       const dirtyView = new Int32Array(msg.dirtyRows);
@@ -270,6 +313,14 @@ export class WorkerBridge {
           const end = start + rowLen;
           targetGrid.data.set(cellView.subarray(start, end), start);
           targetGrid.markDirty(r);
+        }
+      }
+
+      // Sync wrap flags from the worker (non-SAB mode only).
+      if (msg.wrapFlags) {
+        const wrapView = new Int32Array(msg.wrapFlags);
+        if (wrapView.length === rows) {
+          targetGrid.wrapFlags.set(wrapView);
         }
       }
     }

@@ -42,6 +42,12 @@ interface ResizeMessage {
   scrollback: number;
   sharedBuffer?: SharedArrayBuffer;
   sharedAltBuffer?: SharedArrayBuffer;
+  /** Cursor position after reflow (so parser continues at the right spot). */
+  cursorRow?: number;
+  cursorCol?: number;
+  /** Reflowed grid data for non-SAB mode (so worker grid matches main thread). */
+  reflowedCellData?: ArrayBuffer;
+  reflowedWrapFlags?: ArrayBuffer;
 }
 
 interface DisposeMessage {
@@ -73,6 +79,8 @@ export interface FlushMessage {
   cellData?: ArrayBuffer;
   /** Dirty-row flags (Transferable). Only present in non-SAB mode. */
   dirtyRows?: ArrayBuffer;
+  /** Wrap flags per row (Transferable). Only present in non-SAB mode. */
+  wrapFlags?: ArrayBuffer;
   /** Circular buffer row offset. Only present in non-SAB mode. */
   rowOffset?: number;
 }
@@ -132,12 +140,14 @@ function buildFlush(bytesProcessed: number): FlushMessage {
   };
 
   if (!usingSAB) {
-    // Transfer cell data and dirty flags to the main thread.
+    // Transfer cell data, dirty flags, and wrap flags to the main thread.
     const grid = bufferSet.active.grid;
     const cellCopy = grid.data.slice().buffer;
     const dirtyCopy = grid.dirtyRows.slice().buffer;
+    const wrapCopy = grid.wrapFlags.slice().buffer;
     msg.cellData = cellCopy;
     msg.dirtyRows = dirtyCopy;
+    msg.wrapFlags = wrapCopy;
     msg.rowOffset = grid.rowOffsetData[0];
   }
 
@@ -176,6 +186,7 @@ function handleMessage(msg: InboundMessage): void {
         const transferables: ArrayBuffer[] = [];
         if (flush.cellData) transferables.push(flush.cellData);
         if (flush.dirtyRows) transferables.push(flush.dirtyRows);
+        if (flush.wrapFlags) transferables.push(flush.wrapFlags);
         (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush, transferables);
       }
       break;
@@ -189,12 +200,34 @@ function handleMessage(msg: InboundMessage): void {
         msg.sharedBuffer,
         msg.sharedAltBuffer,
       );
+      // Restore cursor position after reflow so the parser continues
+      // at the right spot — prevents shell SIGWINCH response from
+      // overwriting reflowed content at (0,0).
+      if (parser && bufferSet && msg.cursorRow != null && msg.cursorCol != null) {
+        parser.cursor.row = Math.max(0, Math.min(msg.cursorRow, msg.rows - 1));
+        parser.cursor.col = Math.max(0, Math.min(msg.cursorCol, msg.cols - 1));
+      }
+      // In non-SAB mode, seed the worker's grid with the main thread's
+      // reflowed data so subsequent flushes don't send blank content.
+      if (!usingSAB && bufferSet && msg.reflowedCellData && msg.reflowedWrapFlags) {
+        const grid = bufferSet.active.grid;
+        const cellView = new Uint32Array(msg.reflowedCellData);
+        if (cellView.length === grid.data.length) {
+          grid.data.set(cellView);
+        }
+        const wrapView = new Int32Array(msg.reflowedWrapFlags);
+        if (wrapView.length === grid.wrapFlags.length) {
+          grid.wrapFlags.set(wrapView);
+        }
+        grid.markAllDirty();
+      }
       // Send a full flush so the main thread gets initial state.
       const flush = buildFlush(0);
       if (!usingSAB) {
         const transferables: ArrayBuffer[] = [];
         if (flush.cellData) transferables.push(flush.cellData);
         if (flush.dirtyRows) transferables.push(flush.dirtyRows);
+        if (flush.wrapFlags) transferables.push(flush.wrapFlags);
         (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush, transferables);
       } else {
         (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush);

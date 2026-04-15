@@ -44,6 +44,8 @@ export class CellGrid {
    */
   readonly rowOffsetData: Int32Array;
 
+  readonly wrapFlags: Int32Array;
+
   constructor(cols: number, rows: number, existingBuffer?: SharedArrayBuffer) {
     this.cols = cols;
     this.rows = rows;
@@ -53,6 +55,7 @@ export class CellGrid {
     const rgbBytes = 512 * 4;
     const cursorBytes = 4 * 4; // 4 x Int32: row, col, visible, style
     const offsetBytes = 1 * 4; // 1 x Int32: row offset for circular buffer
+    const wrapBytes = rows * 4; // Int32Array: 1 per row for wrap flags
 
     if (existingBuffer) {
       // Create views over an existing SharedArrayBuffer (used by workers
@@ -60,7 +63,7 @@ export class CellGrid {
       this.buffer = existingBuffer;
       this.isShared = true;
     } else {
-      const totalBytes = cellBytes + dirtyBytes + rgbBytes + cursorBytes + offsetBytes;
+      const totalBytes = cellBytes + dirtyBytes + rgbBytes + cursorBytes + offsetBytes + wrapBytes;
       const BufferType = SAB_AVAILABLE ? SharedArrayBuffer : ArrayBuffer;
       this.buffer = new BufferType(totalBytes);
       this.isShared = SAB_AVAILABLE;
@@ -74,6 +77,11 @@ export class CellGrid {
       this.buffer,
       cellBytes + dirtyBytes + rgbBytes + cursorBytes,
       1,
+    );
+    this.wrapFlags = new Int32Array(
+      this.buffer,
+      cellBytes + dirtyBytes + rgbBytes + cursorBytes + offsetBytes,
+      rows,
     );
 
     // Build a template row: each cell is a space with default fg=7
@@ -113,6 +121,25 @@ export class CellGrid {
   rotateDown(n = 1): void {
     const v = this.rowOffsetData[0] - (n % this.rows);
     this.rowOffsetData[0] = v < 0 ? v + this.rows : v;
+  }
+
+  /** True if logical row `row` soft-wraps into row+1. */
+  isWrapped(row: number): boolean {
+    const phys = this.physicalRow(row);
+    if (this.isShared) {
+      return Atomics.load(this.wrapFlags, phys) !== 0;
+    }
+    return this.wrapFlags[phys] !== 0;
+  }
+
+  /** Set whether logical row `row` soft-wraps into row+1. */
+  setWrapped(row: number, wrapped: boolean): void {
+    const phys = this.physicalRow(row);
+    if (this.isShared) {
+      Atomics.store(this.wrapFlags, phys, wrapped ? 1 : 0);
+    } else {
+      this.wrapFlags[phys] = wrapped ? 1 : 0;
+    }
   }
 
   getCodepoint(row: number, col: number): number {
@@ -230,6 +257,7 @@ export class CellGrid {
 
   clear(): void {
     this.rowOffsetData[0] = 0;
+    this.wrapFlags.fill(0);
     for (let r = 0; r < this.rows; r++) {
       this.data.set(this._templateRow, r * this.cols * CELL_SIZE);
     }
@@ -250,7 +278,7 @@ export class CellGrid {
   }
 
   /** Overwrite a logical row from a previously copied Uint32Array. */
-  pasteRow(row: number, src: Uint32Array): void {
+  pasteRow(row: number, src: Uint32Array, wrapped?: boolean): void {
     const start = this.rowStart(row);
     const rowLen = this.cols * CELL_SIZE;
     if (src.length <= rowLen) {
@@ -259,6 +287,9 @@ export class CellGrid {
       // Source row is wider than this grid — only copy what fits
       this.data.set(src.subarray(0, rowLen), start);
     }
+    if (wrapped !== undefined) {
+      this.setWrapped(row, wrapped);
+    }
     this.markDirty(row);
   }
 
@@ -266,12 +297,14 @@ export class CellGrid {
   clearRow(row: number): void {
     const start = this.rowStart(row);
     this.data.set(this._templateRow, start);
+    this.setWrapped(row, false);
     this.markDirty(row);
   }
 
   /** Fill a logical row with defaults without marking dirty (caller will batch-mark). */
   clearRowRaw(row: number): void {
     this.data.set(this._templateRow, this.rowStart(row));
+    this.setWrapped(row, false);
   }
 
   // ---- Cursor in SAB -------------------------------------------------------
@@ -394,7 +427,14 @@ export function extractText(
     }
 
     // Trim trailing spaces
-    lines.push(line.replace(/\s+$/, ""));
+    line = line.replace(/\s+$/, "");
+
+    // If previous row wraps into this one, append without newline
+    if (row > sr && grid.isWrapped(row - 1)) {
+      lines[lines.length - 1] += line;
+    } else {
+      lines.push(line);
+    }
   }
 
   return lines.join("\n");

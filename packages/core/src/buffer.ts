@@ -72,6 +72,7 @@ export class Buffer {
         const dst = this.grid.rowStart(r);
         const src = this.grid.rowStart(r + 1);
         this.grid.data.copyWithin(dst, src, src + rowSize);
+        this.grid.setWrapped(r, this.grid.isWrapped(r + 1));
       }
       this.grid.clearRowRaw(this.scrollBottom);
       this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
@@ -94,6 +95,7 @@ export class Buffer {
         const dst = this.grid.rowStart(r);
         const src = this.grid.rowStart(r - 1);
         this.grid.data.copyWithin(dst, src, src + rowSize);
+        this.grid.setWrapped(r, this.grid.isWrapped(r - 1));
       }
       this.grid.clearRowRaw(this.scrollTop);
       this.grid.markDirtyRange(this.scrollTop, this.scrollBottom);
@@ -108,6 +110,8 @@ export class BufferSet {
 
   /** Scrollback lines for the normal buffer (array of Uint32Array). */
   scrollback: Uint32Array[];
+  /** Per-line wrap flag for scrollback (parallel to scrollback[]). */
+  scrollbackWrap: boolean[];
   readonly maxScrollback: number;
 
   constructor(
@@ -125,6 +129,7 @@ export class BufferSet {
       : new Buffer(cols, rows);
     this.active = this.normal;
     this.scrollback = [];
+    this.scrollbackWrap = [];
     this.maxScrollback = maxScrollback;
   }
 
@@ -164,10 +169,12 @@ export class BufferSet {
    * returns scrollback[0] which the caller fills before calling this.
    * Reversing the order would evict the buffer before it's appended.
    */
-  pushScrollback(line: Uint32Array): void {
+  pushScrollback(line: Uint32Array, wrapped = false): void {
     this.scrollback.push(line);
+    this.scrollbackWrap.push(wrapped);
     if (this.scrollback.length > this.maxScrollback) {
       this.scrollback.shift();
+      this.scrollbackWrap.shift();
     }
   }
 
@@ -192,7 +199,8 @@ export class BufferSet {
       const rowSize = grid.cols * CELL_SIZE;
       const dest = this.borrowRowBuffer(rowSize);
       grid.copyRowInto(0, dest);
-      this.pushScrollback(dest);
+      const wasWrapped = grid.isWrapped(0);
+      this.pushScrollback(dest, wasWrapped);
     }
     this.active.scrollUp();
   }

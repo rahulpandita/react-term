@@ -274,6 +274,78 @@ describe("CellGrid", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Wrap flags
+  // -------------------------------------------------------------------------
+
+  describe("wrapFlags", () => {
+    it("defaults to false for all rows", () => {
+      const grid = new CellGrid(10, 5);
+      for (let r = 0; r < 5; r++) {
+        expect(grid.isWrapped(r)).toBe(false);
+      }
+    });
+
+    it("setWrapped / isWrapped round-trip", () => {
+      const grid = new CellGrid(10, 5);
+      grid.setWrapped(2, true);
+      expect(grid.isWrapped(2)).toBe(true);
+      expect(grid.isWrapped(1)).toBe(false);
+      expect(grid.isWrapped(3)).toBe(false);
+    });
+
+    it("clearRow resets wrap flag", () => {
+      const grid = new CellGrid(10, 5);
+      grid.setWrapped(2, true);
+      grid.clearRow(2);
+      expect(grid.isWrapped(2)).toBe(false);
+    });
+
+    it("clearRowRaw resets wrap flag", () => {
+      const grid = new CellGrid(10, 5);
+      grid.setWrapped(3, true);
+      grid.clearRowRaw(3);
+      expect(grid.isWrapped(3)).toBe(false);
+    });
+
+    it("clear() resets all wrap flags", () => {
+      const grid = new CellGrid(10, 5);
+      grid.setWrapped(0, true);
+      grid.setWrapped(2, true);
+      grid.setWrapped(4, true);
+      grid.clear();
+      for (let r = 0; r < 5; r++) {
+        expect(grid.isWrapped(r)).toBe(false);
+      }
+    });
+
+    it("wrap flags survive rotateUp", () => {
+      const grid = new CellGrid(10, 5);
+      grid.setWrapped(1, true); // logical row 1
+      grid.setWrapped(3, true); // logical row 3
+      grid.rotateUp();
+      // After rotateUp: old logical 1 is now logical 0, old logical 3 is now logical 2
+      expect(grid.isWrapped(0)).toBe(true);
+      expect(grid.isWrapped(2)).toBe(true);
+      // Old logical 0 rotated to logical 4 (the new bottom), but its flag is the old row 0's flag
+      expect(grid.isWrapped(1)).toBe(false);
+      expect(grid.isWrapped(3)).toBe(false);
+    });
+
+    it("wrap flags survive rotateDown", () => {
+      const grid = new CellGrid(10, 5);
+      grid.setWrapped(1, true);
+      grid.setWrapped(3, true);
+      grid.rotateDown();
+      // After rotateDown: old logical 1 is now logical 2, old logical 3 is now logical 4
+      expect(grid.isWrapped(2)).toBe(true);
+      expect(grid.isWrapped(4)).toBe(true);
+      expect(grid.isWrapped(0)).toBe(false);
+      expect(grid.isWrapped(1)).toBe(false);
+      expect(grid.isWrapped(3)).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Wide character flag
   // -------------------------------------------------------------------------
 
