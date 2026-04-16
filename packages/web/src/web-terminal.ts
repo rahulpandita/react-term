@@ -248,11 +248,17 @@ export class WebTerminal {
       fontWeightBold,
     };
 
+    // paneId is used by both SharedWebGLContext AND ParserPool as the channel
+    // identifier. Set it whenever it's provided, not just when shared rendering
+    // is also in play — otherwise the parser pool is silently bypassed.
+    if (options?.paneId) {
+      this.paneId = options.paneId;
+    }
+
     if (options?.sharedContext && options?.paneId) {
       // Shared WebGL context mode: register with the shared context
       // instead of creating our own renderer.
       this.sharedContext = options.sharedContext;
-      this.paneId = options.paneId;
 
       const grid = this.bufferSet.active.grid;
       const cursor = this.bufferSet.active.cursor;

@@ -267,6 +267,105 @@ describe("ParserPool", () => {
     pool.dispose();
   });
 
+  it("acquireChannel throws on duplicate channelId", () => {
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    pool.acquireChannel("a", grid, altGrid, makeCursor(), () => {});
+    expect(() => pool.acquireChannel("a", grid, altGrid, makeCursor(), () => {})).toThrow(
+      /already in use/,
+    );
+    pool.dispose();
+  });
+
+  it("decrements worker pending bytes even for flushes on released channels", () => {
+    // Regression: previously, releasing a channel with bytes in flight left
+    // those bytes in workerPendingBytes forever. When enough flushes were
+    // dropped (because their channel was gone), the worker stayed paused
+    // and ALL surviving channels queued writes into an unbounded queue.
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const a = pool.acquireChannel("a", grid, altGrid, makeCursor(), () => {});
+    const b = pool.acquireChannel("b", grid, altGrid, makeCursor(), () => {});
+    a.start(80, 24, 100);
+    b.start(80, 24, 100);
+
+    // 'a' sends 3 MB — crosses HIGH_WATERMARK, both pause.
+    a.write(new Uint8Array(3 * 1024 * 1024));
+    expect(a.isPaused).toBe(true);
+    expect(b.isPaused).toBe(true);
+
+    // Release 'a' WITHOUT first draining its pending bytes.
+    pool.releaseChannel("a");
+
+    // The flush for a's 3 MB arrives AFTER release. Even though channel 'a'
+    // is gone, the pool must reconcile the pending bytes or b stays paused.
+    createdWorkers[0].simulateMessage({
+      type: "flush",
+      channelId: "a",
+      cursor: { row: 0, col: 0, visible: true, style: "block" },
+      isAlternate: false,
+      bytesProcessed: 3 * 1024 * 1024,
+      modes: DEFAULT_MODES,
+    });
+
+    // b should now be unpaused — the worker has no in-flight bytes.
+    expect(b.isPaused).toBe(false);
+    pool.dispose();
+  });
+
+  it("worker crash terminates the worker, resets flow control, and unpauses channels", () => {
+    const pool = new ParserPool(2);
+    const { grid, altGrid } = makeGrids();
+    const errorA = vi.fn();
+
+    const a = pool.acquireChannel("a", grid, altGrid, makeCursor(), () => {}, errorA);
+    a.start(80, 24, 100);
+
+    // Saturate worker 0.
+    a.write(new Uint8Array(3 * 1024 * 1024));
+    expect(a.isPaused).toBe(true);
+
+    // Worker 0 crashes.
+    createdWorkers[0].simulateError("OOM");
+
+    // Error forwarded to channel.
+    expect(errorA).toHaveBeenCalled();
+    // Channel is no longer paused so it doesn't keep queueing.
+    expect(a.isPaused).toBe(false);
+    // Dead worker was terminated.
+    expect(createdWorkers[0].terminate).toHaveBeenCalled();
+    pool.dispose();
+  });
+
+  it("tagged generation rejects stale flushes after channelId reuse", () => {
+    // Simulate a real-world reuse: acquire "a", release "a", acquire "a"
+    // again. A late flush from the first lifecycle must NOT reach the
+    // second channel's handler.
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const flush1 = vi.fn();
+    const flush2 = vi.fn();
+
+    pool.acquireChannel("a", grid, altGrid, makeCursor(), flush1).start(80, 24, 100);
+    pool.releaseChannel("a");
+    pool.acquireChannel("a", grid, altGrid, makeCursor(), flush2).start(80, 24, 100);
+
+    // A stale flush from generation 1 arrives. The new channel is gen 2.
+    createdWorkers[0].simulateMessage({
+      type: "flush",
+      channelId: "a",
+      generation: 1,
+      cursor: { row: 0, col: 0, visible: true, style: "block" },
+      isAlternate: false,
+      bytesProcessed: 5,
+      modes: DEFAULT_MODES,
+    });
+
+    // The new channel (gen 2) is untouched by the stale flush.
+    expect(flush2).not.toHaveBeenCalled();
+    pool.dispose();
+  });
+
   it("throws from acquireChannel when all workers are dead", () => {
     const pool = new ParserPool(1);
     const { grid, altGrid } = makeGrids();

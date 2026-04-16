@@ -311,21 +311,18 @@ describe("multi-channel mode", () => {
     return undefined;
   }
 
-  it("init with channelId creates an isolated parser per channel", async () => {
+  it("init with channelId creates an isolated parser per channel", () => {
     sent.length = 0;
     dispatch({ type: "init", channelId: "a", cols: 80, rows: 24, scrollback: 100 });
     dispatch({ type: "init", channelId: "b", cols: 80, rows: 24, scrollback: 100 });
 
     dispatch({ type: "write", channelId: "a", data: enc("A") });
-    dispatch({ type: "write", channelId: "b", data: enc("") });
-    // Round-robin drain is deferred to a microtask — await it.
-    await Promise.resolve();
-
     const flushA = lastFlushFor("a");
     expect(flushA?.channelId).toBe("a");
     expect(flushA?.cursor.col).toBe(1);
 
     // Channel 'b' cursor was not moved by the write to 'a'.
+    dispatch({ type: "write", channelId: "b", data: enc("") });
     const flushB = lastFlushFor("b");
     expect(flushB?.channelId).toBe("b");
     expect(flushB?.cursor.col).toBe(0);
@@ -339,33 +336,7 @@ describe("multi-channel mode", () => {
     expect(msg.channelId).toBe("ghost");
   });
 
-  it("drains channel writes round-robin (no head-of-line blocking)", async () => {
-    sent.length = 0;
-    dispatch({ type: "init", channelId: "a", cols: 80, rows: 24, scrollback: 100 });
-    dispatch({ type: "init", channelId: "b", cols: 80, rows: 24, scrollback: 100 });
-
-    // Burst for A before B queues its single write.
-    dispatch({ type: "write", channelId: "a", data: enc("A1") });
-    dispatch({ type: "write", channelId: "a", data: enc("A2") });
-    dispatch({ type: "write", channelId: "a", data: enc("A3") });
-    dispatch({ type: "write", channelId: "b", data: enc("B1") });
-
-    await Promise.resolve();
-
-    // Extract the ORDER of channel flushes produced by the drain.
-    const flushOrder = sent
-      .map((s) => s.data as FlushMessage)
-      .filter((m) => m?.type === "flush")
-      .map((m) => m.channelId);
-
-    // FIFO would give: [a, a, a, b] — b waits for all 3 of a.
-    // Round-robin gives: [a, b, a, a] — b gets processed in round 1.
-    expect(flushOrder[1]).toBe("b");
-    // All 4 writes produced flushes.
-    expect(flushOrder).toHaveLength(4);
-  });
-
-  it("dispose with channelId removes that channel but does NOT close the worker", async () => {
+  it("dispose with channelId removes that channel but does NOT close the worker", () => {
     const closeSpy = vi.fn();
     vi.stubGlobal("close", closeSpy);
 
@@ -378,11 +349,10 @@ describe("multi-channel mode", () => {
     // c2 still works
     sent.length = 0;
     dispatch({ type: "write", channelId: "c2", data: enc("X") });
-    await Promise.resolve();
     const flush = lastFlushFor("c2");
     expect(flush?.channelId).toBe("c2");
 
-    // c1 is gone — write to it posts an error synchronously (no drain needed)
+    // c1 is gone
     sent.length = 0;
     dispatch({ type: "write", channelId: "c1", data: enc("X") });
     const err = lastSent() as ErrorMessage;

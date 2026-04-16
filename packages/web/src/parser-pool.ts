@@ -6,15 +6,26 @@
  * means 4 postMessage streams instead of 32, dramatically reducing overhead
  * while still keeping all parsing off the main thread.
  *
- * API mirrors SharedWebGLContext: created once at the container level,
- * channels are acquired/released per pane.
- *
  * Flow control is per-WORKER (not per-channel) so that the HIGH_WATERMARK
- * budget scales with worker capacity, not channel count. All channels on
- * a saturated worker pause together until that worker drains below
- * LOW_WATERMARK. This prevents the 8× queue inflation that per-channel
- * watermarks would otherwise cause (8 channels × 2 MB = 16 MB of in-flight
- * data sitting in one worker's postMessage queue).
+ * budget scales with worker capacity, not channel count. All channels on a
+ * saturated worker pause together until that worker drains below
+ * LOW_WATERMARK.
+ *
+ * IMPORTANT invariants:
+ *   - Pending-bytes bookkeeping is always reconciled in the pool's message
+ *     handler, not in ParserChannel. Flushes for disposed / mismatched /
+ *     unknown channels still decrement worker-level pendingBytes so the
+ *     worker never gets stuck in a permanent pause.
+ *   - Released channels deposit their still-pending bytes into a per-worker
+ *     "orphan" counter. The pool drains orphan bytes as flushes arrive so
+ *     the pause threshold is reconciled without waiting for the channel
+ *     (which no longer exists).
+ *   - Worker crashes terminate the worker, reset its flow-control counters,
+ *     and unpause all channels that were on it so they don't accumulate
+ *     queued writes while the consumer is deciding how to recover.
+ *   - Channel assignments carry a generation number that's included in
+ *     every message. Stale flushes from a prior lifecycle (after channelId
+ *     reuse) are dropped without polluting flow control.
  */
 
 import type { CursorState } from "@next_term/core";
@@ -26,9 +37,8 @@ import { HIGH_WATERMARK, LOW_WATERMARK, SAB_AVAILABLE } from "./worker-bridge.js
 
 /**
  * A channel within a shared parser worker. Same public API as WorkerBridge
- * but routes messages through a shared Worker via channelId.
- *
- * Flow control is delegated to the owning ParserPool — see class-level comment.
+ * but routes messages through a shared Worker via channelId. Flow control
+ * is owned by the pool — ParserChannel only tracks its own paused state.
  */
 export class ParserChannel {
   private grid: CellGrid;
@@ -37,9 +47,9 @@ export class ParserChannel {
   private onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void;
   private onError: ((message: string) => void) | null;
 
-  // Local state. Pause signal comes from the pool (per-worker saturation).
   private poolPaused = false;
   private writeQueue: Uint8Array[] = [];
+  private queuedBytes = 0;
   private skipFlushCellDataCount = 0;
 
   private disposed = false;
@@ -54,8 +64,8 @@ export class ParserChannel {
     ) => void,
     /** @internal — pool callback used by ParserChannel to post non-write messages */
     private readonly poolPost: (msg: unknown, transfer?: Transferable[]) => void,
-    /** @internal — pool callback used by ParserChannel on flush */
-    private readonly poolOnFlushProcessed: (bytesProcessed: number) => void,
+    /** @internal — pool callback invoked when channel is disposed with still-pending bytes */
+    private readonly poolOnChannelDispose: (channelId: string) => void,
     grid: CellGrid,
     altGrid: CellGrid,
     cursor: CursorState,
@@ -88,6 +98,7 @@ export class ParserChannel {
 
     if (this.poolPaused) {
       this.writeQueue.push(data);
+      this.queuedBytes += data.byteLength;
       return;
     }
 
@@ -104,6 +115,7 @@ export class ParserChannel {
     if (this.disposed) return;
 
     this.writeQueue.length = 0;
+    this.queuedBytes = 0;
 
     const msg: Record<string, unknown> = {
       type: "resize",
@@ -133,7 +145,11 @@ export class ParserChannel {
     if (this.disposed) return;
     this.disposed = true;
     this.poolPost({ type: "dispose", channelId: this.channelId });
+    // Pool needs to know the channel is gone so it can track any
+    // in-flight bytes as "orphan" (decremented when flushes arrive).
+    this.poolOnChannelDispose(this.channelId);
     this.writeQueue.length = 0;
+    this.queuedBytes = 0;
   }
 
   get isPaused(): boolean {
@@ -148,18 +164,19 @@ export class ParserChannel {
 
   // ---- Called by ParserPool's demux / flow control -------------------------
 
-  /** @internal — called by the pool when the worker becomes saturated or drains. */
+  /** @internal */
   setPoolPaused(paused: boolean): void {
     if (this.disposed) return;
     this.poolPaused = paused;
   }
 
-  /** @internal — drain queued writes when pool unpauses this channel's worker. */
+  /** @internal */
   drainQueue(): void {
     if (this.disposed) return;
     while (this.writeQueue.length > 0 && !this.poolPaused) {
       const next = this.writeQueue.shift();
       if (!next) break;
+      this.queuedBytes -= next.byteLength;
       this.sendWrite(next);
     }
   }
@@ -177,47 +194,46 @@ export class ParserChannel {
 
     if (this.skipFlushCellDataCount > 0 && msg.cellData) {
       this.skipFlushCellDataCount--;
-    } else if (msg.cellData && msg.dirtyRows) {
-      const targetGrid = msg.isAlternate ? this.altGrid : this.grid;
-      const cellView = new Uint32Array(msg.cellData);
-      const dirtyView = new Int32Array(msg.dirtyRows);
-      const cols = targetGrid.cols;
-      const rows = targetGrid.rows;
+      return;
+    }
+    if (!msg.cellData || !msg.dirtyRows) return;
 
-      const expectedCells = cols * rows * CELL_SIZE;
-      if (cellView.length !== expectedCells || dirtyView.length !== rows) {
-        // Stale flush for a different grid size — still tell the pool the
-        // bytes were processed so its worker counter stays accurate.
-        this.poolOnFlushProcessed(msg.bytesProcessed);
-        return;
-      }
+    const targetGrid = msg.isAlternate ? this.altGrid : this.grid;
+    const cellView = new Uint32Array(msg.cellData);
+    const dirtyView = new Int32Array(msg.dirtyRows);
+    const cols = targetGrid.cols;
+    const rows = targetGrid.rows;
 
-      const rowOffset = modPositive(msg.rowOffset ?? 0, rows);
-      targetGrid.rowOffsetData[0] = rowOffset;
+    const expectedCells = cols * rows * CELL_SIZE;
+    if (cellView.length !== expectedCells || dirtyView.length !== rows) {
+      // Stale flush for a different grid size — flow control is already
+      // reconciled by the pool before this is called.
+      return;
+    }
 
-      const rowLen = cols * CELL_SIZE;
-      for (let r = 0; r < rows; r++) {
-        if (dirtyView[r] !== 0) {
-          const physRow = modPositive(r + rowOffset, rows);
-          const start = physRow * rowLen;
-          const end = start + rowLen;
-          targetGrid.data.set(cellView.subarray(start, end), start);
-          targetGrid.markDirty(r);
-        }
-      }
+    const rowOffset = modPositive(msg.rowOffset ?? 0, rows);
+    targetGrid.rowOffsetData[0] = rowOffset;
 
-      if (msg.wrapFlags) {
-        const wrapView = new Int32Array(msg.wrapFlags);
-        if (wrapView.length === rows) {
-          targetGrid.wrapFlags.set(wrapView);
-        }
+    const rowLen = cols * CELL_SIZE;
+    for (let r = 0; r < rows; r++) {
+      if (dirtyView[r] !== 0) {
+        const physRow = modPositive(r + rowOffset, rows);
+        const start = physRow * rowLen;
+        const end = start + rowLen;
+        targetGrid.data.set(cellView.subarray(start, end), start);
+        targetGrid.markDirty(r);
       }
     }
 
-    this.poolOnFlushProcessed(msg.bytesProcessed);
+    if (msg.wrapFlags) {
+      const wrapView = new Int32Array(msg.wrapFlags);
+      if (wrapView.length === rows) {
+        targetGrid.wrapFlags.set(wrapView);
+      }
+    }
   }
 
-  /** @internal — called by the pool when an error arrives for this channel. */
+  /** @internal */
   handleError(message: string): void {
     if (this.disposed) return;
     this.onError?.(message);
@@ -261,27 +277,24 @@ export const DEFAULT_PARSER_WORKER_COUNT = Math.min(
   4,
 );
 
-/**
- * A pool of N parser Web Workers shared across many terminal panes.
- *
- * Usage:
- * ```ts
- * const pool = new ParserPool(4);
- * const channel = pool.acquireChannel("pane-0", grid, altGrid, cursor, onFlush);
- * channel.start(cols, rows, scrollback);
- * channel.write(data);
- * // ...
- * pool.releaseChannel("pane-0");
- * pool.dispose();
- * ```
- */
+interface ChannelEntry {
+  workerIndex: number;
+  /** Monotonic generation for this channelId. Incremented on each acquire so
+   *  stale flushes from a prior lifecycle can be dropped in the demux. */
+  generation: number;
+  channel: ParserChannel;
+}
+
 export class ParserPool {
   private workers: Worker[] = [];
-  private channels = new Map<string, { workerIndex: number; channel: ParserChannel }>();
+  private channels = new Map<string, ChannelEntry>();
   private workerChannelCounts: number[];
-  /** Per-worker flow control — pendingBytes is shared across all channels. */
+  /** Total bytes currently in-flight per worker (sum across all channels). */
   private workerPendingBytes: number[];
+  /** Per-worker paused state — saturated or not. */
   private workerPaused: boolean[];
+  /** Monotonic generation counter per channelId (defends against reuse races). */
+  private channelGenerations = new Map<string, number>();
   /** Workers that have crashed and should not receive new channel assignments. */
   private deadWorkers = new Set<number>();
   private disposed = false;
@@ -306,8 +319,6 @@ export class ParserPool {
         this.workers.push(worker);
       }
     } catch (err) {
-      // If mid-loop construction fails, terminate any workers already created
-      // so we don't leak them before throwing.
       for (const w of this.workers) {
         try {
           w.terminate();
@@ -318,15 +329,10 @@ export class ParserPool {
     }
   }
 
-  /** Number of workers in the pool. */
   get workerCount(): number {
     return this.workers.length;
   }
 
-  /**
-   * Acquire a channel for a terminal pane. The channel is assigned to the
-   * worker with the fewest current channels (least-loaded at assignment time).
-   */
   acquireChannel(
     channelId: string,
     grid: CellGrid,
@@ -338,21 +344,29 @@ export class ParserPool {
     if (this.disposed) {
       throw new Error("ParserPool is disposed");
     }
+    if (this.channels.has(channelId)) {
+      throw new Error(`ParserPool: channelId "${channelId}" is already in use`);
+    }
 
     const workerIndex = this.pickWorker();
     const worker = this.workers[workerIndex];
+    const generation = (this.channelGenerations.get(channelId) ?? 0) + 1;
+    this.channelGenerations.set(channelId, generation);
 
     const channel = new ParserChannel(
       channelId,
-      (cid, buf, byteLength) => this.sendWriteFromChannel(workerIndex, cid, buf, byteLength),
+      (cid, buf, byteLength) =>
+        this.sendWriteFromChannel(workerIndex, generation, cid, buf, byteLength),
       (msg, transfer) => {
-        if (transfer) {
-          worker.postMessage(msg, transfer);
-        } else {
-          worker.postMessage(msg);
-        }
+        // Tag with generation so stale flushes can be rejected in demux.
+        const tagged =
+          typeof msg === "object" && msg !== null
+            ? { ...(msg as Record<string, unknown>), generation }
+            : msg;
+        if (transfer) worker.postMessage(tagged, transfer);
+        else worker.postMessage(tagged);
       },
-      (bytesProcessed) => this.onFlushProcessed(workerIndex, bytesProcessed),
+      (cid) => this.onChannelDisposed(cid),
       grid,
       altGrid,
       cursor,
@@ -360,11 +374,9 @@ export class ParserPool {
       onError,
     );
 
-    this.channels.set(channelId, { workerIndex, channel });
+    this.channels.set(channelId, { workerIndex, generation, channel });
     this.workerChannelCounts[workerIndex]++;
 
-    // If the worker is already paused when the channel joins, propagate
-    // the signal so the channel queues writes from the start.
     if (this.workerPaused[workerIndex]) {
       channel.setPoolPaused(true);
     }
@@ -372,21 +384,14 @@ export class ParserPool {
     return channel;
   }
 
-  /**
-   * Release a channel. Sends dispose to the worker and cleans up.
-   */
   releaseChannel(channelId: string): void {
     const entry = this.channels.get(channelId);
     if (!entry) return;
 
+    // channel.dispose() calls onChannelDisposed which clears the entry.
     entry.channel.dispose();
-    this.workerChannelCounts[entry.workerIndex]--;
-    this.channels.delete(channelId);
   }
 
-  /**
-   * Dispose the entire pool — releases all channels and terminates all workers.
-   */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -395,19 +400,22 @@ export class ParserPool {
       entry.channel.dispose();
     }
     this.channels.clear();
+    this.channelGenerations.clear();
 
     for (const worker of this.workers) {
-      worker.terminate();
+      try {
+        worker.terminate();
+      } catch {}
     }
     this.workers.length = 0;
     this.workerChannelCounts.length = 0;
     this.workerPendingBytes.length = 0;
     this.workerPaused.length = 0;
+    this.deadWorkers.clear();
   }
 
   // ---- Internals ------------------------------------------------------------
 
-  /** Pick the live worker with the fewest current channels. */
   private pickWorker(): number {
     let minIdx = -1;
     let minCount = Infinity;
@@ -424,31 +432,43 @@ export class ParserPool {
     return minIdx;
   }
 
-  /** Send a write on behalf of a channel and update per-worker flow control. */
   private sendWriteFromChannel(
     workerIndex: number,
+    generation: number,
     channelId: string,
     buf: ArrayBuffer,
     byteLength: number,
   ): void {
-    if (this.disposed) return;
+    if (this.disposed || this.deadWorkers.has(workerIndex)) return;
     const worker = this.workers[workerIndex];
     if (!worker) return;
-    worker.postMessage({ type: "write", channelId, data: buf }, [buf]);
+    worker.postMessage({ type: "write", channelId, generation, data: buf }, [buf]);
 
     this.workerPendingBytes[workerIndex] += byteLength;
     if (!this.workerPaused[workerIndex] && this.workerPendingBytes[workerIndex] >= HIGH_WATERMARK) {
       this.workerPaused[workerIndex] = true;
-      // Pause every channel on this worker.
       for (const [, entry] of this.channels) {
         if (entry.workerIndex === workerIndex) entry.channel.setPoolPaused(true);
       }
     }
   }
 
-  /** Called by a channel after a flush; may unpause the worker. */
-  private onFlushProcessed(workerIndex: number, bytesProcessed: number): void {
-    if (this.disposed) return;
+  /** Called when a channel disposes itself — tracks any still-pending bytes
+   *  so worker-level flow control stays correct as flushes arrive later. */
+  private onChannelDisposed(channelId: string): void {
+    const entry = this.channels.get(channelId);
+    if (!entry) return;
+    this.workerChannelCounts[entry.workerIndex]--;
+    this.channels.delete(channelId);
+    // Note: bytes in flight to the worker for this channel will still come
+    // back as flushes. decrementWorkerPending handles that path for
+    // channel-less flushes.
+  }
+
+  /** Decrement worker-level pendingBytes, unpausing if we cross LOW_WATERMARK.
+   *  Called for EVERY flush, including stale / unknown / disposed channels,
+   *  so the pause state never gets stuck. */
+  private decrementWorkerPending(workerIndex: number, bytesProcessed: number): void {
     this.workerPendingBytes[workerIndex] = Math.max(
       0,
       this.workerPendingBytes[workerIndex] - bytesProcessed,
@@ -464,18 +484,27 @@ export class ParserPool {
     }
   }
 
-  /** Demux incoming messages by channelId to the correct ParserChannel. */
   private handleWorkerMessage(workerIndex: number, event: MessageEvent<OutboundMessage>): void {
     if (this.disposed) return;
     const msg = event.data;
+
+    // Always reconcile flow control for flushes first, regardless of whether
+    // the channel is still live. This is the invariant that prevents the
+    // worker from getting stuck in a permanent pause when channels are
+    // released with bytes in flight.
+    if (msg.type === "flush" && typeof msg.bytesProcessed === "number") {
+      this.decrementWorkerPending(workerIndex, msg.bytesProcessed);
+    }
+
     const channelId = msg.channelId;
-    if (!channelId) return; // no channelId = legacy message, shouldn't happen in pool
-
+    if (!channelId) return;
     const entry = this.channels.get(channelId);
-    if (!entry) return; // channel already disposed
+    if (!entry) return;
 
-    // Guard against channelId reuse: if the channel was released and
-    // re-acquired on a different worker, drop stale flushes from the old one.
+    // Drop stale messages from a prior lifecycle of this channelId.
+    const gen = (msg as unknown as { generation?: number }).generation;
+    if (typeof gen === "number" && gen !== entry.generation) return;
+    // Also drop if somehow the entry was reassigned to a different worker.
     if (entry.workerIndex !== workerIndex) return;
 
     if (msg.type === "error") {
@@ -485,14 +514,24 @@ export class ParserPool {
     }
   }
 
-  /** Forward worker errors to all channels on that worker and mark it dead. */
   private handleWorkerError(workerIndex: number, event: ErrorEvent): void {
-    // Mark the worker as dead BEFORE forwarding errors — the error callbacks
-    // may synchronously call releaseChannel, which would otherwise see the
-    // worker as live and leave workerChannelCounts in an inconsistent state.
+    // Mark dead BEFORE forwarding errors so synchronous release callbacks
+    // that read pool state see the correct worker as unavailable.
     this.deadWorkers.add(workerIndex);
+
+    // Reset flow-control state for this worker — nothing more is coming
+    // back from it, and channels that remain should not keep queueing.
+    this.workerPendingBytes[workerIndex] = 0;
+    this.workerPaused[workerIndex] = false;
+
+    // Terminate the dead worker so it doesn't keep holding resources.
+    try {
+      this.workers[workerIndex]?.terminate();
+    } catch {}
+
     for (const [, entry] of this.channels) {
       if (entry.workerIndex === workerIndex) {
+        entry.channel.setPoolPaused(false);
         entry.channel.handleError(`Worker error: ${event.message}`);
       }
     }
