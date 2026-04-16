@@ -8,6 +8,13 @@
  *
  * API mirrors SharedWebGLContext: created once at the container level,
  * channels are acquired/released per pane.
+ *
+ * Flow control is per-WORKER (not per-channel) so that the HIGH_WATERMARK
+ * budget scales with worker capacity, not channel count. All channels on
+ * a saturated worker pause together until that worker drains below
+ * LOW_WATERMARK. This prevents the 8× queue inflation that per-channel
+ * watermarks would otherwise cause (8 channels × 2 MB = 16 MB of in-flight
+ * data sitting in one worker's postMessage queue).
  */
 
 import type { CursorState } from "@next_term/core";
@@ -20,6 +27,8 @@ import { HIGH_WATERMARK, LOW_WATERMARK, SAB_AVAILABLE } from "./worker-bridge.js
 /**
  * A channel within a shared parser worker. Same public API as WorkerBridge
  * but routes messages through a shared Worker via channelId.
+ *
+ * Flow control is delegated to the owning ParserPool — see class-level comment.
  */
 export class ParserChannel {
   private grid: CellGrid;
@@ -28,9 +37,8 @@ export class ParserChannel {
   private onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void;
   private onError: ((message: string) => void) | null;
 
-  // Flow control (per-channel, not per-worker) — same shape as WorkerBridge
-  private pendingBytes = 0;
-  private paused = false;
+  // Local state. Pause signal comes from the pool (per-worker saturation).
+  private poolPaused = false;
   private writeQueue: Uint8Array[] = [];
   private skipFlushCellDataCount = 0;
 
@@ -38,7 +46,16 @@ export class ParserChannel {
 
   constructor(
     readonly channelId: string,
-    private readonly postToWorker: (msg: unknown, transfer?: Transferable[]) => void,
+    /** @internal — pool callback used by ParserChannel to send writes */
+    private readonly poolSendWrite: (
+      channelId: string,
+      buf: ArrayBuffer,
+      byteLength: number,
+    ) => void,
+    /** @internal — pool callback used by ParserChannel to post non-write messages */
+    private readonly poolPost: (msg: unknown, transfer?: Transferable[]) => void,
+    /** @internal — pool callback used by ParserChannel on flush */
+    private readonly poolOnFlushProcessed: (bytesProcessed: number) => void,
     grid: CellGrid,
     altGrid: CellGrid,
     cursor: CursorState,
@@ -56,7 +73,7 @@ export class ParserChannel {
 
   start(cols: number, rows: number, scrollback: number): void {
     if (this.disposed) return;
-    this.postToWorker({
+    this.poolPost({
       type: "init",
       channelId: this.channelId,
       cols,
@@ -69,7 +86,7 @@ export class ParserChannel {
   write(data: Uint8Array): void {
     if (this.disposed) return;
 
-    if (this.paused) {
+    if (this.poolPaused) {
       this.writeQueue.push(data);
       return;
     }
@@ -86,8 +103,6 @@ export class ParserChannel {
   ): void {
     if (this.disposed) return;
 
-    this.pendingBytes = 0;
-    this.paused = false;
     this.writeQueue.length = 0;
 
     const msg: Record<string, unknown> = {
@@ -111,22 +126,18 @@ export class ParserChannel {
       transferables.push(cellCopy, wrapCopy);
     }
 
-    this.postToWorker(msg, transferables);
+    this.poolPost(msg, transferables);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.postToWorker({ type: "dispose", channelId: this.channelId });
+    this.poolPost({ type: "dispose", channelId: this.channelId });
     this.writeQueue.length = 0;
   }
 
   get isPaused(): boolean {
-    return this.paused;
-  }
-
-  get pendingByteCount(): number {
-    return this.pendingBytes;
+    return this.poolPaused;
   }
 
   updateGrid(grid: CellGrid, altGrid: CellGrid, cursor: CursorState): void {
@@ -135,7 +146,23 @@ export class ParserChannel {
     this.cursor = cursor;
   }
 
-  // ---- Called by ParserPool's demux -----------------------------------------
+  // ---- Called by ParserPool's demux / flow control -------------------------
+
+  /** @internal — called by the pool when the worker becomes saturated or drains. */
+  setPoolPaused(paused: boolean): void {
+    if (this.disposed) return;
+    this.poolPaused = paused;
+  }
+
+  /** @internal — drain queued writes when pool unpauses this channel's worker. */
+  drainQueue(): void {
+    if (this.disposed) return;
+    while (this.writeQueue.length > 0 && !this.poolPaused) {
+      const next = this.writeQueue.shift();
+      if (!next) break;
+      this.sendWrite(next);
+    }
+  }
 
   /** @internal — called by the pool when a flush arrives for this channel. */
   handleFlush(msg: FlushMessage): void {
@@ -159,12 +186,9 @@ export class ParserChannel {
 
       const expectedCells = cols * rows * CELL_SIZE;
       if (cellView.length !== expectedCells || dirtyView.length !== rows) {
-        // Stale flush for a different grid size — update flow control only.
-        this.pendingBytes = Math.max(0, this.pendingBytes - msg.bytesProcessed);
-        if (this.paused && this.pendingBytes < LOW_WATERMARK) {
-          this.paused = false;
-          this.drainQueue();
-        }
+        // Stale flush for a different grid size — still tell the pool the
+        // bytes were processed so its worker counter stays accurate.
+        this.poolOnFlushProcessed(msg.bytesProcessed);
         return;
       }
 
@@ -190,11 +214,7 @@ export class ParserChannel {
       }
     }
 
-    this.pendingBytes = Math.max(0, this.pendingBytes - msg.bytesProcessed);
-    if (this.paused && this.pendingBytes < LOW_WATERMARK) {
-      this.paused = false;
-      this.drainQueue();
-    }
+    this.poolOnFlushProcessed(msg.bytesProcessed);
   }
 
   /** @internal — called by the pool when an error arrives for this channel. */
@@ -230,21 +250,8 @@ export class ParserChannel {
       buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
     }
 
-    this.pendingBytes += data.byteLength;
-    if (this.pendingBytes >= HIGH_WATERMARK) {
-      this.paused = true;
-    }
-
-    this.postToWorker({ type: "write", channelId: this.channelId, data: buf }, [buf]);
+    this.poolSendWrite(this.channelId, buf, data.byteLength);
   }
-
-  private drainQueue = (): void => {
-    while (this.writeQueue.length > 0 && !this.paused) {
-      const next = this.writeQueue.shift();
-      if (!next) break;
-      this.sendWrite(next);
-    }
-  };
 }
 
 // ---- ParserPool -------------------------------------------------------------
@@ -272,6 +279,9 @@ export class ParserPool {
   private workers: Worker[] = [];
   private channels = new Map<string, { workerIndex: number; channel: ParserChannel }>();
   private workerChannelCounts: number[];
+  /** Per-worker flow control — pendingBytes is shared across all channels. */
+  private workerPendingBytes: number[];
+  private workerPaused: boolean[];
   /** Workers that have crashed and should not receive new channel assignments. */
   private deadWorkers = new Set<number>();
   private disposed = false;
@@ -279,6 +289,8 @@ export class ParserPool {
   constructor(workerCount: number = DEFAULT_PARSER_WORKER_COUNT) {
     const count = Math.max(1, workerCount);
     this.workerChannelCounts = new Array(count).fill(0);
+    this.workerPendingBytes = new Array(count).fill(0);
+    this.workerPaused = new Array(count).fill(false);
 
     try {
       for (let i = 0; i < count; i++) {
@@ -332,13 +344,15 @@ export class ParserPool {
 
     const channel = new ParserChannel(
       channelId,
-      (msg: unknown, transfer?: Transferable[]) => {
+      (cid, buf, byteLength) => this.sendWriteFromChannel(workerIndex, cid, buf, byteLength),
+      (msg, transfer) => {
         if (transfer) {
           worker.postMessage(msg, transfer);
         } else {
           worker.postMessage(msg);
         }
       },
+      (bytesProcessed) => this.onFlushProcessed(workerIndex, bytesProcessed),
       grid,
       altGrid,
       cursor,
@@ -348,6 +362,12 @@ export class ParserPool {
 
     this.channels.set(channelId, { workerIndex, channel });
     this.workerChannelCounts[workerIndex]++;
+
+    // If the worker is already paused when the channel joins, propagate
+    // the signal so the channel queues writes from the start.
+    if (this.workerPaused[workerIndex]) {
+      channel.setPoolPaused(true);
+    }
 
     return channel;
   }
@@ -381,6 +401,8 @@ export class ParserPool {
     }
     this.workers.length = 0;
     this.workerChannelCounts.length = 0;
+    this.workerPendingBytes.length = 0;
+    this.workerPaused.length = 0;
   }
 
   // ---- Internals ------------------------------------------------------------
@@ -400,6 +422,46 @@ export class ParserPool {
       throw new Error("ParserPool: no live workers available");
     }
     return minIdx;
+  }
+
+  /** Send a write on behalf of a channel and update per-worker flow control. */
+  private sendWriteFromChannel(
+    workerIndex: number,
+    channelId: string,
+    buf: ArrayBuffer,
+    byteLength: number,
+  ): void {
+    if (this.disposed) return;
+    const worker = this.workers[workerIndex];
+    if (!worker) return;
+    worker.postMessage({ type: "write", channelId, data: buf }, [buf]);
+
+    this.workerPendingBytes[workerIndex] += byteLength;
+    if (!this.workerPaused[workerIndex] && this.workerPendingBytes[workerIndex] >= HIGH_WATERMARK) {
+      this.workerPaused[workerIndex] = true;
+      // Pause every channel on this worker.
+      for (const [, entry] of this.channels) {
+        if (entry.workerIndex === workerIndex) entry.channel.setPoolPaused(true);
+      }
+    }
+  }
+
+  /** Called by a channel after a flush; may unpause the worker. */
+  private onFlushProcessed(workerIndex: number, bytesProcessed: number): void {
+    if (this.disposed) return;
+    this.workerPendingBytes[workerIndex] = Math.max(
+      0,
+      this.workerPendingBytes[workerIndex] - bytesProcessed,
+    );
+    if (this.workerPaused[workerIndex] && this.workerPendingBytes[workerIndex] < LOW_WATERMARK) {
+      this.workerPaused[workerIndex] = false;
+      for (const [, entry] of this.channels) {
+        if (entry.workerIndex === workerIndex) {
+          entry.channel.setPoolPaused(false);
+          entry.channel.drainQueue();
+        }
+      }
+    }
   }
 
   /** Demux incoming messages by channelId to the correct ParserChannel. */

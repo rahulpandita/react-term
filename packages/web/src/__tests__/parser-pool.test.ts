@@ -323,6 +323,43 @@ describe("ParserChannel", () => {
     pool.dispose();
   });
 
+  it("pauses ALL channels on a worker once its pending bytes cross HIGH_WATERMARK", () => {
+    // Flow control is per-worker, not per-channel. When one channel on a
+    // worker pushes the worker over HIGH_WATERMARK, every channel on that
+    // worker pauses together (prevents 8× queue inflation).
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const a = pool.acquireChannel("a", grid, altGrid, makeCursor(), () => {});
+    const b = pool.acquireChannel("b", grid, altGrid, makeCursor(), () => {});
+    a.start(80, 24, 100);
+    b.start(80, 24, 100);
+
+    expect(a.isPaused).toBe(false);
+    expect(b.isPaused).toBe(false);
+
+    // Channel a dumps 3 MB — crosses the 2 MB HIGH_WATERMARK for the worker.
+    a.write(new Uint8Array(3 * 1024 * 1024));
+
+    // Both channels on this worker are now paused — not just the one that sent.
+    expect(a.isPaused).toBe(true);
+    expect(b.isPaused).toBe(true);
+
+    // A flush draining the worker below LOW_WATERMARK unpauses both.
+    createdWorkers[0].simulateMessage({
+      type: "flush",
+      channelId: "a",
+      cursor: { row: 0, col: 0, visible: true, style: "block" },
+      isAlternate: false,
+      bytesProcessed: 3 * 1024 * 1024,
+      modes: DEFAULT_MODES,
+    });
+
+    expect(a.isPaused).toBe(false);
+    expect(b.isPaused).toBe(false);
+
+    pool.dispose();
+  });
+
   it("releaseChannel sends a scoped dispose (does NOT terminate the worker)", () => {
     const pool = new ParserPool(1);
     const { grid, altGrid } = makeGrids();
