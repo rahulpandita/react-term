@@ -13,17 +13,7 @@
 import type { CursorState } from "@next_term/core";
 import { CELL_SIZE, type CellGrid, modPositive } from "@next_term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
-
-// ---- Flow-control constants (same as WorkerBridge) --------------------------
-
-const HIGH_WATERMARK = 2 * 1024 * 1024; // 2 MB
-const LOW_WATERMARK = 512 * 1024; // 512 KB
-
-// ---- Feature detection ------------------------------------------------------
-
-const SAB_AVAILABLE =
-  typeof SharedArrayBuffer !== "undefined" &&
-  (typeof crossOriginIsolated !== "undefined" ? crossOriginIsolated : true);
+import { HIGH_WATERMARK, LOW_WATERMARK, SAB_AVAILABLE } from "./worker-bridge.js";
 
 // ---- ParserChannel ----------------------------------------------------------
 

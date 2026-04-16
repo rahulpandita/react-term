@@ -1300,15 +1300,17 @@ export class WebTerminal {
     for (const addon of this.addons) addon.dispose();
     this.addons = [];
 
+    // Release parser channel BEFORE clearing paneId — the pool keys
+    // channels by paneId so it must still be set here.
+    if (this.parserChannel && this.parserPool && this.paneId) {
+      this.parserPool.releaseChannel(this.paneId);
+      this.parserChannel = null;
+    }
+
     if (this.sharedContext && this.paneId) {
       this.sharedContext.removeTerminal(this.paneId);
       this.sharedContext = null;
       this.paneId = null;
-    }
-
-    if (this.parserChannel && this.parserPool && this.paneId) {
-      this.parserPool.releaseChannel(this.paneId);
-      this.parserChannel = null;
     }
     if (this.workerBridge) {
       this.workerBridge.dispose();
