@@ -10,7 +10,7 @@
  */
 
 import type { Theme } from "@next_term/core";
-import { ParserPool, SharedWebGLContext } from "@next_term/web";
+import { DEFAULT_PARSER_WORKER_COUNT, ParserPool, SharedWebGLContext } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { collectPaneIds, type PaneLayout } from "./pane-layout.js";
@@ -34,7 +34,8 @@ export interface TerminalPaneProps {
   /** Control whether each pane uses a Web Worker for parsing. Defaults to auto-detect (SAB available). */
   useWorker?: boolean;
   /** Number of shared parser workers. Panes share a pool instead of each spawning
-   *  their own worker. Set 0 to disable workers entirely. Default: auto (~4). */
+   *  their own worker. Set 0 to disable the pool (each pane gets its own worker
+   *  via useWorker instead). Default: auto (~4). */
   parserWorkers?: number;
   className?: string;
   style?: React.CSSProperties;
@@ -139,7 +140,7 @@ function PaneLeaf({
         parserPool={parserPool ?? undefined}
         onData={handleData}
         sharedContext={sharedContext ?? undefined}
-        paneId={sharedContext ? id : undefined}
+        paneId={sharedContext || parserPool ? id : undefined}
         style={{ width: "100%", height: "100%" }}
       />
     </div>
@@ -270,8 +271,24 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     const terminalsRef = useRef<Map<string, TerminalHandle>>(new Map());
     const sharedContextRef = useRef<SharedWebGLContext | null>(null);
     const [sharedContext, setSharedContext] = useState<SharedWebGLContext | null>(null);
-    const parserPoolRef = useRef<ParserPool | null>(null);
-    const [parserPool, setParserPool] = useState<ParserPool | null>(null);
+
+    // Create parser pool synchronously so children see it on the first render.
+    // A deferred useEffect would cause each pane to first mount with a per-pane
+    // worker, then tear down and re-acquire from the pool — wasteful churn
+    // (e.g. 32 panes → 32 wasted Worker creations).
+    // parserWorkers === 0 disables the pool entirely (panes get per-pane workers).
+    const paneCount = collectPaneIds(layout).length;
+    const [parserPool] = useState<ParserPool | null>(() => {
+      if (useWorker === false || parserWorkers === 0 || paneCount === 0) return null;
+      // Cap pool size at paneCount — no point spawning 4 workers for 1 pane.
+      const requestedCount = parserWorkers ?? DEFAULT_PARSER_WORKER_COUNT;
+      const effectiveCount = Math.min(requestedCount, paneCount);
+      try {
+        return new ParserPool(effectiveCount);
+      } catch {
+        return null;
+      }
+    });
 
     const handleRef = useCallback((id: string, handle: TerminalHandle | null) => {
       if (handle) {
@@ -359,24 +376,13 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       }
     }, [theme]);
 
-    // Create and manage the shared parser worker pool.
-    // When useWorker is explicitly false, skip pool creation.
+    // Dispose the parser pool on unmount. The pool itself was created
+    // synchronously via useState lazy init above.
     useEffect(() => {
-      if (useWorker === false) return;
-      try {
-        const pool = new ParserPool(parserWorkers);
-        parserPoolRef.current = pool;
-        setParserPool(pool);
-        return () => {
-          pool.dispose();
-          parserPoolRef.current = null;
-          setParserPool(null);
-        };
-      } catch {
-        // Pool creation failed — fall back to per-pane workers
-        return;
-      }
-    }, [parserWorkers, useWorker]);
+      return () => {
+        parserPool?.dispose();
+      };
+    }, [parserPool]);
 
     useImperativeHandle(
       ref,

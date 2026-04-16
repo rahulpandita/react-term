@@ -15,6 +15,10 @@ import { CELL_SIZE, type CellGrid, modPositive } from "@next_term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 import { HIGH_WATERMARK, LOW_WATERMARK, SAB_AVAILABLE } from "./worker-bridge.js";
 
+/** Hard cap on buffered bytes per channel. If the worker is dead or stalled,
+ *  writes exceeding this are dropped to prevent unbounded memory growth. */
+const MAX_QUEUE_BYTES = 16 * 1024 * 1024; // 16 MB
+
 // ---- ParserChannel ----------------------------------------------------------
 
 /**
@@ -32,6 +36,7 @@ export class ParserChannel {
   private pendingBytes = 0;
   private paused = false;
   private writeQueue: Uint8Array[] = [];
+  private queuedBytes = 0;
   private skipFlushCellDataCount = 0;
 
   private disposed = false;
@@ -70,7 +75,13 @@ export class ParserChannel {
     if (this.disposed) return;
 
     if (this.paused) {
+      // Drop data if the queue would exceed the cap — prevents unbounded
+      // memory growth when the worker is slow or dead.
+      if (this.queuedBytes + data.byteLength > MAX_QUEUE_BYTES) {
+        return;
+      }
       this.writeQueue.push(data);
+      this.queuedBytes += data.byteLength;
       return;
     }
 
@@ -89,6 +100,7 @@ export class ParserChannel {
     this.pendingBytes = 0;
     this.paused = false;
     this.writeQueue.length = 0;
+    this.queuedBytes = 0;
 
     const msg: Record<string, unknown> = {
       type: "resize",
@@ -119,6 +131,7 @@ export class ParserChannel {
     this.disposed = true;
     this.postToWorker({ type: "dispose", channelId: this.channelId });
     this.writeQueue.length = 0;
+    this.queuedBytes = 0;
   }
 
   get isPaused(): boolean {
@@ -242,6 +255,7 @@ export class ParserChannel {
     while (this.writeQueue.length > 0 && !this.paused) {
       const next = this.writeQueue.shift();
       if (!next) break;
+      this.queuedBytes -= next.byteLength;
       this.sendWrite(next);
     }
   };
@@ -249,7 +263,7 @@ export class ParserChannel {
 
 // ---- ParserPool -------------------------------------------------------------
 
-const DEFAULT_WORKER_COUNT = Math.min(
+export const DEFAULT_PARSER_WORKER_COUNT = Math.min(
   typeof navigator !== "undefined" ? (navigator.hardwareConcurrency ?? 4) : 4,
   4,
 );
@@ -272,21 +286,37 @@ export class ParserPool {
   private workers: Worker[] = [];
   private channels = new Map<string, { workerIndex: number; channel: ParserChannel }>();
   private workerChannelCounts: number[];
+  /** Workers that have crashed and should not receive new channel assignments. */
+  private deadWorkers = new Set<number>();
   private disposed = false;
 
-  constructor(workerCount: number = DEFAULT_WORKER_COUNT) {
+  constructor(workerCount: number = DEFAULT_PARSER_WORKER_COUNT) {
     const count = Math.max(1, workerCount);
     this.workerChannelCounts = new Array(count).fill(0);
 
-    for (let i = 0; i < count; i++) {
-      const worker = new Worker(new URL("./parser-worker.js", import.meta.url), { type: "module" });
-      worker.addEventListener("message", (event: MessageEvent<OutboundMessage>) => {
-        this.handleWorkerMessage(i, event);
-      });
-      worker.addEventListener("error", (event: ErrorEvent) => {
-        this.handleWorkerError(i, event);
-      });
-      this.workers.push(worker);
+    try {
+      for (let i = 0; i < count; i++) {
+        const worker = new Worker(new URL("./parser-worker.js", import.meta.url), {
+          type: "module",
+        });
+        worker.addEventListener("message", (event: MessageEvent<OutboundMessage>) => {
+          this.handleWorkerMessage(i, event);
+        });
+        worker.addEventListener("error", (event: ErrorEvent) => {
+          this.handleWorkerError(i, event);
+        });
+        this.workers.push(worker);
+      }
+    } catch (err) {
+      // If mid-loop construction fails, terminate any workers already created
+      // so we don't leak them before throwing.
+      for (const w of this.workers) {
+        try {
+          w.terminate();
+        } catch {}
+      }
+      this.workers.length = 0;
+      throw err;
     }
   }
 
@@ -369,21 +399,25 @@ export class ParserPool {
 
   // ---- Internals ------------------------------------------------------------
 
-  /** Pick the worker with the fewest current channels. */
+  /** Pick the live worker with the fewest current channels. */
   private pickWorker(): number {
-    let minIdx = 0;
-    let minCount = this.workerChannelCounts[0];
-    for (let i = 1; i < this.workerChannelCounts.length; i++) {
+    let minIdx = -1;
+    let minCount = Infinity;
+    for (let i = 0; i < this.workerChannelCounts.length; i++) {
+      if (this.deadWorkers.has(i)) continue;
       if (this.workerChannelCounts[i] < minCount) {
         minCount = this.workerChannelCounts[i];
         minIdx = i;
       }
     }
+    if (minIdx === -1) {
+      throw new Error("ParserPool: no live workers available");
+    }
     return minIdx;
   }
 
   /** Demux incoming messages by channelId to the correct ParserChannel. */
-  private handleWorkerMessage(_workerIndex: number, event: MessageEvent<OutboundMessage>): void {
+  private handleWorkerMessage(workerIndex: number, event: MessageEvent<OutboundMessage>): void {
     if (this.disposed) return;
     const msg = event.data;
     const channelId = msg.channelId;
@@ -392,6 +426,10 @@ export class ParserPool {
     const entry = this.channels.get(channelId);
     if (!entry) return; // channel already disposed
 
+    // Guard against channelId reuse: if the channel was released and
+    // re-acquired on a different worker, drop stale flushes from the old one.
+    if (entry.workerIndex !== workerIndex) return;
+
     if (msg.type === "error") {
       entry.channel.handleError(msg.message);
     } else if (msg.type === "flush") {
@@ -399,8 +437,12 @@ export class ParserPool {
     }
   }
 
-  /** Forward worker errors to all channels on that worker. */
+  /** Forward worker errors to all channels on that worker and mark it dead. */
   private handleWorkerError(workerIndex: number, event: ErrorEvent): void {
+    // Mark the worker as dead BEFORE forwarding errors — the error callbacks
+    // may synchronously call releaseChannel, which would otherwise see the
+    // worker as live and leave workerChannelCounts in an inconsistent state.
+    this.deadWorkers.add(workerIndex);
     for (const [, entry] of this.channels) {
       if (entry.workerIndex === workerIndex) {
         entry.channel.handleError(`Worker error: ${event.message}`);

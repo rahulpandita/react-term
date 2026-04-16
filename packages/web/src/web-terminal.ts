@@ -456,6 +456,11 @@ export class WebTerminal {
         );
       }
 
+      // Schedule a11y update after cell data application. The onFlush
+      // callback runs before the grid is updated, so defer via microtask
+      // so the accessibility tree reads the fresh grid state.
+      queueMicrotask(() => this.accessibilityManager?.update());
+
       if (this.viewportOffset > 0 && !altChanged) return;
 
       const { grid, cursor } = this.bufferSet.active;
