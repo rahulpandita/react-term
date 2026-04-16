@@ -110,10 +110,15 @@ interface ChannelState {
   bufferSet: BufferSet;
   parser: VTParser;
   usingSAB: boolean;
+  /** Pending write buffers queued for round-robin draining. */
+  writeQueue: ArrayBuffer[];
 }
 
 /** Multi-channel state. */
 const channels = new Map<string, ChannelState>();
+
+/** Set to true when a round-robin drain is already scheduled. */
+let drainScheduled = false;
 
 /** Legacy singleton state (messages without channelId). */
 let bufferSet: BufferSet | null = null;
@@ -131,7 +136,12 @@ function createBufferAndParser(
 ): ChannelState {
   const bs = new BufferSet(cols, rows, scrollback, sharedBuffer, sharedAltBuffer);
   const p = new VTParser(bs);
-  return { bufferSet: bs, parser: p, usingSAB: sharedBuffer !== undefined };
+  return {
+    bufferSet: bs,
+    parser: p,
+    usingSAB: sharedBuffer !== undefined,
+    writeQueue: [],
+  };
 }
 
 function buildFlush(ch: ChannelState, bytesProcessed: number, channelId?: string): FlushMessage {
@@ -290,10 +300,10 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
         postError(`Channel "${channelId}" not initialised — ignoring write`, channelId);
         return;
       }
-      const bytes = new Uint8Array(msg.data);
-      ch.parser.write(bytes);
-      const flush = buildFlush(ch, bytes.length, channelId);
-      postFlush(flush, ch.usingSAB);
+      // Enqueue for round-robin draining so one channel's burst doesn't
+      // head-of-line block other channels sharing this worker.
+      ch.writeQueue.push(msg.data);
+      scheduleDrain();
       break;
     }
 
@@ -328,6 +338,8 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
     }
 
     case "dispose": {
+      const existing = channels.get(channelId);
+      if (existing) existing.writeQueue.length = 0;
       channels.delete(channelId);
       // Do NOT close the worker — other channels may still be active.
       break;
@@ -338,6 +350,43 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
 function postError(message: string, channelId?: string): void {
   const err: ErrorMessage = { type: "error", channelId, message };
   (self as unknown as DedicatedWorkerGlobalScope).postMessage(err);
+}
+
+/**
+ * Schedule a round-robin drain of all channels' write queues. Fairness
+ * (no head-of-line blocking across channels) requires processing one
+ * chunk from each channel per cycle rather than FIFO across channels.
+ *
+ * The microtask defers draining until the current message event finishes,
+ * which lets multiple writes from different channels accumulate so the
+ * round-robin has something to fair-share.
+ */
+function scheduleDrain(): void {
+  if (drainScheduled) return;
+  drainScheduled = true;
+  queueMicrotask(drainChannelWrites);
+}
+
+function drainChannelWrites(): void {
+  drainScheduled = false;
+  // Round-robin: one chunk per channel per cycle, repeat until all empty.
+  let hadWork = true;
+  while (hadWork) {
+    hadWork = false;
+    for (const [channelId, ch] of channels) {
+      const buf = ch.writeQueue.shift();
+      if (!buf) continue;
+      hadWork = true;
+      try {
+        const bytes = new Uint8Array(buf);
+        ch.parser.write(bytes);
+        const flush = buildFlush(ch, bytes.length, channelId);
+        postFlush(flush, ch.usingSAB);
+      } catch (e: unknown) {
+        postError(e instanceof Error ? e.message : "Parser error", channelId);
+      }
+    }
+  }
 }
 
 // ---- Bootstrap -------------------------------------------------------------
