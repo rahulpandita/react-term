@@ -318,7 +318,9 @@ function App() {
     };
 
     ws.onclose = () => {
-      wsRef.current = null;
+      // Only clear the ref if it still points to this socket — a newer
+      // connection may have replaced it while this one was CLOSING.
+      if (wsRef.current === ws) wsRef.current = null;
       if (modeRef.current === "pty") {
         // Was connected, now disconnected — show message and fall back
         modeRef.current = "local";
@@ -432,7 +434,29 @@ function App() {
 
       // Local echo mode: mini shell
       const str = new TextDecoder().decode(data);
-      for (const ch of str) {
+      let i = 0;
+      while (i < str.length) {
+        const ch = str[i];
+
+        // Skip escape sequences (CSI, SS3, etc.) so arrow keys and
+        // other special keys don't leak bracket characters into input.
+        if (ch === "\x1b") {
+          i++;
+          if (i < str.length && str[i] === "[") {
+            // CSI sequence: consume until final byte (0x40–0x7E)
+            i++;
+            while (i < str.length && str.charCodeAt(i) < 0x40) i++;
+            if (i < str.length) i++; // skip final byte
+          } else if (i < str.length && str[i] === "O") {
+            // SS3 sequence (e.g. \x1bOA): skip next byte
+            i += 2;
+          } else {
+            // Bare ESC or unrecognised — skip one byte
+            if (i < str.length) i++;
+          }
+          continue;
+        }
+
         if (ch === "\r") {
           const cmd = lineBufferRef.current.trim();
           lineBufferRef.current = "";
@@ -456,6 +480,7 @@ function App() {
           lineBufferRef.current += ch;
           term.write(ch);
         }
+        i++;
       }
     },
     [executeCommand],
@@ -527,7 +552,25 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
     if (!lineBuffers.current[paneId]) lineBuffers.current[paneId] = "";
 
     const str = new TextDecoder().decode(data);
-    for (const ch of str) {
+    let i = 0;
+    while (i < str.length) {
+      const ch = str[i];
+
+      // Skip escape sequences (arrow keys, etc.)
+      if (ch === "\x1b") {
+        i++;
+        if (i < str.length && str[i] === "[") {
+          i++;
+          while (i < str.length && str.charCodeAt(i) < 0x40) i++;
+          if (i < str.length) i++;
+        } else if (i < str.length && str[i] === "O") {
+          i += 2;
+        } else {
+          if (i < str.length) i++;
+        }
+        continue;
+      }
+
       if (ch === "\r") {
         const cmd = lineBuffers.current[paneId].trim();
         lineBuffers.current[paneId] = "";
@@ -547,6 +590,7 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
         lineBuffers.current[paneId] += ch;
         term.write(ch);
       }
+      i++;
     }
   }, []);
 

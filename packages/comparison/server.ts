@@ -17,6 +17,10 @@ import { execSync } from "child_process";
 
 const PORT = 8090;
 
+// Coalesce PTY output over this interval before sending a WebSocket frame.
+// Reduces per-chunk ws.send() overhead dramatically.
+const COALESCE_MS = 4; // ~quarter frame at 60fps
+
 function findShell(): string {
   if (process.env.SHELL) return process.env.SHELL;
   for (const sh of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
@@ -30,15 +34,14 @@ function findShell(): string {
 
 const shell = findShell();
 
-// Workload definitions — commands that produce heavy, varied terminal output
-// All workloads produce continuous output — heavy enough to stress rendering,
-// throttled enough to not overwhelm the system at 16+ panes.
+// Workload definitions — commands that produce heavy, varied terminal output.
+// Designed to saturate the rendering pipeline without shell overhead.
 const WORKLOADS = [
   {
     name: "hex-dump",
     cmd: shell,
     args: [] as string[],
-    init: "while true; do head -c 4096 /dev/urandom | xxd; done\n",
+    init: "cat /dev/urandom | xxd\n",
   },
   {
     name: "log-stream",
@@ -59,7 +62,8 @@ const WORKLOADS = [
     name: "color-sgr",
     cmd: shell,
     args: [],
-    init: 'while true; do for i in $(seq 1 2000); do printf "\\033[38;5;$((i % 256));48;5;$((RANDOM % 256))m%02x" $((RANDOM % 256)); if [ $((i % 80)) -eq 0 ]; then echo; fi; done; done\n',
+    // Single awk process — no per-iteration fork overhead
+    init: `awk 'BEGIN{srand();while(1){for(i=0;i<80;i++){printf "\\033[38;5;%d;48;5;%dm%02x",int(rand()*256),int(rand()*256),int(rand()*256)}print "\\033[0m"}}'\n`,
   },
   {
     name: "find-deep",
@@ -83,7 +87,7 @@ const WORKLOADS = [
     name: "hex-dump-2",
     cmd: shell,
     args: [],
-    init: "while true; do head -c 4096 /dev/urandom | xxd; done\n",
+    init: "cat /dev/urandom | xxd\n",
   },
 ];
 
@@ -92,6 +96,37 @@ const wss = new WebSocketServer({ port: PORT });
 wss.on("connection", (ws: WebSocket) => {
   console.log("Client connected");
   const ptys: IPty[] = [];
+
+  // Per-pane coalescing buffers
+  const pendingChunks: Buffer[][] = [];
+  const pendingBytes: number[] = [];
+  const flushTimers: (ReturnType<typeof setTimeout> | null)[] = [];
+
+  function flushPane(paneIdx: number) {
+    flushTimers[paneIdx] = null;
+    const chunks = pendingChunks[paneIdx];
+    const totalLen = pendingBytes[paneIdx];
+    if (totalLen === 0 || ws.readyState !== ws.OPEN) {
+      chunks.length = 0;
+      pendingBytes[paneIdx] = 0;
+      return;
+    }
+
+    // Build a single frame: [paneIndex (1 byte)] + [coalesced data]
+    const frame = Buffer.allocUnsafe(1 + totalLen);
+    frame[0] = paneIdx;
+    let offset = 1;
+    for (const chunk of chunks) {
+      chunk.copy(frame, offset);
+      offset += chunk.length;
+    }
+    chunks.length = 0;
+    pendingBytes[paneIdx] = 0;
+
+    try {
+      ws.send(frame);
+    } catch {}
+  }
 
   ws.on("message", (msg: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
     if (isBinary) {
@@ -115,6 +150,10 @@ wss.on("connection", (ws: WebSocket) => {
 
       // Spawn PTYs — cycle workloads if paneCount > WORKLOADS.length
       for (let i = 0; i < paneCount; i++) {
+        pendingChunks.push([]);
+        pendingBytes.push(0);
+        flushTimers.push(null);
+
         const wl = WORKLOADS[i % WORKLOADS.length];
         try {
           const pty = spawn(wl.cmd, wl.args, {
@@ -130,16 +169,18 @@ wss.on("connection", (ws: WebSocket) => {
 
           ptys.push(pty);
 
-          // Forward PTY output as [paneIndex (1 byte)] + [data]
+          // Coalesce PTY output before sending
+          const paneIdx = i;
           pty.onData((output: string) => {
             if (ws.readyState !== ws.OPEN) return;
-            const outBuf = Buffer.from(output, "utf-8");
-            const frame = Buffer.allocUnsafe(1 + outBuf.length);
-            frame[0] = i;
-            outBuf.copy(frame, 1);
-            try {
-              ws.send(frame);
-            } catch {}
+            const buf = Buffer.from(output, "utf-8");
+            pendingChunks[paneIdx].push(buf);
+            pendingBytes[paneIdx] += buf.length;
+
+            // Schedule a flush if one isn't pending
+            if (flushTimers[paneIdx] === null) {
+              flushTimers[paneIdx] = setTimeout(flushPane, COALESCE_MS, paneIdx);
+            }
           });
 
           pty.onExit(() => {
@@ -182,6 +223,9 @@ wss.on("connection", (ws: WebSocket) => {
 
   ws.on("close", () => {
     console.log("Client disconnected — killing PTYs");
+    for (let i = 0; i < flushTimers.length; i++) {
+      if (flushTimers[i] !== null) clearTimeout(flushTimers[i]!);
+    }
     for (const pty of ptys) {
       try {
         pty.kill();

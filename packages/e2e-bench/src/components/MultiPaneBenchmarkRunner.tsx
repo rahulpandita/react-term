@@ -98,14 +98,14 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
             if (settled) return;
             if (event.data instanceof ArrayBuffer) {
               const buf = event.data as ArrayBuffer;
-              recordWrite(buf.byteLength);
-
               const data = new Uint8Array(buf);
+              const len = data.byteLength; // capture before write() may transfer the buffer
               if (terminal === "react-term") {
                 paneRef.current?.getTerminal(`pane-${i}`)?.write(data);
               } else {
                 xtermRefs.current.get(i)?.write(data);
               }
+              recordWrite(len);
             } else {
               let msg: { type?: string; serverElapsedMs?: number; totalBytes?: number };
               try {

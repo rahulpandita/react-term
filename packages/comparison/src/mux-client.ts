@@ -38,7 +38,9 @@ export class MuxClient {
         // Binary: [paneIndex (1 byte)] + [data]
         const buf = new Uint8Array(ev.data as ArrayBuffer);
         const paneIndex = buf[0];
-        const data = buf.subarray(1);
+        // Copy into an owned buffer so the worker bridge can transfer
+        // (subarray keeps byteOffset=1 which defeats zero-copy transfer)
+        const data = buf.slice(1);
         this.callbacks.onData(paneIndex, data);
       }
     };
@@ -54,9 +56,9 @@ export class MuxClient {
 
   private encoder = new TextEncoder();
 
-  sendInput(paneIndex: number, data: string) {
+  sendInput(paneIndex: number, data: string | Uint8Array) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    const encoded = this.encoder.encode(data);
+    const encoded = typeof data === "string" ? this.encoder.encode(data) : data;
     const frame = new Uint8Array(1 + encoded.length);
     frame[0] = paneIndex;
     frame.set(encoded, 1);

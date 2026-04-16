@@ -102,15 +102,17 @@ export function MuxBenchmarkRunner({ config, onResult, onProgress, onComplete }:
             // First 2 bytes: LE pane index
             const header = new DataView(buf);
             const paneIndex = header.getUint16(0, true);
-            const payload = new Uint8Array(buf, 2);
+            // slice() (not a view) so the worker bridge can transfer the
+            // owned ArrayBuffer — a view at offset 2 defeats zero-copy.
+            const payload = new Uint8Array(buf).slice(2);
 
-            recordWrite(payload.byteLength);
-
+            const len = payload.byteLength; // capture before write() may transfer the buffer
             if (terminal === "react-term") {
               paneRef.current?.getTerminal(`pane-${paneIndex}`)?.write(payload);
             } else {
               xtermRefs.current.get(paneIndex)?.write(payload);
             }
+            recordWrite(len);
           } else {
             let msg: { type?: string; serverElapsedMs?: number; totalBytes?: number };
             try {

@@ -133,7 +133,7 @@ export class MetricsTracker {
     this.panel.innerHTML = `
       <div class="metrics-title">${this.terminalName}</div>
       <table class="metrics-table">
-        <tr><td>FPS</td><td class="${m.fps < 30 ? "warn" : "good"}">${m.fps.toFixed(1)}</td></tr>
+        <tr><td>Page FPS</td><td class="${m.fps < 30 ? "warn" : "good"}">${m.fps.toFixed(1)}</td></tr>
         <tr><td>Frame p50</td><td>${m.frameTimeP50.toFixed(1)} ms</td></tr>
         <tr><td>Frame p95</td><td class="${m.frameTimeP95 > 33 ? "warn" : ""}">${m.frameTimeP95.toFixed(1)} ms</td></tr>
         <tr><td>Frame p99</td><td class="${m.frameTimeP99 > 50 ? "warn" : ""}">${m.frameTimeP99.toFixed(1)} ms</td></tr>
