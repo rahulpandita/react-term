@@ -311,6 +311,32 @@ export class CellGrid {
     return compact;
   }
 
+  /**
+   * Paste a compact (2 words/cell) row directly into the grid, expanding
+   * inline without allocating. Words 2,3 are zeroed (no RGB).
+   */
+  pasteCompactRow(row: number, src: Uint32Array, wrapped?: boolean): void {
+    const start = this.rowStart(row);
+    const srcCols = src.length >>> 1;
+    const pasteCols = Math.min(srcCols, this.cols);
+    for (let c = 0; c < pasteCols; c++) {
+      this.data[start + c * CELL_SIZE] = src[c * 2];
+      this.data[start + c * CELL_SIZE + 1] = src[c * 2 + 1];
+      this.data[start + c * CELL_SIZE + 2] = 0;
+      this.data[start + c * CELL_SIZE + 3] = 0;
+    }
+    for (let c = pasteCols; c < this.cols; c++) {
+      this.data[start + c * CELL_SIZE] = DEFAULT_CELL_W0;
+      this.data[start + c * CELL_SIZE + 1] = DEFAULT_CELL_W1;
+      this.data[start + c * CELL_SIZE + 2] = 0;
+      this.data[start + c * CELL_SIZE + 3] = 0;
+    }
+    if (wrapped !== undefined) {
+      this.setWrapped(row, wrapped);
+    }
+    this.markDirty(row);
+  }
+
   /** Overwrite a logical row from a previously copied Uint32Array. */
   pasteRow(row: number, src: Uint32Array, wrapped?: boolean): void {
     const start = this.rowStart(row);

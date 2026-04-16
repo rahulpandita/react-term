@@ -190,7 +190,7 @@ export class BufferSet {
   borrowRowBuffer(size: number): Uint32Array {
     if (this.scrollback.length >= this.maxScrollback && this.maxScrollback > 0) {
       const existing = this.scrollback[0];
-      if (existing && existing.length >= size) {
+      if (existing && existing.length === size) {
         return existing;
       }
     }

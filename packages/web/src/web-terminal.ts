@@ -724,9 +724,27 @@ export class WebTerminal {
       );
 
       // Scrollback: everything before screenStart.
-      // Reflowed rows are already at newCols width with defaults filled.
+      // Reflowed rows are full-format; re-compact non-RGB rows to save memory.
       for (let i = 0; i < screenStart; i++) {
-        this.bufferSet.pushScrollback(reflowed[i].cells, reflowed[i].wrapped);
+        const cells = reflowed[i].cells;
+        let hasRgb = false;
+        const rowCols = cells.length / CELL_SIZE;
+        for (let c = 0; c < rowCols; c++) {
+          if (cells[c * CELL_SIZE] & ((1 << 21) | (1 << 22))) {
+            hasRgb = true;
+            break;
+          }
+        }
+        if (hasRgb) {
+          this.bufferSet.pushScrollback(cells, reflowed[i].wrapped);
+        } else {
+          const compact = new Uint32Array(rowCols * 2);
+          for (let c = 0; c < rowCols; c++) {
+            compact[c * 2] = cells[c * CELL_SIZE];
+            compact[c * 2 + 1] = cells[c * CELL_SIZE + 1];
+          }
+          this.bufferSet.pushScrollback(compact, reflowed[i].wrapped, true);
+        }
       }
 
       // Screen rows
@@ -1190,11 +1208,13 @@ export class WebTerminal {
         // Before scrollback — show empty
         this.displayGrid.clearRow(r);
       } else if (virtualLine < scrollback.length) {
-        // From scrollback (expand compact rows to full format for the grid)
-        const sbRow = this.bufferSet.scrollbackCompact[virtualLine]
-          ? expandCompactRow(scrollback[virtualLine], cols)
-          : scrollback[virtualLine];
-        this.displayGrid.pasteRow(r, sbRow, this.bufferSet.scrollbackWrap[virtualLine] ?? false);
+        // From scrollback — use pasteCompactRow for compact rows (no allocation)
+        const sbWrapped = this.bufferSet.scrollbackWrap[virtualLine] ?? false;
+        if (this.bufferSet.scrollbackCompact[virtualLine]) {
+          this.displayGrid.pasteCompactRow(r, scrollback[virtualLine], sbWrapped);
+        } else {
+          this.displayGrid.pasteRow(r, scrollback[virtualLine], sbWrapped);
+        }
       } else {
         // From live buffer
         const bufRow = virtualLine - scrollback.length;

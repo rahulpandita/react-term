@@ -1922,13 +1922,15 @@ export class VTParser {
     const row = cursor.row;
     // Clamp n to remaining space
     n = Math.min(n, this.cols - cursor.col);
-    // Shift cells right using physical row offset
+    // Shift cells right using physical row offset (all 4 words per cell)
     const rowBase = this.grid.rowStart(row);
     for (let c = this.cols - 1; c >= cursor.col + n; c--) {
       const src = rowBase + (c - n) * CELL_SIZE;
       const dst = rowBase + c * CELL_SIZE;
       this.grid.data[dst] = this.grid.data[src];
       this.grid.data[dst + 1] = this.grid.data[src + 1];
+      this.grid.data[dst + 2] = this.grid.data[src + 2];
+      this.grid.data[dst + 3] = this.grid.data[src + 3];
     }
     // Clear inserted cells with default colors
     for (let i = 0; i < n; i++) {
@@ -1942,13 +1944,15 @@ export class VTParser {
     const row = cursor.row;
     // Clamp n to remaining space
     n = Math.min(n, this.cols - cursor.col);
-    // Shift cells left using physical row offset
+    // Shift cells left using physical row offset (all 4 words per cell)
     const rowBase = this.grid.rowStart(row);
     for (let c = cursor.col; c < this.cols - n; c++) {
       const src = rowBase + (c + n) * CELL_SIZE;
       const dst = rowBase + c * CELL_SIZE;
       this.grid.data[dst] = this.grid.data[src];
       this.grid.data[dst + 1] = this.grid.data[src + 1];
+      this.grid.data[dst + 2] = this.grid.data[src + 2];
+      this.grid.data[dst + 3] = this.grid.data[src + 3];
     }
     // Clear vacated cells at end with default colors
     for (let c = this.cols - n; c < this.cols; c++) {

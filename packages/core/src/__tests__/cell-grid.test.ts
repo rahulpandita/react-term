@@ -173,6 +173,23 @@ describe("CellGrid", () => {
     expect(grid.getCodepoint(2, 9)).toBe(0x5a);
   });
 
+  it("pasteCompactRow expands inline without allocation", () => {
+    const grid = new CellGrid(10, 5);
+    grid.setCell(0, 0, 0x41, 3, 5, 0x01);
+    grid.setCell(0, 9, 0x5a, 7, 0, 0);
+    const compact = grid.copyRowCompact(0);
+    expect(compact.length).toBe(10 * 2);
+    grid.pasteCompactRow(2, compact);
+    expect(grid.getCodepoint(2, 0)).toBe(0x41);
+    expect(grid.getFgIndex(2, 0)).toBe(3);
+    expect(grid.getBgIndex(2, 0)).toBe(5);
+    expect(grid.isBold(2, 0)).toBe(true);
+    expect(grid.getCodepoint(2, 9)).toBe(0x5a);
+    // RGB words should be zeroed
+    expect(grid.getFgRGB(2, 0)).toBe(0);
+    expect(grid.getBgRGB(2, 0)).toBe(0);
+  });
+
   it("reports whether SharedArrayBuffer is used", () => {
     const grid = new CellGrid(10, 5);
     // In Node/vitest SAB may or may not be available
