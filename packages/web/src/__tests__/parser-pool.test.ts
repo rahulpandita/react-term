@@ -323,35 +323,6 @@ describe("ParserChannel", () => {
     pool.dispose();
   });
 
-  it("write() drops data once queued bytes exceed the cap", () => {
-    // With no flushes coming back, once pendingBytes crosses HIGH_WATERMARK
-    // the channel pauses and subsequent writes land in writeQueue. Past the
-    // 16MB queue cap, writes are silently dropped.
-    const pool = new ParserPool(1);
-    const { grid, altGrid } = makeGrids();
-    const channel = pool.acquireChannel("c1", grid, altGrid, makeCursor(), () => {});
-    channel.start(80, 24, 100);
-
-    // 3MB write — crosses the 2MB HIGH_WATERMARK. After this, paused=true.
-    channel.write(new Uint8Array(3 * 1024 * 1024));
-    expect(channel.isPaused).toBe(true);
-
-    // Queue 15MB more (under 16MB cap).
-    for (let i = 0; i < 15; i++) {
-      channel.write(new Uint8Array(1024 * 1024));
-    }
-
-    const writesBefore = createdWorkers[0].writeCalls().length;
-
-    // Now try to queue another 2MB — should be dropped (would exceed cap).
-    channel.write(new Uint8Array(2 * 1024 * 1024));
-
-    // No new write message was sent (still paused, and the queued write was dropped).
-    const writesAfter = createdWorkers[0].writeCalls().length;
-    expect(writesAfter).toBe(writesBefore);
-    pool.dispose();
-  });
-
   it("releaseChannel sends a scoped dispose (does NOT terminate the worker)", () => {
     const pool = new ParserPool(1);
     const { grid, altGrid } = makeGrids();

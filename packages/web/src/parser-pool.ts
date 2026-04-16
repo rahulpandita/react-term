@@ -15,10 +15,6 @@ import { CELL_SIZE, type CellGrid, modPositive } from "@next_term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 import { HIGH_WATERMARK, LOW_WATERMARK, SAB_AVAILABLE } from "./worker-bridge.js";
 
-/** Hard cap on buffered bytes per channel. If the worker is dead or stalled,
- *  writes exceeding this are dropped to prevent unbounded memory growth. */
-const MAX_QUEUE_BYTES = 16 * 1024 * 1024; // 16 MB
-
 // ---- ParserChannel ----------------------------------------------------------
 
 /**
@@ -32,11 +28,10 @@ export class ParserChannel {
   private onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void;
   private onError: ((message: string) => void) | null;
 
-  // Flow control (per-channel, not per-worker)
+  // Flow control (per-channel, not per-worker) — same shape as WorkerBridge
   private pendingBytes = 0;
   private paused = false;
   private writeQueue: Uint8Array[] = [];
-  private queuedBytes = 0;
   private skipFlushCellDataCount = 0;
 
   private disposed = false;
@@ -75,13 +70,7 @@ export class ParserChannel {
     if (this.disposed) return;
 
     if (this.paused) {
-      // Drop data if the queue would exceed the cap — prevents unbounded
-      // memory growth when the worker is slow or dead.
-      if (this.queuedBytes + data.byteLength > MAX_QUEUE_BYTES) {
-        return;
-      }
       this.writeQueue.push(data);
-      this.queuedBytes += data.byteLength;
       return;
     }
 
@@ -100,7 +89,6 @@ export class ParserChannel {
     this.pendingBytes = 0;
     this.paused = false;
     this.writeQueue.length = 0;
-    this.queuedBytes = 0;
 
     const msg: Record<string, unknown> = {
       type: "resize",
@@ -131,7 +119,6 @@ export class ParserChannel {
     this.disposed = true;
     this.postToWorker({ type: "dispose", channelId: this.channelId });
     this.writeQueue.length = 0;
-    this.queuedBytes = 0;
   }
 
   get isPaused(): boolean {
@@ -255,7 +242,6 @@ export class ParserChannel {
     while (this.writeQueue.length > 0 && !this.paused) {
       const next = this.writeQueue.shift();
       if (!next) break;
-      this.queuedBytes -= next.byteLength;
       this.sendWrite(next);
     }
   };

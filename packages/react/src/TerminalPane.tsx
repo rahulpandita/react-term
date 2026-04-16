@@ -272,23 +272,34 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     const sharedContextRef = useRef<SharedWebGLContext | null>(null);
     const [sharedContext, setSharedContext] = useState<SharedWebGLContext | null>(null);
 
-    // Create parser pool synchronously so children see it on the first render.
-    // A deferred useEffect would cause each pane to first mount with a per-pane
-    // worker, then tear down and re-acquire from the pool — wasteful churn
-    // (e.g. 32 panes → 32 wasted Worker creations).
-    // parserWorkers === 0 disables the pool entirely (panes get per-pane workers).
-    const paneCount = collectPaneIds(layout).length;
-    const [parserPool] = useState<ParserPool | null>(() => {
-      if (useWorker === false || parserWorkers === 0 || paneCount === 0) return null;
-      // Cap pool size at paneCount — no point spawning 4 workers for 1 pane.
-      const requestedCount = parserWorkers ?? DEFAULT_PARSER_WORKER_COUNT;
-      const effectiveCount = Math.min(requestedCount, paneCount);
-      try {
-        return new ParserPool(effectiveCount);
-      } catch {
-        return null;
+    // Create the parser pool in a useEffect so StrictMode's double-invoke
+    // of lazy initializers can't leak workers. Children render a placeholder
+    // until the pool decision is committed (mounted=true), which prevents the
+    // first-render race where panes would create per-pane WorkerBridges only
+    // to tear them down once the pool arrived.
+    const [mounted, setMounted] = useState(false);
+    const [parserPool, setParserPool] = useState<ParserPool | null>(null);
+
+    useEffect(() => {
+      if (useWorker === false || parserWorkers === 0) {
+        setParserPool(null);
+        setMounted(true);
+        return;
       }
-    });
+      let pool: ParserPool | null = null;
+      try {
+        pool = new ParserPool(parserWorkers ?? DEFAULT_PARSER_WORKER_COUNT);
+      } catch {
+        pool = null;
+      }
+      setParserPool(pool);
+      setMounted(true);
+      return () => {
+        pool?.dispose();
+        setParserPool(null);
+        setMounted(false);
+      };
+    }, [useWorker, parserWorkers]);
 
     const handleRef = useCallback((id: string, handle: TerminalHandle | null) => {
       if (handle) {
@@ -376,14 +387,6 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       }
     }, [theme]);
 
-    // Dispose the parser pool on unmount. The pool itself was created
-    // synchronously via useState lazy init above.
-    useEffect(() => {
-      return () => {
-        parserPool?.dispose();
-      };
-    }, [parserPool]);
-
     useImperativeHandle(
       ref,
       () => ({
@@ -407,19 +410,21 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           ...style,
         }}
       >
-        <PaneNode
-          layout={layout}
-          onData={onData}
-          theme={theme}
-          fontSize={fontSize}
-          fontFamily={fontFamily}
-          fontWeight={fontWeight}
-          fontWeightBold={fontWeightBold}
-          useWorker={useWorker}
-          parserPool={parserPool}
-          onRef={handleRef}
-          sharedContext={sharedContext}
-        />
+        {mounted && (
+          <PaneNode
+            layout={layout}
+            onData={onData}
+            theme={theme}
+            fontSize={fontSize}
+            fontFamily={fontFamily}
+            fontWeight={fontWeight}
+            fontWeightBold={fontWeightBold}
+            useWorker={useWorker}
+            parserPool={parserPool}
+            onRef={handleRef}
+            sharedContext={sharedContext}
+          />
+        )}
       </div>
     );
   },
