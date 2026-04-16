@@ -262,7 +262,7 @@ export class WebTerminal {
 
       const grid = this.bufferSet.active.grid;
       const cursor = this.bufferSet.active.cursor;
-      this.sharedContext.addTerminal(this.paneId, grid, cursor);
+      this.sharedContext.addTerminal(options.paneId, grid, cursor);
 
       // The canvas is not appended to the DOM — shared context owns the canvas.
       // But we still need a container div for input handling.
