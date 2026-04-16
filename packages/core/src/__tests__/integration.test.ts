@@ -259,3 +259,23 @@ describe("ICH/DCH preserve inline RGB", () => {
     expect(grid.getFgRGB(0, 0)).toBe(0x00ff00);
   });
 });
+
+// ---------------------------------------------------------------------------
+// RGB black (0x000000) must not be dropped
+// ---------------------------------------------------------------------------
+describe("RGB black (0x000000)", () => {
+  it("fg RGB black is written and preserved, not stale", () => {
+    const { parser, grid } = setup(10, 3);
+    // Write a red cell, then overwrite same position with RGB black
+    write(parser, "\x1b[38;2;255;0;0mR\x1b[1G\x1b[38;2;0;0;0mB");
+    expect(grid.isFgRGB(0, 0)).toBe(true);
+    expect(grid.getFgRGB(0, 0)).toBe(0x000000);
+  });
+
+  it("bg RGB black is written and preserved", () => {
+    const { parser, grid } = setup(10, 3);
+    write(parser, "\x1b[48;2;0;0;0mX\x1b[0m");
+    expect(grid.isBgRGB(0, 0)).toBe(true);
+    expect(grid.getBgRGB(0, 0)).toBe(0x000000);
+  });
+});

@@ -544,7 +544,7 @@ export class VTParser {
         const word1Wide = word1 | (ATTR_WIDE << 8);
         const word2 = this.fgIsRGB ? this.fgRGB : 0;
         const word3 = this.bgIsRGB ? this.bgRGB : 0;
-        const hasRgb = word2 !== 0 || word3 !== 0;
+        const hasRgb = this.fgIsRGB || this.bgIsRGB;
 
         let cachedRow = cursor.row;
         let cachedRowStart = grid.rowStart(cachedRow);
