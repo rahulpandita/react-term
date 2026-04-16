@@ -10,7 +10,7 @@
  */
 
 import type { Theme } from "@next_term/core";
-import { SharedWebGLContext } from "@next_term/web";
+import { ParserPool, SharedWebGLContext } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { collectPaneIds, type PaneLayout } from "./pane-layout.js";
@@ -33,6 +33,9 @@ export interface TerminalPaneProps {
   fontWeightBold?: number;
   /** Control whether each pane uses a Web Worker for parsing. Defaults to auto-detect (SAB available). */
   useWorker?: boolean;
+  /** Number of shared parser workers. Panes share a pool instead of each spawning
+   *  their own worker. Set 0 to disable workers entirely. Default: auto (~4). */
+  parserWorkers?: number;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -63,6 +66,7 @@ interface PaneLeafProps {
   fontWeight?: number;
   fontWeightBold?: number;
   useWorker?: boolean;
+  parserPool?: ParserPool | null;
   onRef: (id: string, handle: TerminalHandle | null) => void;
   sharedContext: SharedWebGLContext | null;
 }
@@ -76,6 +80,7 @@ function PaneLeaf({
   fontWeight,
   fontWeightBold,
   useWorker,
+  parserPool,
   onRef,
   sharedContext,
 }: PaneLeafProps) {
@@ -131,6 +136,7 @@ function PaneLeaf({
         fontWeight={fontWeight}
         fontWeightBold={fontWeightBold}
         useWorker={useWorker}
+        parserPool={parserPool ?? undefined}
         onData={handleData}
         sharedContext={sharedContext ?? undefined}
         paneId={sharedContext ? id : undefined}
@@ -153,6 +159,7 @@ interface PaneNodeProps {
   fontWeight?: number;
   fontWeightBold?: number;
   useWorker?: boolean;
+  parserPool?: ParserPool | null;
   onRef: (id: string, handle: TerminalHandle | null) => void;
   sharedContext: SharedWebGLContext | null;
 }
@@ -166,6 +173,7 @@ function PaneNode({
   fontWeight,
   fontWeightBold,
   useWorker,
+  parserPool,
   onRef,
   sharedContext,
 }: PaneNodeProps) {
@@ -180,6 +188,7 @@ function PaneNode({
         fontWeight={fontWeight}
         fontWeightBold={fontWeightBold}
         useWorker={useWorker}
+        parserPool={parserPool}
         onRef={onRef}
         sharedContext={sharedContext}
       />
@@ -227,6 +236,7 @@ function PaneNode({
               fontWeight={fontWeight}
               fontWeightBold={fontWeightBold}
               useWorker={useWorker}
+              parserPool={parserPool}
               onRef={onRef}
               sharedContext={sharedContext}
             />
@@ -252,6 +262,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       fontWeight,
       fontWeightBold,
       useWorker,
+      parserWorkers,
       className,
       style,
     } = props;
@@ -259,6 +270,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     const terminalsRef = useRef<Map<string, TerminalHandle>>(new Map());
     const sharedContextRef = useRef<SharedWebGLContext | null>(null);
     const [sharedContext, setSharedContext] = useState<SharedWebGLContext | null>(null);
+    const parserPoolRef = useRef<ParserPool | null>(null);
+    const [parserPool, setParserPool] = useState<ParserPool | null>(null);
 
     const handleRef = useCallback((id: string, handle: TerminalHandle | null) => {
       if (handle) {
@@ -346,6 +359,25 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       }
     }, [theme]);
 
+    // Create and manage the shared parser worker pool.
+    // When useWorker is explicitly false, skip pool creation.
+    useEffect(() => {
+      if (useWorker === false) return;
+      try {
+        const pool = new ParserPool(parserWorkers);
+        parserPoolRef.current = pool;
+        setParserPool(pool);
+        return () => {
+          pool.dispose();
+          parserPoolRef.current = null;
+          setParserPool(null);
+        };
+      } catch {
+        // Pool creation failed — fall back to per-pane workers
+        return;
+      }
+    }, [parserWorkers, useWorker]);
+
     useImperativeHandle(
       ref,
       () => ({
@@ -378,6 +410,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           fontWeight={fontWeight}
           fontWeightBold={fontWeightBold}
           useWorker={useWorker}
+          parserPool={parserPool}
           onRef={handleRef}
           sharedContext={sharedContext}
         />

@@ -209,9 +209,6 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
   // Render react-term multi-pane
   if (activeTerminal?.terminal === "react-term") {
     const layout = buildLayout(activeTerminal.paneCount);
-    // Disable per-pane workers at high pane counts — the postMessage
-    // overhead of N workers exceeds the benefit of parallel parsing.
-    const useWorker = activeTerminal.paneCount <= 8;
     return (
       <div
         style={{
@@ -222,12 +219,7 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
           overflow: "hidden",
         }}
       >
-        <TerminalPane
-          ref={paneRef}
-          layout={layout}
-          useWorker={useWorker}
-          style={{ width: "100%", height: "100%" }}
-        />
+        <TerminalPane ref={paneRef} layout={layout} style={{ width: "100%", height: "100%" }} />
       </div>
     );
   }
