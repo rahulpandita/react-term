@@ -33,9 +33,21 @@ export interface TerminalPaneProps {
   fontWeightBold?: number;
   /** Control whether each pane uses a Web Worker for parsing. Defaults to auto-detect (SAB available). */
   useWorker?: boolean;
-  /** Number of shared parser workers. Panes share a pool instead of each spawning
-   *  their own worker. Set 0 to disable the pool (each pane gets its own worker
-   *  via useWorker instead). Default: auto (~4). */
+  /**
+   * Number of shared parser workers. All panes share a pool of this many
+   * workers, routed round-robin by the channel id (pane id).
+   *
+   * - `undefined` (default): `min(navigator.hardwareConcurrency ?? 4, 4)`.
+   *   Suitable for multi-pane layouts; at 1–2 panes the unused workers
+   *   cost ~1–2 MB RAM each and sit idle.
+   * - A positive integer: that exact number of workers.
+   * - `0`: disable the shared pool entirely. Each pane gets its own
+   *   dedicated worker via `useWorker`, same as a standalone `<Terminal>`.
+   *
+   * Changing this prop at runtime disposes the current pool and recreates
+   * it — which tears down all pane terminal state. Treat it as a
+   * mount-time setting in practice.
+   */
   parserWorkers?: number;
   className?: string;
   style?: React.CSSProperties;
