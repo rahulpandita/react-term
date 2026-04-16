@@ -108,12 +108,14 @@ export class ParserChannel {
       // Instead, surface the overflow so the consumer (WebTerminal) can
       // fall back to main-thread parsing.
       if (this.queuedBytes + data.byteLength > MAX_QUEUE_BYTES) {
-        this.disposed = true;
-        this.writeQueue.length = 0;
-        this.queuedBytes = 0;
-        this.onError?.(
-          `ParserChannel "${this.channelId}" queue exceeded ${MAX_QUEUE_BYTES} bytes — worker stalled, falling back`,
-        );
+        const errMessage = `ParserChannel "${this.channelId}" queue exceeded ${MAX_QUEUE_BYTES} bytes — worker stalled, falling back`;
+        // Tear down via the full dispose path FIRST so the worker is told
+        // the channel is gone and the pool removes the entry from its map.
+        // Otherwise the consumer's onError → releaseChannel → dispose()
+        // early-returns on `disposed`, leaving the pool + worker state
+        // leaked and preventing re-acquiring this paneId.
+        this.dispose();
+        this.onError?.(errMessage);
         return;
       }
       this.writeQueue.push(data);

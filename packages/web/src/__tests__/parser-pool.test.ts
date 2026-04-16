@@ -536,6 +536,39 @@ describe("ParserChannel", () => {
     pool.dispose();
   });
 
+  it("overflow cleans up pool + worker state so the paneId can be re-acquired", () => {
+    // Regression: previously, overflow set `disposed=true` synchronously,
+    // which made the consumer's onError → pool.releaseChannel → dispose()
+    // path bail on the `if (this.disposed) return` check. Worker never got
+    // the dispose message and the pool entry never got cleared, so the next
+    // acquireChannel with the same paneId threw "already in use".
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const onError = vi.fn(() => {
+      // Simulate what WebTerminal does on worker error: release the channel.
+      pool.releaseChannel("c1");
+    });
+    const channel = pool.acquireChannel("c1", grid, altGrid, makeCursor(), () => {}, onError);
+    channel.start(80, 24, 100);
+
+    // Overflow.
+    channel.write(new Uint8Array(3 * 1024 * 1024));
+    for (let i = 0; i < 15; i++) channel.write(new Uint8Array(1024 * 1024));
+    channel.write(new Uint8Array(2 * 1024 * 1024));
+
+    expect(onError).toHaveBeenCalled();
+    // Worker was told about the dispose (not skipped).
+    expect(createdWorkers[0].disposeCalls().some((m) => m.channelId === "c1")).toBe(true);
+
+    // Most important: the channelId can be re-acquired without throwing.
+    expect(() => {
+      const fresh = pool.acquireChannel("c1", grid, altGrid, makeCursor(), () => {});
+      fresh.start(80, 24, 100);
+    }).not.toThrow();
+
+    pool.dispose();
+  });
+
   it("releaseChannel sends a scoped dispose (does NOT terminate the worker)", () => {
     const pool = new ParserPool(1);
     const { grid, altGrid } = makeGrids();

@@ -284,6 +284,23 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     const sharedContextRef = useRef<SharedWebGLContext | null>(null);
     const [sharedContext, setSharedContext] = useState<SharedWebGLContext | null>(null);
 
+    // Warn on duplicate pane ids — the pool rejects them at acquire time,
+    // which causes WebTerminal to silently fall back to main-thread parsing.
+    useEffect(() => {
+      const ids = collectPaneIds(layout);
+      const seen = new Set<string>();
+      const duplicates: string[] = [];
+      for (const id of ids) {
+        if (seen.has(id)) duplicates.push(id);
+        seen.add(id);
+      }
+      if (duplicates.length > 0) {
+        console.warn(
+          `[TerminalPane] duplicate pane ids in layout: ${duplicates.join(", ")}. Each leaf must have a unique id.`,
+        );
+      }
+    }, [layout]);
+
     // Create the parser pool in a useEffect so StrictMode's double-invoke
     // of lazy initializers can't leak workers. Children render a placeholder
     // until the pool decision is committed (mounted=true), which prevents the
