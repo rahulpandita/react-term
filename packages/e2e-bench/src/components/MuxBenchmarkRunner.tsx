@@ -211,6 +211,7 @@ export function MuxBenchmarkRunner({ config, onResult, onProgress, onComplete }:
   // Render react-term multi-pane
   if (activeTerminal?.terminal === "react-term") {
     const layout = buildLayout(activeTerminal.paneCount);
+    const useWorker = activeTerminal.paneCount <= 8;
     return (
       <div
         style={{
@@ -221,7 +222,12 @@ export function MuxBenchmarkRunner({ config, onResult, onProgress, onComplete }:
           overflow: "hidden",
         }}
       >
-        <TerminalPane ref={paneRef} layout={layout} style={{ width: "100%", height: "100%" }} />
+        <TerminalPane
+          ref={paneRef}
+          layout={layout}
+          useWorker={useWorker}
+          style={{ width: "100%", height: "100%" }}
+        />
       </div>
     );
   }

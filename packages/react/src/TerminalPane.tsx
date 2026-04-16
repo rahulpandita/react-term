@@ -31,6 +31,8 @@ export interface TerminalPaneProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
+  /** Control whether each pane uses a Web Worker for parsing. Defaults to auto-detect (SAB available). */
+  useWorker?: boolean;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -60,6 +62,7 @@ interface PaneLeafProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
+  useWorker?: boolean;
   onRef: (id: string, handle: TerminalHandle | null) => void;
   sharedContext: SharedWebGLContext | null;
 }
@@ -72,6 +75,7 @@ function PaneLeaf({
   fontFamily,
   fontWeight,
   fontWeightBold,
+  useWorker,
   onRef,
   sharedContext,
 }: PaneLeafProps) {
@@ -126,6 +130,7 @@ function PaneLeaf({
         fontFamily={fontFamily}
         fontWeight={fontWeight}
         fontWeightBold={fontWeightBold}
+        useWorker={useWorker}
         onData={handleData}
         sharedContext={sharedContext ?? undefined}
         paneId={sharedContext ? id : undefined}
@@ -147,6 +152,7 @@ interface PaneNodeProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
+  useWorker?: boolean;
   onRef: (id: string, handle: TerminalHandle | null) => void;
   sharedContext: SharedWebGLContext | null;
 }
@@ -159,6 +165,7 @@ function PaneNode({
   fontFamily,
   fontWeight,
   fontWeightBold,
+  useWorker,
   onRef,
   sharedContext,
 }: PaneNodeProps) {
@@ -172,6 +179,7 @@ function PaneNode({
         fontFamily={fontFamily}
         fontWeight={fontWeight}
         fontWeightBold={fontWeightBold}
+        useWorker={useWorker}
         onRef={onRef}
         sharedContext={sharedContext}
       />
@@ -218,6 +226,7 @@ function PaneNode({
               fontFamily={fontFamily}
               fontWeight={fontWeight}
               fontWeightBold={fontWeightBold}
+              useWorker={useWorker}
               onRef={onRef}
               sharedContext={sharedContext}
             />
@@ -242,6 +251,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       fontFamily,
       fontWeight,
       fontWeightBold,
+      useWorker,
       className,
       style,
     } = props;
@@ -367,6 +377,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           fontFamily={fontFamily}
           fontWeight={fontWeight}
           fontWeightBold={fontWeightBold}
+          useWorker={useWorker}
           onRef={handleRef}
           sharedContext={sharedContext}
         />
