@@ -542,6 +542,9 @@ export class VTParser {
         const word1 =
           ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
         const word1Wide = word1 | (ATTR_WIDE << 8);
+        const word2 = this.fgIsRGB ? this.fgRGB : 0;
+        const word3 = this.bgIsRGB ? this.bgRGB : 0;
+        const hasRgb = word2 !== 0 || word3 !== 0;
 
         let cachedRow = cursor.row;
         let cachedRowStart = grid.rowStart(cachedRow);
@@ -627,8 +630,10 @@ export class VTParser {
             // Fill current cell with space, then wrap
             gridData[cellIdx] = 0x20 | word0Base;
             gridData[cellIdx + 1] = word1;
-            gridData[cellIdx + 2] = this.fgIsRGB ? this.fgRGB : 0;
-            gridData[cellIdx + 3] = this.bgIsRGB ? this.bgRGB : 0;
+            if (hasRgb) {
+              gridData[cellIdx + 2] = word2;
+              gridData[cellIdx + 3] = word3;
+            }
             grid.setWrapped(cachedRow, true);
             grid.markDirty(cachedRow);
             cursor.col = 0;
@@ -644,8 +649,10 @@ export class VTParser {
 
           gridData[cellIdx] = (cp & 0x1fffff) | word0Base;
           gridData[cellIdx + 1] = charWidth === 2 ? word1Wide : word1;
-          gridData[cellIdx + 2] = this.fgIsRGB ? this.fgRGB : 0;
-          gridData[cellIdx + 3] = this.bgIsRGB ? this.bgRGB : 0;
+          if (hasRgb) {
+            gridData[cellIdx + 2] = word2;
+            gridData[cellIdx + 3] = word3;
+          }
 
           if (charWidth === 2) {
             // Write spacer in next cell (right half of wide char)
@@ -654,8 +661,10 @@ export class VTParser {
               cellIdx += CELL_SIZE;
               gridData[cellIdx] = word0Base; // codepoint 0 = spacer
               gridData[cellIdx + 1] = word1;
-              gridData[cellIdx + 2] = this.fgIsRGB ? this.fgRGB : 0;
-              gridData[cellIdx + 3] = this.bgIsRGB ? this.bgRGB : 0;
+              if (hasRgb) {
+                gridData[cellIdx + 2] = word2;
+                gridData[cellIdx + 3] = word3;
+              }
             }
           }
 

@@ -678,9 +678,10 @@ export class WebTerminal {
 
       // Scrollback rows (expand compact rows to full format for reflow)
       for (let i = 0; i < oldBufferSet.scrollback.length; i++) {
+        const raw = oldBufferSet.scrollback[i];
         const cells = oldBufferSet.scrollbackCompact[i]
-          ? expandCompactRow(oldBufferSet.scrollback[i], oldBufferSet.cols)
-          : oldBufferSet.scrollback[i];
+          ? expandCompactRow(raw, raw.length >>> 1)
+          : raw;
         allRows.push({
           cells,
           wrapped: oldBufferSet.scrollbackWrap[i] ?? false,
