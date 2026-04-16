@@ -337,6 +337,55 @@ describe("ParserPool", () => {
     pool.dispose();
   });
 
+  it("worker-tagged generation is echoed through init → flush (integration)", () => {
+    // Integration test: no manual generation injection. We read the
+    // generation the pool sent on init, and echo THAT value back on flush —
+    // exactly what the real worker does. This is the test that would have
+    // caught the prior cosmetic fix where the worker never echoed generation.
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const flushOld = vi.fn();
+    const flushNew = vi.fn();
+
+    const c1 = pool.acquireChannel("a", grid, altGrid, makeCursor(), flushOld);
+    c1.start(80, 24, 100);
+    const gen1 = (createdWorkers[0].initCalls()[0] as { generation?: number }).generation;
+    expect(typeof gen1).toBe("number");
+
+    pool.releaseChannel("a");
+    const c2 = pool.acquireChannel("a", grid, altGrid, makeCursor(), flushNew);
+    c2.start(80, 24, 100);
+    const gen2 = (createdWorkers[0].initCalls()[1] as { generation?: number }).generation;
+    expect(gen2).not.toBe(gen1);
+
+    // Late flush for generation 1 (the prior lifecycle) — must not reach
+    // the new channel even though the channelId matches.
+    createdWorkers[0].simulateMessage({
+      type: "flush",
+      channelId: "a",
+      generation: gen1,
+      cursor: { row: 0, col: 0, visible: true, style: "block" },
+      isAlternate: false,
+      bytesProcessed: 5,
+      modes: DEFAULT_MODES,
+    });
+    expect(flushNew).not.toHaveBeenCalled();
+
+    // Flush with current generation is delivered.
+    createdWorkers[0].simulateMessage({
+      type: "flush",
+      channelId: "a",
+      generation: gen2,
+      cursor: { row: 0, col: 0, visible: true, style: "block" },
+      isAlternate: false,
+      bytesProcessed: 5,
+      modes: DEFAULT_MODES,
+    });
+    expect(flushNew).toHaveBeenCalledTimes(1);
+
+    pool.dispose();
+  });
+
   it("tagged generation rejects stale flushes after channelId reuse", () => {
     // Simulate a real-world reuse: acquire "a", release "a", acquire "a"
     // again. A late flush from the first lifecycle must NOT reach the
@@ -455,6 +504,34 @@ describe("ParserChannel", () => {
 
     expect(a.isPaused).toBe(false);
     expect(b.isPaused).toBe(false);
+
+    pool.dispose();
+  });
+
+  it("writeQueue overflow invokes onError (no silent byte drop)", () => {
+    // With no flushes coming back, once pendingBytes crosses HIGH_WATERMARK
+    // the channel pauses and subsequent writes land in writeQueue. Past the
+    // 16 MB cap, the channel surfaces an error and disposes itself — the
+    // consumer (WebTerminal) then falls back to main-thread parsing.
+    // Silently dropping bytes mid-escape corrupts the VT parser, so the
+    // cap must surface rather than drop.
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const onError = vi.fn();
+    const channel = pool.acquireChannel("c1", grid, altGrid, makeCursor(), () => {}, onError);
+    channel.start(80, 24, 100);
+
+    // 3 MB crosses the 2 MB HIGH_WATERMARK — channel is now paused.
+    channel.write(new Uint8Array(3 * 1024 * 1024));
+    expect(channel.isPaused).toBe(true);
+
+    // Queue 15 MB more (total queued 15 MB, under the 16 MB cap).
+    for (let i = 0; i < 15; i++) channel.write(new Uint8Array(1024 * 1024));
+    expect(onError).not.toHaveBeenCalled();
+
+    // The next 2 MB write would push the queue over 16 MB — surface error.
+    channel.write(new Uint8Array(2 * 1024 * 1024));
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("queue exceeded"));
 
     pool.dispose();
   });

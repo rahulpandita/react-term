@@ -29,7 +29,8 @@ export interface TerminalProps {
   useWorker?: boolean;
   /** Shared WebGL context for multi-pane rendering. */
   sharedContext?: SharedWebGLContext;
-  /** Pane ID within the shared context. Required when sharedContext is provided. */
+  /** Unique identifier for this pane. Required when `sharedContext` or
+   *  `parserPool` is provided — it's used as the channel id in both. */
   paneId?: string;
   /** Shared parser worker pool for multi-pane parsing. */
   parserPool?: ParserPool;

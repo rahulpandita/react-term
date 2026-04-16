@@ -359,4 +359,54 @@ describe("multi-channel mode", () => {
     expect(err.type).toBe("error");
     expect(err.channelId).toBe("c1");
   });
+
+  it("echoes init generation onto every outbound flush for that channel", () => {
+    sent.length = 0;
+    dispatch({
+      type: "init",
+      channelId: "g1",
+      generation: 7,
+      cols: 80,
+      rows: 24,
+      scrollback: 100,
+    });
+
+    dispatch({ type: "write", channelId: "g1", generation: 7, data: enc("X") });
+    const flush = lastFlushFor("g1");
+    expect(flush).toBeDefined();
+    expect(flush?.generation).toBe(7);
+  });
+
+  it("re-init with a new generation invalidates stale writes", () => {
+    sent.length = 0;
+    dispatch({
+      type: "init",
+      channelId: "g2",
+      generation: 1,
+      cols: 80,
+      rows: 24,
+      scrollback: 100,
+    });
+    // Client re-acquired (new generation). Old writes are now stale.
+    dispatch({
+      type: "init",
+      channelId: "g2",
+      generation: 2,
+      cols: 80,
+      rows: 24,
+      scrollback: 100,
+    });
+
+    sent.length = 0;
+    // A stale write from the OLD generation arrives late — must be dropped.
+    dispatch({ type: "write", channelId: "g2", generation: 1, data: enc("A") });
+    const staleFlush = lastFlushFor("g2");
+    expect(staleFlush).toBeUndefined();
+
+    // A write with the CURRENT generation produces a flush tagged with
+    // the current generation.
+    dispatch({ type: "write", channelId: "g2", generation: 2, data: enc("B") });
+    const currentFlush = lastFlushFor("g2");
+    expect(currentFlush?.generation).toBe(2);
+  });
 });

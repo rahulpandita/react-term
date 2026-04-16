@@ -82,8 +82,10 @@ export interface WebTerminalOptions {
    */
   sharedContext?: SharedWebGLContext;
   /**
-   * Unique identifier for this pane within a SharedWebGLContext.
-   * Required when `sharedContext` is provided.
+   * Unique identifier for this pane. Required when `sharedContext` OR
+   * `parserPool` is provided — used as the channel id in both. Passing
+   * either without `paneId` logs a warning and silently skips that
+   * shared resource for this terminal.
    */
   paneId?: string;
   /**
@@ -253,6 +255,14 @@ export class WebTerminal {
     // is also in play — otherwise the parser pool is silently bypassed.
     if (options?.paneId) {
       this.paneId = options.paneId;
+    } else if (options?.sharedContext || options?.parserPool) {
+      // Misconfiguration: a shared resource was provided but no paneId.
+      // We can't register the terminal with the shared context/pool, so
+      // both are silently skipped. Warn once at construction so consumers
+      // notice rather than debugging "why is my pool unused?".
+      console.warn(
+        "[WebTerminal] sharedContext/parserPool provided without paneId — shared resources will NOT be used for this terminal. Pass a unique paneId to opt in.",
+      );
     }
 
     if (options?.sharedContext && options?.paneId) {

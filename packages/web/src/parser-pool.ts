@@ -33,6 +33,12 @@ import { CELL_SIZE, type CellGrid, modPositive } from "@next_term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 import { HIGH_WATERMARK, LOW_WATERMARK, SAB_AVAILABLE } from "./worker-bridge.js";
 
+/** Hard cap on per-channel writeQueue memory when the worker is stalled.
+ *  Exceeding this invokes onError so the consumer can fall back to
+ *  main-thread parsing rather than silently dropping bytes (which would
+ *  corrupt the VT parser mid-escape-sequence). */
+const MAX_QUEUE_BYTES = 16 * 1024 * 1024; // 16 MB
+
 // ---- ParserChannel ----------------------------------------------------------
 
 /**
@@ -97,6 +103,19 @@ export class ParserChannel {
     if (this.disposed) return;
 
     if (this.poolPaused) {
+      // Never silently drop bytes mid-stream — dropping inside an escape
+      // sequence corrupts the parser for the remainder of the session.
+      // Instead, surface the overflow so the consumer (WebTerminal) can
+      // fall back to main-thread parsing.
+      if (this.queuedBytes + data.byteLength > MAX_QUEUE_BYTES) {
+        this.disposed = true;
+        this.writeQueue.length = 0;
+        this.queuedBytes = 0;
+        this.onError?.(
+          `ParserChannel "${this.channelId}" queue exceeded ${MAX_QUEUE_BYTES} bytes — worker stalled, falling back`,
+        );
+        return;
+      }
       this.writeQueue.push(data);
       this.queuedBytes += data.byteLength;
       return;

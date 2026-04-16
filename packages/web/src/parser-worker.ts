@@ -27,6 +27,9 @@ declare type DedicatedWorkerGlobalScope = typeof globalThis & {
 interface InitMessage {
   type: "init";
   channelId?: string;
+  /** Monotonic per-channelId — echoed back on flushes so the pool can drop
+   *  stale messages from a previous lifecycle. */
+  generation?: number;
   cols: number;
   rows: number;
   scrollback: number;
@@ -39,12 +42,14 @@ interface InitMessage {
 interface WriteMessage {
   type: "write";
   channelId?: string;
+  generation?: number;
   data: ArrayBuffer; // Transferable
 }
 
 interface ResizeMessage {
   type: "resize";
   channelId?: string;
+  generation?: number;
   cols: number;
   rows: number;
   scrollback: number;
@@ -61,6 +66,7 @@ interface ResizeMessage {
 interface DisposeMessage {
   type: "dispose";
   channelId?: string;
+  generation?: number;
 }
 
 type InboundMessage = InitMessage | WriteMessage | ResizeMessage | DisposeMessage;
@@ -69,6 +75,9 @@ type InboundMessage = InitMessage | WriteMessage | ResizeMessage | DisposeMessag
 export interface FlushMessage {
   type: "flush";
   channelId?: string;
+  /** Echoed from the init that created the channel. Pool uses this to
+   *  drop stale flushes after channelId reuse on the same worker. */
+  generation?: number;
   cursor: { row: number; col: number; visible: boolean; style: string };
   /** true when the parser switched to or from the alternate buffer. */
   isAlternate: boolean;
@@ -98,6 +107,7 @@ export interface FlushMessage {
 export interface ErrorMessage {
   type: "error";
   channelId?: string;
+  generation?: number;
   message: string;
 }
 
@@ -110,6 +120,8 @@ interface ChannelState {
   bufferSet: BufferSet;
   parser: VTParser;
   usingSAB: boolean;
+  /** Stored from init; echoed on every outbound flush/error for this channel. */
+  generation: number | undefined;
 }
 
 /** Multi-channel state. */
@@ -128,6 +140,7 @@ function createBufferAndParser(
   scrollback: number,
   sharedBuffer?: SharedArrayBuffer,
   sharedAltBuffer?: SharedArrayBuffer,
+  generation?: number,
 ): ChannelState {
   const bs = new BufferSet(cols, rows, scrollback, sharedBuffer, sharedAltBuffer);
   const p = new VTParser(bs);
@@ -135,6 +148,7 @@ function createBufferAndParser(
     bufferSet: bs,
     parser: p,
     usingSAB: sharedBuffer !== undefined,
+    generation,
   };
 }
 
@@ -144,6 +158,7 @@ function buildFlush(ch: ChannelState, bytesProcessed: number, channelId?: string
   const msg: FlushMessage = {
     type: "flush",
     channelId,
+    generation: ch.generation,
     cursor: {
       row: cursor.row,
       col: cursor.col,
@@ -227,7 +242,10 @@ function handleMessage(msg: InboundMessage): void {
       }
       const bytes = new Uint8Array(msg.data);
       parser.write(bytes);
-      const flush = buildFlush({ bufferSet, parser, usingSAB }, bytes.length);
+      const flush = buildFlush(
+        { bufferSet, parser, usingSAB, generation: undefined },
+        bytes.length,
+      );
       postFlush(flush, usingSAB);
       break;
     }
@@ -259,7 +277,7 @@ function handleMessage(msg: InboundMessage): void {
         }
         grid.markAllDirty();
       }
-      const flush = buildFlush({ bufferSet, parser, usingSAB }, 0);
+      const flush = buildFlush({ bufferSet, parser, usingSAB, generation: undefined }, 0);
       postFlush(flush, usingSAB);
       break;
     }
@@ -283,6 +301,7 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
         msg.scrollback,
         msg.sharedBuffer,
         msg.sharedAltBuffer,
+        msg.generation,
       );
       channels.set(channelId, ch);
       break;
@@ -291,9 +310,16 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
     case "write": {
       const ch = channels.get(channelId);
       if (!ch) {
-        postError(`Channel "${channelId}" not initialised — ignoring write`, channelId);
+        postError(
+          `Channel "${channelId}" not initialised — ignoring write`,
+          channelId,
+          msg.generation,
+        );
         return;
       }
+      // Drop writes whose generation doesn't match the channel's current
+      // lifecycle — these are from a prior acquire that was disposed.
+      if (msg.generation !== undefined && msg.generation !== ch.generation) return;
       const bytes = new Uint8Array(msg.data);
       ch.parser.write(bytes);
       const flush = buildFlush(ch, bytes.length, channelId);
@@ -302,12 +328,18 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
     }
 
     case "resize": {
+      const existing = channels.get(channelId);
+      // Drop stale resize from a prior lifecycle.
+      if (existing && msg.generation !== undefined && msg.generation !== existing.generation) {
+        return;
+      }
       const newCh = createBufferAndParser(
         msg.cols,
         msg.rows,
         msg.scrollback,
         msg.sharedBuffer,
         msg.sharedAltBuffer,
+        msg.generation ?? existing?.generation,
       );
       channels.set(channelId, newCh);
       if (msg.cursorRow != null && msg.cursorCol != null) {
@@ -332,6 +364,13 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
     }
 
     case "dispose": {
+      const existing = channels.get(channelId);
+      // Drop stale dispose from a prior lifecycle — the newer init has
+      // already taken over this channelId. (This can happen if the main
+      // thread re-acquires while the prior dispose is still in flight.)
+      if (existing && msg.generation !== undefined && msg.generation !== existing.generation) {
+        return;
+      }
       channels.delete(channelId);
       // Do NOT close the worker — other channels may still be active.
       break;
@@ -339,8 +378,8 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
   }
 }
 
-function postError(message: string, channelId?: string): void {
-  const err: ErrorMessage = { type: "error", channelId, message };
+function postError(message: string, channelId?: string, generation?: number): void {
+  const err: ErrorMessage = { type: "error", channelId, generation, message };
   (self as unknown as DedicatedWorkerGlobalScope).postMessage(err);
 }
 
@@ -352,7 +391,11 @@ function postError(message: string, channelId?: string): void {
     try {
       handleMessage(event.data);
     } catch (e: unknown) {
-      postError(e instanceof Error ? e.message : "Internal parser error", event.data?.channelId);
+      postError(
+        e instanceof Error ? e.message : "Internal parser error",
+        event.data?.channelId,
+        event.data?.generation,
+      );
     }
   },
 );
