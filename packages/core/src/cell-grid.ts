@@ -3,12 +3,14 @@ const SAB_AVAILABLE =
   typeof SharedArrayBuffer !== "undefined" &&
   (typeof crossOriginIsolated !== "undefined" ? crossOriginIsolated : true);
 
-// Cell packing: 2 x Uint32 per cell
+// Cell packing: 4 x Uint32 per cell
 // Word 0: [0-20] codepoint, [21] fg-is-rgb, [22] bg-is-rgb, [23-30] fg-index, [31] dirty
 // Word 1: [0-7] bg-index, [8] bold, [9] italic, [10] underline, [11] strikethrough,
 //         [12-13] underline-style, [14] inverse, [15] wide, [16-31] reserved
+// Word 2: fg RGB (24-bit packed, meaningful when fg-is-rgb flag is set)
+// Word 3: bg RGB (24-bit packed, meaningful when bg-is-rgb flag is set)
 
-export const CELL_SIZE = 2; // 2 x uint32 per cell
+export const CELL_SIZE = 4; // 4 x uint32 per cell
 
 /** Default blank cell word0: space (0x20) + default fg index 7. */
 export const DEFAULT_CELL_W0 = 0x20 | (7 << 23);
@@ -25,7 +27,6 @@ export class CellGrid {
   readonly rows: number;
   readonly data: Uint32Array;
   readonly dirtyRows: Int32Array;
-  readonly rgbColors: Uint32Array;
   private readonly buffer: SharedArrayBuffer | ArrayBuffer;
   readonly isShared: boolean;
   private readonly _templateRow: Uint32Array;
@@ -52,7 +53,6 @@ export class CellGrid {
 
     const cellBytes = cols * rows * CELL_SIZE * 4;
     const dirtyBytes = rows * 4; // Int32Array: 4 bytes per element
-    const rgbBytes = 512 * 4;
     const cursorBytes = 4 * 4; // 4 x Int32: row, col, visible, style
     const offsetBytes = 1 * 4; // 1 x Int32: row offset for circular buffer
     const wrapBytes = rows * 4; // Int32Array: 1 per row for wrap flags
@@ -63,7 +63,7 @@ export class CellGrid {
       this.buffer = existingBuffer;
       this.isShared = true;
     } else {
-      const totalBytes = cellBytes + dirtyBytes + rgbBytes + cursorBytes + offsetBytes + wrapBytes;
+      const totalBytes = cellBytes + dirtyBytes + cursorBytes + offsetBytes + wrapBytes;
       const BufferType = SAB_AVAILABLE ? SharedArrayBuffer : ArrayBuffer;
       this.buffer = new BufferType(totalBytes);
       this.isShared = SAB_AVAILABLE;
@@ -71,16 +71,11 @@ export class CellGrid {
 
     this.data = new Uint32Array(this.buffer, 0, cols * rows * CELL_SIZE);
     this.dirtyRows = new Int32Array(this.buffer, cellBytes, rows);
-    this.rgbColors = new Uint32Array(this.buffer, cellBytes + dirtyBytes, 512);
-    this.cursorData = new Int32Array(this.buffer, cellBytes + dirtyBytes + rgbBytes, 4);
-    this.rowOffsetData = new Int32Array(
-      this.buffer,
-      cellBytes + dirtyBytes + rgbBytes + cursorBytes,
-      1,
-    );
+    this.cursorData = new Int32Array(this.buffer, cellBytes + dirtyBytes, 4);
+    this.rowOffsetData = new Int32Array(this.buffer, cellBytes + dirtyBytes + cursorBytes, 1);
     this.wrapFlags = new Int32Array(
       this.buffer,
-      cellBytes + dirtyBytes + rgbBytes + cursorBytes + offsetBytes,
+      cellBytes + dirtyBytes + cursorBytes + offsetBytes,
       rows,
     );
 
@@ -195,6 +190,14 @@ export class CellGrid {
     return col > 0 && this.getCodepoint(row, col) === 0 && this.isWide(row, col - 1);
   }
 
+  getFgRGB(row: number, col: number): number {
+    return this.data[this.rowStart(row) + col * CELL_SIZE + 2];
+  }
+
+  getBgRGB(row: number, col: number): number {
+    return this.data[this.rowStart(row) + col * CELL_SIZE + 3];
+  }
+
   setCell(
     row: number,
     col: number,
@@ -204,6 +207,8 @@ export class CellGrid {
     attrs: number,
     fgIsRGB = false,
     bgIsRGB = false,
+    fgRGB = 0,
+    bgRGB = 0,
   ): void {
     const idx = this.rowStart(row) + col * CELL_SIZE;
     this.data[idx] =
@@ -212,6 +217,8 @@ export class CellGrid {
       (bgIsRGB ? 1 << 22 : 0) |
       ((fgIndex & 0xff) << 23);
     this.data[idx + 1] = (bgIndex & 0xff) | ((attrs & 0xff) << 8);
+    this.data[idx + 2] = fgRGB;
+    this.data[idx + 3] = bgRGB;
     this.markDirty(row);
   }
 
@@ -275,6 +282,59 @@ export class CellGrid {
     const start = this.rowStart(row);
     const len = this.cols * CELL_SIZE;
     for (let i = 0; i < len; i++) dest[i] = this.data[start + i];
+  }
+
+  /** True if any cell in a logical row has fg-is-rgb or bg-is-rgb flags. */
+  rowHasRgb(row: number): boolean {
+    const start = this.rowStart(row);
+    for (let c = 0; c < this.cols; c++) {
+      if (this.data[start + c * CELL_SIZE] & ((1 << 21) | (1 << 22))) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Copy a row in compact format (2 words/cell) when no RGB flags are set,
+   * or full format (4 words/cell) when RGB is present. This halves scrollback
+   * memory for the common non-truecolor case.
+   */
+  copyRowCompact(row: number): Uint32Array {
+    const start = this.rowStart(row);
+    if (this.rowHasRgb(row)) {
+      return new Uint32Array(this.data.slice(start, start + this.cols * CELL_SIZE));
+    }
+    const compact = new Uint32Array(this.cols * 2);
+    for (let c = 0; c < this.cols; c++) {
+      compact[c * 2] = this.data[start + c * CELL_SIZE];
+      compact[c * 2 + 1] = this.data[start + c * CELL_SIZE + 1];
+    }
+    return compact;
+  }
+
+  /**
+   * Paste a compact (2 words/cell) row directly into the grid, expanding
+   * inline without allocating. Words 2,3 are zeroed (no RGB).
+   */
+  pasteCompactRow(row: number, src: Uint32Array, wrapped?: boolean): void {
+    const start = this.rowStart(row);
+    const srcCols = src.length >>> 1;
+    const pasteCols = Math.min(srcCols, this.cols);
+    for (let c = 0; c < pasteCols; c++) {
+      this.data[start + c * CELL_SIZE] = src[c * 2];
+      this.data[start + c * CELL_SIZE + 1] = src[c * 2 + 1];
+      this.data[start + c * CELL_SIZE + 2] = 0;
+      this.data[start + c * CELL_SIZE + 3] = 0;
+    }
+    for (let c = pasteCols; c < this.cols; c++) {
+      this.data[start + c * CELL_SIZE] = DEFAULT_CELL_W0;
+      this.data[start + c * CELL_SIZE + 1] = DEFAULT_CELL_W1;
+      this.data[start + c * CELL_SIZE + 2] = 0;
+      this.data[start + c * CELL_SIZE + 3] = 0;
+    }
+    if (wrapped !== undefined) {
+      this.setWrapped(row, wrapped);
+    }
+    this.markDirty(row);
   }
 
   /** Overwrite a logical row from a previously copied Uint32Array. */
@@ -357,6 +417,30 @@ export class CellGrid {
   getBuffer(): SharedArrayBuffer | ArrayBuffer {
     return this.buffer;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Compact row expansion
+// ---------------------------------------------------------------------------
+
+/**
+ * Expand a compact (2 words/cell) scrollback row to full (CELL_SIZE words/cell).
+ * Fills words 2,3 with 0 (no RGB). Pads short rows with default cells.
+ */
+export function expandCompactRow(compact: Uint32Array, cols: number): Uint32Array {
+  const full = new Uint32Array(cols * CELL_SIZE);
+  const srcCols = compact.length >>> 1; // compact.length / 2
+  const copyCols = Math.min(srcCols, cols);
+  for (let c = 0; c < copyCols; c++) {
+    full[c * CELL_SIZE] = compact[c * 2];
+    full[c * CELL_SIZE + 1] = compact[c * 2 + 1];
+    // words 2,3 default to 0 (no RGB)
+  }
+  for (let c = copyCols; c < cols; c++) {
+    full[c * CELL_SIZE] = DEFAULT_CELL_W0;
+    full[c * CELL_SIZE + 1] = DEFAULT_CELL_W1;
+  }
+  return full;
 }
 
 // ---------------------------------------------------------------------------

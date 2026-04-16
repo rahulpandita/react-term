@@ -1,4 +1,4 @@
-import { CellGrid, DEFAULT_THEME } from "@next_term/core";
+import { DEFAULT_THEME } from "@next_term/core";
 import { describe, expect, it } from "vitest";
 import { build256Palette } from "../renderer.js";
 
@@ -83,16 +83,13 @@ describe("Color resolution", () => {
   function resolveCellColor(
     colorIdx: number,
     isRGB: boolean,
-    grid: CellGrid,
-    col: number,
+    rgbValue: number,
     isForeground: boolean,
   ): string {
     if (isRGB) {
-      const offset = isForeground ? col : 256 + col;
-      const rgb = grid.rgbColors[offset];
-      const r = (rgb >> 16) & 0xff;
-      const g = (rgb >> 8) & 0xff;
-      const b = rgb & 0xff;
+      const r = (rgbValue >> 16) & 0xff;
+      const g = (rgbValue >> 8) & 0xff;
+      const b = rgbValue & 0xff;
       return `rgb(${r},${g},${b})`;
     }
 
@@ -106,45 +103,39 @@ describe("Color resolution", () => {
     return isForeground ? DEFAULT_THEME.foreground : DEFAULT_THEME.background;
   }
 
-  const grid = new CellGrid(80, 24);
-
   it("fgIndex=7 resolves to theme.foreground", () => {
-    expect(resolveCellColor(7, false, grid, 0, true)).toBe(DEFAULT_THEME.foreground);
+    expect(resolveCellColor(7, false, 0, true)).toBe(DEFAULT_THEME.foreground);
   });
 
   it("bgIndex=0 resolves to theme.background", () => {
-    expect(resolveCellColor(0, false, grid, 0, false)).toBe(DEFAULT_THEME.background);
+    expect(resolveCellColor(0, false, 0, false)).toBe(DEFAULT_THEME.background);
   });
 
   it("fgIndex=1 resolves to palette[1] (red)", () => {
-    expect(resolveCellColor(1, false, grid, 0, true)).toBe(palette[1]);
-    expect(resolveCellColor(1, false, grid, 0, true)).toBe(DEFAULT_THEME.red);
+    expect(resolveCellColor(1, false, 0, true)).toBe(palette[1]);
+    expect(resolveCellColor(1, false, 0, true)).toBe(DEFAULT_THEME.red);
   });
 
   it("bgIndex=2 resolves to palette[2] (green)", () => {
-    expect(resolveCellColor(2, false, grid, 0, false)).toBe(palette[2]);
-    expect(resolveCellColor(2, false, grid, 0, false)).toBe(DEFAULT_THEME.green);
+    expect(resolveCellColor(2, false, 0, false)).toBe(palette[2]);
+    expect(resolveCellColor(2, false, 0, false)).toBe(DEFAULT_THEME.green);
   });
 
   it("fgIndex=8 resolves to palette[8] (brightBlack)", () => {
-    expect(resolveCellColor(8, false, grid, 0, true)).toBe(DEFAULT_THEME.brightBlack);
+    expect(resolveCellColor(8, false, 0, true)).toBe(DEFAULT_THEME.brightBlack);
   });
 
   it("256-color index resolves to correct palette entry", () => {
-    expect(resolveCellColor(123, false, grid, 0, true)).toBe(palette[123]);
+    expect(resolveCellColor(123, false, 0, true)).toBe(palette[123]);
   });
 
-  it("RGB foreground resolves from rgbColors", () => {
-    const testGrid = new CellGrid(80, 24);
+  it("RGB foreground resolves from inline cell data", () => {
     const packedRGB = (255 << 16) | (128 << 8) | 64;
-    testGrid.rgbColors[5] = packedRGB; // col=5, foreground
-    expect(resolveCellColor(0, true, testGrid, 5, true)).toBe("rgb(255,128,64)");
+    expect(resolveCellColor(0, true, packedRGB, true)).toBe("rgb(255,128,64)");
   });
 
-  it("RGB background resolves from rgbColors[256 + col]", () => {
-    const testGrid = new CellGrid(80, 24);
+  it("RGB background resolves from inline cell data", () => {
     const packedRGB = (10 << 16) | (20 << 8) | 30;
-    testGrid.rgbColors[256 + 3] = packedRGB; // col=3, background
-    expect(resolveCellColor(0, true, testGrid, 3, false)).toBe("rgb(10,20,30)");
+    expect(resolveCellColor(0, true, packedRGB, false)).toBe("rgb(10,20,30)");
   });
 });

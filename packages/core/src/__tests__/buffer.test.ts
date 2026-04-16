@@ -337,4 +337,33 @@ describe("BufferSet scrollbackWrap", () => {
     expect(bs.scrollbackWrap[1]).toBe(true);
     expect(bs.scrollbackWrap[2]).toBe(false);
   });
+
+  it("scrollUpWithHistory stores compact flag for non-RGB rows", () => {
+    const bs = new BufferSet(10, 3, 5);
+    // Write a plain row (no RGB) to row 0
+    bs.active.grid.setCell(0, 0, 0x41, 7, 0, 0);
+    bs.scrollUpWithHistory();
+    expect(bs.scrollback.length).toBe(1);
+    expect(bs.scrollbackCompact[0]).toBe(true);
+    expect(bs.scrollback[0].length).toBe(10 * 2); // compact: 2 words/cell
+  });
+
+  it("scrollUpWithHistory stores full row for RGB rows", () => {
+    const bs = new BufferSet(10, 3, 5);
+    bs.active.grid.setCell(0, 0, 0x41, 0, 0, 0, true, false, 0xff0000);
+    bs.scrollUpWithHistory();
+    expect(bs.scrollback.length).toBe(1);
+    expect(bs.scrollbackCompact[0]).toBe(false);
+    expect(bs.scrollback[0].length).toBe(10 * 4); // full: CELL_SIZE words/cell
+  });
+
+  it("pushScrollback evicts compact flag alongside row data", () => {
+    const bs = new BufferSet(10, 3, 2);
+    bs.pushScrollback(new Uint32Array(20), false, true); // compact
+    bs.pushScrollback(new Uint32Array(40), false, false); // full
+    bs.pushScrollback(new Uint32Array(20), false, true); // evicts first
+    expect(bs.scrollbackCompact.length).toBe(2);
+    expect(bs.scrollbackCompact[0]).toBe(false);
+    expect(bs.scrollbackCompact[1]).toBe(true);
+  });
 });

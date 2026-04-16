@@ -66,9 +66,9 @@ describe("24-bit RGB foreground", () => {
 
     expect(grid.getCodepoint(0, 0)).toBe(0x52); // 'R'
     expect(grid.isFgRGB(0, 0)).toBe(true);
-    // rgbColors[col] holds packed RGB for foreground
+    // Inline word 2 holds packed RGB for foreground
     const expectedRGB = (100 << 16) | (200 << 8) | 50;
-    expect(grid.rgbColors[0]).toBe(expectedRGB);
+    expect(grid.getFgRGB(0, 0)).toBe(expectedRGB);
   });
 });
 
@@ -111,7 +111,7 @@ describe("RGB background", () => {
     expect(grid.getCodepoint(0, 0)).toBe(0x44); // 'D'
     expect(grid.isBgRGB(0, 0)).toBe(true);
     const expectedRGB = (10 << 16) | (20 << 8) | 30;
-    expect(grid.rgbColors[256 + 0]).toBe(expectedRGB);
+    expect(grid.getBgRGB(0, 0)).toBe(expectedRGB);
   });
 });
 
@@ -221,3 +221,61 @@ function readRowText(
   }
   return s;
 }
+
+// ---------------------------------------------------------------------------
+// ICH/DCH preserve inline RGB (#146)
+// ---------------------------------------------------------------------------
+describe("ICH/DCH preserve inline RGB", () => {
+  it("ICH shifts RGB cells right", () => {
+    const { parser, grid } = setup(10, 3);
+    // Write "AB" with RGB fg on 'B' at col 1
+    write(parser, "A\x1b[38;2;255;0;0mB\x1b[0m");
+    expect(grid.isFgRGB(0, 1)).toBe(true);
+    expect(grid.getFgRGB(0, 1)).toBe(0xff0000);
+
+    // Move cursor to col 0, insert 1 char (ICH)
+    write(parser, "\x1b[1G\x1b[1@");
+
+    // 'A' shifted to col 1, 'B' (with RGB) shifted to col 2
+    expect(grid.getCodepoint(0, 1)).toBe(0x41); // 'A'
+    expect(grid.getCodepoint(0, 2)).toBe(0x42); // 'B'
+    expect(grid.isFgRGB(0, 2)).toBe(true);
+    expect(grid.getFgRGB(0, 2)).toBe(0xff0000);
+  });
+
+  it("DCH shifts RGB cells left", () => {
+    const { parser, grid } = setup(10, 3);
+    // Write " B" — space at col 0, RGB 'B' at col 1
+    write(parser, " \x1b[38;2;0;255;0mB\x1b[0m");
+    expect(grid.isFgRGB(0, 1)).toBe(true);
+    expect(grid.getFgRGB(0, 1)).toBe(0x00ff00);
+
+    // Move cursor to col 0, delete 1 char (DCH)
+    write(parser, "\x1b[1G\x1b[1P");
+
+    // 'B' (with RGB) shifted to col 0
+    expect(grid.getCodepoint(0, 0)).toBe(0x42); // 'B'
+    expect(grid.isFgRGB(0, 0)).toBe(true);
+    expect(grid.getFgRGB(0, 0)).toBe(0x00ff00);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RGB black (0x000000) must not be dropped
+// ---------------------------------------------------------------------------
+describe("RGB black (0x000000)", () => {
+  it("fg RGB black is written and preserved, not stale", () => {
+    const { parser, grid } = setup(10, 3);
+    // Write a red cell, then overwrite same position with RGB black
+    write(parser, "\x1b[38;2;255;0;0mR\x1b[1G\x1b[38;2;0;0;0mB");
+    expect(grid.isFgRGB(0, 0)).toBe(true);
+    expect(grid.getFgRGB(0, 0)).toBe(0x000000);
+  });
+
+  it("bg RGB black is written and preserved", () => {
+    const { parser, grid } = setup(10, 3);
+    write(parser, "\x1b[48;2;0;0;0mX\x1b[0m");
+    expect(grid.isBgRGB(0, 0)).toBe(true);
+    expect(grid.getBgRGB(0, 0)).toBe(0x000000);
+  });
+});

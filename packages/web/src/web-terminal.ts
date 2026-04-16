@@ -19,6 +19,7 @@ import {
   CELL_SIZE,
   CellGrid,
   DEFAULT_THEME,
+  expandCompactRow,
   reflowRows,
   VTParser,
 } from "@next_term/core";
@@ -675,10 +676,14 @@ export class WebTerminal {
       // 1. Collect all rows: scrollback + viewport
       const allRows: RowData[] = [];
 
-      // Scrollback rows
+      // Scrollback rows (expand compact rows to full format for reflow)
       for (let i = 0; i < oldBufferSet.scrollback.length; i++) {
+        const raw = oldBufferSet.scrollback[i];
+        const cells = oldBufferSet.scrollbackCompact[i]
+          ? expandCompactRow(raw, raw.length >>> 1)
+          : raw;
         allRows.push({
-          cells: oldBufferSet.scrollback[i],
+          cells,
           wrapped: oldBufferSet.scrollbackWrap[i] ?? false,
         });
       }
@@ -720,9 +725,27 @@ export class WebTerminal {
       );
 
       // Scrollback: everything before screenStart.
-      // Reflowed rows are already at newCols width with defaults filled.
+      // Reflowed rows are full-format; re-compact non-RGB rows to save memory.
       for (let i = 0; i < screenStart; i++) {
-        this.bufferSet.pushScrollback(reflowed[i].cells, reflowed[i].wrapped);
+        const cells = reflowed[i].cells;
+        let hasRgb = false;
+        const rowCols = cells.length / CELL_SIZE;
+        for (let c = 0; c < rowCols; c++) {
+          if (cells[c * CELL_SIZE] & ((1 << 21) | (1 << 22))) {
+            hasRgb = true;
+            break;
+          }
+        }
+        if (hasRgb) {
+          this.bufferSet.pushScrollback(cells, reflowed[i].wrapped);
+        } else {
+          const compact = new Uint32Array(rowCols * 2);
+          for (let c = 0; c < rowCols; c++) {
+            compact[c * 2] = cells[c * CELL_SIZE];
+            compact[c * 2 + 1] = cells[c * CELL_SIZE + 1];
+          }
+          this.bufferSet.pushScrollback(compact, reflowed[i].wrapped, true);
+        }
       }
 
       // Screen rows
@@ -760,17 +783,20 @@ export class WebTerminal {
       // Transfer existing scrollback first, then push overflow rows.
       this.bufferSet.scrollback = oldBufferSet.scrollback;
       this.bufferSet.scrollbackWrap = oldBufferSet.scrollbackWrap;
+      this.bufferSet.scrollbackCompact = oldBufferSet.scrollbackCompact;
 
       // Push overflow rows (above the viewport) into scrollback so the
       // user can scroll up to see them (#162). Only for the normal buffer
       // — alt screen doesn't have scrollback. Skip when scrollback is
       // disabled (maxScrollback === 0) to avoid wasteful copying.
       if (srcStartRow > 0 && !oldBufferSet.isAlternate && scrollback > 0) {
-        const rowSize = oldGrid.cols * CELL_SIZE;
         for (let r = 0; r < srcStartRow; r++) {
-          const buf = this.bufferSet.borrowRowBuffer(rowSize);
-          oldGrid.copyRowInto(r, buf);
-          this.bufferSet.pushScrollback(buf, oldGrid.isWrapped(r));
+          const compact = oldGrid.copyRowCompact(r);
+          this.bufferSet.pushScrollback(
+            compact,
+            oldGrid.isWrapped(r),
+            compact.length < oldGrid.cols * CELL_SIZE,
+          );
         }
       }
 
@@ -1183,12 +1209,13 @@ export class WebTerminal {
         // Before scrollback — show empty
         this.displayGrid.clearRow(r);
       } else if (virtualLine < scrollback.length) {
-        // From scrollback
-        this.displayGrid.pasteRow(
-          r,
-          scrollback[virtualLine],
-          this.bufferSet.scrollbackWrap[virtualLine] ?? false,
-        );
+        // From scrollback — use pasteCompactRow for compact rows (no allocation)
+        const sbWrapped = this.bufferSet.scrollbackWrap[virtualLine] ?? false;
+        if (this.bufferSet.scrollbackCompact[virtualLine]) {
+          this.displayGrid.pasteCompactRow(r, scrollback[virtualLine], sbWrapped);
+        } else {
+          this.displayGrid.pasteRow(r, scrollback[virtualLine], sbWrapped);
+        }
       } else {
         // From live buffer
         const bufRow = virtualLine - scrollback.length;

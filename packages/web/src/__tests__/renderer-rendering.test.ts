@@ -485,10 +485,9 @@ describe("Canvas2DRenderer — color resolution via render", () => {
 
   it("RGB foreground color uses rgb(r,g,b) string", () => {
     const { renderer, grid } = makeRenderer(10, 5);
-    // fgIsRGB=true; store RGB value in grid.rgbColors at offset=col=0
-    grid.setCell(0, 0, 0x43, 0, 0, 0, true, false); // fgIsRGB=true
-    // rgb(255, 128, 64) → packed as (255 << 16) | (128 << 8) | 64
-    grid.rgbColors[0] = (255 << 16) | (128 << 8) | 64;
+    // fgIsRGB=true; RGB value stored inline in cell word 2
+    const fgRGB = (255 << 16) | (128 << 8) | 64;
+    grid.setCell(0, 0, 0x43, 0, 0, 0, true, false, fgRGB);
     mockCtx.ops.length = 0;
     renderer.render();
 
@@ -521,10 +520,10 @@ describe("Canvas2DRenderer — color resolution via render", () => {
 
   it("RGB background color uses rgb(r,g,b) string for bg fillRect", () => {
     const { renderer, grid } = makeRenderer(10, 5);
-    // bgIsRGB=true: background is a true-color value stored at rgbColors[256+col]
+    // bgIsRGB=true: background is a true-color value stored inline in cell word 3
     // fg stays as default (index 7 → theme.foreground)
-    grid.setCell(0, 0, 0x43, 7, 0, 0, false, true); // codepoint 'C', fgIsRGB=false, bgIsRGB=true
-    grid.rgbColors[256 + 0] = (200 << 16) | (100 << 8) | 50; // rgb(200,100,50)
+    const bgRGB = (200 << 16) | (100 << 8) | 50; // rgb(200,100,50)
+    grid.setCell(0, 0, 0x43, 7, 0, 0, false, true, 0, bgRGB);
     mockCtx.ops.length = 0;
     renderer.render();
 
@@ -544,8 +543,8 @@ describe("Canvas2DRenderer — color resolution via render", () => {
     const { renderer, grid } = makeRenderer(10, 5);
     // fgIsRGB=false (fg=index 1, i.e. red palette), bgIsRGB=true, ATTR_INVERSE
     // After inversion: effective fg = rgb(200,100,50), effective bg = palette[1] (red)
-    grid.setCell(0, 0, 0x44, 1, 0, ATTR_INVERSE, false, true); // codepoint 'D', bg=RGB, ATTR_INVERSE
-    grid.rgbColors[256 + 0] = (200 << 16) | (100 << 8) | 50; // rgb(200,100,50) as bg
+    const bgRGB2 = (200 << 16) | (100 << 8) | 50; // rgb(200,100,50) as bg
+    grid.setCell(0, 0, 0x44, 1, 0, ATTR_INVERSE, false, true, 0, bgRGB2); // codepoint 'D', bg=RGB, ATTR_INVERSE
     mockCtx.ops.length = 0;
     renderer.render();
 
@@ -908,9 +907,9 @@ describe("Canvas2DRenderer — render loop", () => {
   let ctxSpy: { mockRestore(): void };
   // Manually-controlled RAF queue
   const rafCallbacks: FrameRequestCallback[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: vi.spyOn returns complex mock types
   let rafSpy: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: vi.spyOn returns complex mock types
   let cafSpy: any;
 
   function flushOneFrame() {

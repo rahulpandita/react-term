@@ -155,8 +155,8 @@ export class SkiaRenderer {
         const fgIsRGB = grid.isFgRGB(row, col);
         const bgIsRGB = grid.isBgRGB(row, col);
 
-        let fg = this.resolveColor(fgIdx, fgIsRGB, grid, col, true);
-        let bg = this.resolveColor(bgIdx, bgIsRGB, grid, col, false);
+        let fg = this.resolveColor(fgIdx, fgIsRGB, grid.getFgRGB(row, col), true);
+        let bg = this.resolveColor(bgIdx, bgIsRGB, grid.getBgRGB(row, col), false);
 
         // Handle inverse attribute
         if (attrs & ATTR_INVERSE) {
@@ -327,16 +327,13 @@ export class SkiaRenderer {
   private resolveColor(
     colorIdx: number,
     isRGB: boolean,
-    grid: CellGrid,
-    col: number,
+    rgbValue: number,
     isForeground: boolean,
   ): string {
     if (isRGB) {
-      const offset = isForeground ? col : 256 + col;
-      const rgb = grid.rgbColors[offset];
-      const r = (rgb >> 16) & 0xff;
-      const g = (rgb >> 8) & 0xff;
-      const b = rgb & 0xff;
+      const r = (rgbValue >> 16) & 0xff;
+      const g = (rgbValue >> 8) & 0xff;
+      const b = rgbValue & 0xff;
       return `rgb(${r},${g},${b})`;
     }
 

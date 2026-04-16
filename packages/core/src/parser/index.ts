@@ -542,6 +542,9 @@ export class VTParser {
         const word1 =
           ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
         const word1Wide = word1 | (ATTR_WIDE << 8);
+        const word2 = this.fgIsRGB ? this.fgRGB : 0;
+        const word3 = this.bgIsRGB ? this.bgRGB : 0;
+        const hasRgb = this.fgIsRGB || this.bgIsRGB;
 
         let cachedRow = cursor.row;
         let cachedRowStart = grid.rowStart(cachedRow);
@@ -627,6 +630,10 @@ export class VTParser {
             // Fill current cell with space, then wrap
             gridData[cellIdx] = 0x20 | word0Base;
             gridData[cellIdx + 1] = word1;
+            if (hasRgb) {
+              gridData[cellIdx + 2] = word2;
+              gridData[cellIdx + 3] = word3;
+            }
             grid.setWrapped(cachedRow, true);
             grid.markDirty(cachedRow);
             cursor.col = 0;
@@ -642,9 +649,10 @@ export class VTParser {
 
           gridData[cellIdx] = (cp & 0x1fffff) | word0Base;
           gridData[cellIdx + 1] = charWidth === 2 ? word1Wide : word1;
-
-          if (this.fgIsRGB) grid.rgbColors[cursor.col] = this.fgRGB;
-          if (this.bgIsRGB) grid.rgbColors[256 + cursor.col] = this.bgRGB;
+          if (hasRgb) {
+            gridData[cellIdx + 2] = word2;
+            gridData[cellIdx + 3] = word3;
+          }
 
           if (charWidth === 2) {
             // Write spacer in next cell (right half of wide char)
@@ -653,6 +661,10 @@ export class VTParser {
               cellIdx += CELL_SIZE;
               gridData[cellIdx] = word0Base; // codepoint 0 = spacer
               gridData[cellIdx + 1] = word1;
+              if (hasRgb) {
+                gridData[cellIdx + 2] = word2;
+                gridData[cellIdx + 3] = word3;
+              }
             }
           }
 
@@ -875,6 +887,8 @@ export class VTParser {
         0x20 | (this.fgIsRGB ? 1 << 21 : 0) | (this.bgIsRGB ? 1 << 22 : 0) | ((fgVal & 0xff) << 23);
       grid.data[idx + 1] =
         ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
+      grid.data[idx + 2] = this.fgIsRGB ? this.fgRGB : 0;
+      grid.data[idx + 3] = this.bgIsRGB ? this.bgRGB : 0;
       grid.setWrapped(cursor.row, true);
       grid.markDirty(cursor.row);
 
@@ -897,15 +911,9 @@ export class VTParser {
     const attrsWithWide = charWidth === 2 ? this.attrs | ATTR_WIDE : this.attrs;
     grid.data[idx + 1] =
       ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((attrsWithWide & 0xff) << 8);
+    grid.data[idx + 2] = this.fgIsRGB ? this.fgRGB : 0;
+    grid.data[idx + 3] = this.bgIsRGB ? this.bgRGB : 0;
     grid.markDirty(cursor.row);
-
-    // Store full RGB values in the rgbColors lookup if using RGB
-    if (this.fgIsRGB) {
-      grid.rgbColors[cursor.col] = this.fgRGB;
-    }
-    if (this.bgIsRGB) {
-      grid.rgbColors[256 + cursor.col] = this.bgRGB;
-    }
 
     this.lastPrintedCodepoint = cp;
 
@@ -918,6 +926,8 @@ export class VTParser {
           (this.fgIsRGB ? 1 << 21 : 0) | (this.bgIsRGB ? 1 << 22 : 0) | ((fgVal & 0xff) << 23); // codepoint 0 = spacer
         grid.data[spacerIdx + 1] =
           ((this.bgIsRGB ? this.bgRGB & 0xff : this.bgIndex) & 0xff) | ((this.attrs & 0xff) << 8);
+        grid.data[spacerIdx + 2] = this.fgIsRGB ? this.fgRGB : 0;
+        grid.data[spacerIdx + 3] = this.bgIsRGB ? this.bgRGB : 0;
       }
     }
 
@@ -978,11 +988,20 @@ export class VTParser {
     if (buf.scrollTop === 0 && buf.scrollBottom === this.rows - 1) {
       const grid = buf.grid;
       if (this.bufferSet.maxScrollback > 0 && buf === this.bufferSet.normal) {
-        const rowSize = grid.cols * CELL_SIZE;
+        const hasRgb = grid.rowHasRgb(0);
+        const rowSize = hasRgb ? grid.cols * CELL_SIZE : grid.cols * 2;
         const dest = this.bufferSet.borrowRowBuffer(rowSize);
-        grid.copyRowInto(0, dest);
+        if (hasRgb) {
+          grid.copyRowInto(0, dest);
+        } else {
+          const start = grid.rowStart(0);
+          for (let c = 0; c < grid.cols; c++) {
+            dest[c * 2] = grid.data[start + c * CELL_SIZE];
+            dest[c * 2 + 1] = grid.data[start + c * CELL_SIZE + 1];
+          }
+        }
         const wasWrapped = grid.isWrapped(0);
-        this.bufferSet.pushScrollback(dest, wasWrapped);
+        this.bufferSet.pushScrollback(dest, wasWrapped, !hasRgb);
       }
       grid.rotateUp();
       grid.clearRowRaw(buf.scrollBottom);
@@ -1912,13 +1931,15 @@ export class VTParser {
     const row = cursor.row;
     // Clamp n to remaining space
     n = Math.min(n, this.cols - cursor.col);
-    // Shift cells right using physical row offset
+    // Shift cells right using physical row offset (all 4 words per cell)
     const rowBase = this.grid.rowStart(row);
     for (let c = this.cols - 1; c >= cursor.col + n; c--) {
       const src = rowBase + (c - n) * CELL_SIZE;
       const dst = rowBase + c * CELL_SIZE;
       this.grid.data[dst] = this.grid.data[src];
       this.grid.data[dst + 1] = this.grid.data[src + 1];
+      this.grid.data[dst + 2] = this.grid.data[src + 2];
+      this.grid.data[dst + 3] = this.grid.data[src + 3];
     }
     // Clear inserted cells with default colors
     for (let i = 0; i < n; i++) {
@@ -1932,13 +1953,15 @@ export class VTParser {
     const row = cursor.row;
     // Clamp n to remaining space
     n = Math.min(n, this.cols - cursor.col);
-    // Shift cells left using physical row offset
+    // Shift cells left using physical row offset (all 4 words per cell)
     const rowBase = this.grid.rowStart(row);
     for (let c = cursor.col; c < this.cols - n; c++) {
       const src = rowBase + (c + n) * CELL_SIZE;
       const dst = rowBase + c * CELL_SIZE;
       this.grid.data[dst] = this.grid.data[src];
       this.grid.data[dst + 1] = this.grid.data[src + 1];
+      this.grid.data[dst + 2] = this.grid.data[src + 2];
+      this.grid.data[dst + 3] = this.grid.data[src + 3];
     }
     // Clear vacated cells at end with default colors
     for (let c = this.cols - n; c < this.cols; c++) {

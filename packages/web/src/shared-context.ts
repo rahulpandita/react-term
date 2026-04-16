@@ -832,8 +832,7 @@ export class SharedWebGLContext {
           let fg = resolveColorFloat(
             fgIdx,
             fgIsRGB,
-            grid,
-            col,
+            grid.getFgRGB(row, col),
             true,
             this.paletteFloat,
             this.themeFgFloat,
@@ -842,8 +841,7 @@ export class SharedWebGLContext {
           let bg = resolveColorFloat(
             bgIdx,
             bgIsRGB,
-            grid,
-            col,
+            grid.getBgRGB(row, col),
             false,
             this.paletteFloat,
             this.themeFgFloat,

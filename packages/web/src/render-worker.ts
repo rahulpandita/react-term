@@ -322,10 +322,9 @@ function createGridFromSAB(buffer: SharedArrayBuffer, c: number, r: number): Cel
   // Since CellGrid constructor allocates its own buffer, we need to construct
   // a lightweight wrapper that uses the shared buffer directly.
   const g = Object.create(CellGrid.prototype) as CellGrid;
-  const CELL_SIZE = 2;
+  const CELL_SIZE = 4;
   const cellBytes = c * r * CELL_SIZE * 4;
   const dirtyBytes = r * 4;
-  const rgbBytes = 512 * 4;
   const cursorBytes = 4 * 4;
 
   // Use Object.defineProperty to set readonly properties
@@ -340,16 +339,12 @@ function createGridFromSAB(buffer: SharedArrayBuffer, c: number, r: number): Cel
     value: new Int32Array(buffer, cellBytes, r),
     writable: false,
   });
-  Object.defineProperty(g, "rgbColors", {
-    value: new Uint32Array(buffer, cellBytes + dirtyBytes, 512),
-    writable: false,
-  });
   Object.defineProperty(g, "cursorData", {
-    value: new Int32Array(buffer, cellBytes + dirtyBytes + rgbBytes, 4),
+    value: new Int32Array(buffer, cellBytes + dirtyBytes, 4),
     writable: false,
   });
   Object.defineProperty(g, "rowOffsetData", {
-    value: new Int32Array(buffer, cellBytes + dirtyBytes + rgbBytes + cursorBytes, 1),
+    value: new Int32Array(buffer, cellBytes + dirtyBytes + cursorBytes, 1),
     writable: false,
   });
   // Set private buffer field for getBuffer()
@@ -564,8 +559,7 @@ function render(): void {
       let fg = resolveColorFloat(
         fgIdx,
         fgIsRGB,
-        grid,
-        col,
+        grid.getFgRGB(row, col),
         true,
         paletteFloat,
         themeFgFloat,
@@ -574,8 +568,7 @@ function render(): void {
       let bg = resolveColorFloat(
         bgIdx,
         bgIsRGB,
-        grid,
-        col,
+        grid.getBgRGB(row, col),
         false,
         paletteFloat,
         themeFgFloat,
@@ -643,8 +636,7 @@ function render(): void {
       let fg = resolveColorFloat(
         fgIdx,
         fgIsRGB,
-        grid,
-        col,
+        grid.getFgRGB(row, col),
         true,
         paletteFloat,
         themeFgFloat,
@@ -653,8 +645,7 @@ function render(): void {
       let bg = resolveColorFloat(
         bgIdx,
         bgIsRGB,
-        grid,
-        col,
+        grid.getBgRGB(row, col),
         false,
         paletteFloat,
         themeFgFloat,
