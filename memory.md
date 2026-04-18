@@ -1,5 +1,5 @@
 ## Commands (validated)
-- test: `npm test` (vitest run) — 1769 tests as of 2026-04-17
+- test: `npm test` (vitest run) — 1774 tests as of 2026-04-18
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - No coverage pipeline (missing @vitest/coverage-v8)
@@ -21,12 +21,15 @@
 
 ## Completed work
 - 2026-04-09: PR #118 (accessibility-edge-cases) merged
-- 2026-04-10 run 24225264112: Tasks 3+7, branch test-assist/parser-state-table (VT500 parser state TABLE transitions, 43t), 1580→1623
-- 2026-04-16 run 24490999918: Tasks 3+7, branch test-assist/reflow-edge-cases (reflow edge cases: empty row cursor, dangling wrap, single-col, multi-chunk cursor clamp, +8t), 1752→1760
-- 2026-04-17 run 24546619174: Tasks 3+7, branch test-assist/reflow-rgb-preservation (RGB color preservation through reflow join/split, +5t), 1764→1769
+- 2026-04-10 run 24225264112: Tasks 3+7, branch test-assist/parser-state-table (+43t), 1580→1623
+- 2026-04-16 run 24490999918: Tasks 3+7, branch test-assist/reflow-edge-cases (+8t), 1752→1760
+- 2026-04-17 run 24546619174: Tasks 3+7, branch test-assist/reflow-rgb-preservation (+5t), 1764→1769
+- 2026-04-18 run 24596072736: Tasks 2+3+7, branch test-assist/xterm-truecolor-sgr (256-color and 24-bit truecolor SGR in xterm-compat, +10t), 1764→1774
 
 ## Backlog
-- parser-state-table PR: check if still open/merged
+- ghostty-compat truecolor tests (still none - good next target)
+- xterm-truecolor PR: check if merged
 - reflow-edge-cases PR: check if still open/merged
-- Consider xterm-compat truecolor tests (none currently)
-- Consider ghostty-compat truecolor tests (none currently)
+- reflow-rgb-preservation PR: check if still open/merged
+- parser-state-table PR: check if still open/merged
+- Scrollback truecolor roundtrip via parser (RGB preserved when scrolled off-screen)
