@@ -299,3 +299,114 @@ describe("dispose message", () => {
     expect(() => dispatch({ type: "dispose" })).not.toThrow();
   });
 });
+
+// ─── Multi-channel mode (pool worker) ──────────────────────────────────────
+
+describe("multi-channel mode", () => {
+  function lastFlushFor(channelId: string): FlushMessage | undefined {
+    for (let i = sent.length - 1; i >= 0; i--) {
+      const msg = sent[i].data as FlushMessage;
+      if (msg?.type === "flush" && msg.channelId === channelId) return msg;
+    }
+    return undefined;
+  }
+
+  it("init with channelId creates an isolated parser per channel", () => {
+    sent.length = 0;
+    dispatch({ type: "init", channelId: "a", cols: 80, rows: 24, scrollback: 100 });
+    dispatch({ type: "init", channelId: "b", cols: 80, rows: 24, scrollback: 100 });
+
+    dispatch({ type: "write", channelId: "a", data: enc("A") });
+    const flushA = lastFlushFor("a");
+    expect(flushA?.channelId).toBe("a");
+    expect(flushA?.cursor.col).toBe(1);
+
+    // Channel 'b' cursor was not moved by the write to 'a'.
+    dispatch({ type: "write", channelId: "b", data: enc("") });
+    const flushB = lastFlushFor("b");
+    expect(flushB?.channelId).toBe("b");
+    expect(flushB?.cursor.col).toBe(0);
+  });
+
+  it("write to unknown channelId posts an error tagged with channelId", () => {
+    sent.length = 0;
+    dispatch({ type: "write", channelId: "ghost", data: enc("X") });
+    const msg = lastSent() as ErrorMessage;
+    expect(msg.type).toBe("error");
+    expect(msg.channelId).toBe("ghost");
+  });
+
+  it("dispose with channelId removes that channel but does NOT close the worker", () => {
+    const closeSpy = vi.fn();
+    vi.stubGlobal("close", closeSpy);
+
+    dispatch({ type: "init", channelId: "c1", cols: 80, rows: 24, scrollback: 100 });
+    dispatch({ type: "init", channelId: "c2", cols: 80, rows: 24, scrollback: 100 });
+    dispatch({ type: "dispose", channelId: "c1" });
+
+    expect(closeSpy).not.toHaveBeenCalled();
+
+    // c2 still works
+    sent.length = 0;
+    dispatch({ type: "write", channelId: "c2", data: enc("X") });
+    const flush = lastFlushFor("c2");
+    expect(flush?.channelId).toBe("c2");
+
+    // c1 is gone
+    sent.length = 0;
+    dispatch({ type: "write", channelId: "c1", data: enc("X") });
+    const err = lastSent() as ErrorMessage;
+    expect(err.type).toBe("error");
+    expect(err.channelId).toBe("c1");
+  });
+
+  it("echoes init generation onto every outbound flush for that channel", () => {
+    sent.length = 0;
+    dispatch({
+      type: "init",
+      channelId: "g1",
+      generation: 7,
+      cols: 80,
+      rows: 24,
+      scrollback: 100,
+    });
+
+    dispatch({ type: "write", channelId: "g1", generation: 7, data: enc("X") });
+    const flush = lastFlushFor("g1");
+    expect(flush).toBeDefined();
+    expect(flush?.generation).toBe(7);
+  });
+
+  it("re-init with a new generation invalidates stale writes", () => {
+    sent.length = 0;
+    dispatch({
+      type: "init",
+      channelId: "g2",
+      generation: 1,
+      cols: 80,
+      rows: 24,
+      scrollback: 100,
+    });
+    // Client re-acquired (new generation). Old writes are now stale.
+    dispatch({
+      type: "init",
+      channelId: "g2",
+      generation: 2,
+      cols: 80,
+      rows: 24,
+      scrollback: 100,
+    });
+
+    sent.length = 0;
+    // A stale write from the OLD generation arrives late — must be dropped.
+    dispatch({ type: "write", channelId: "g2", generation: 1, data: enc("A") });
+    const staleFlush = lastFlushFor("g2");
+    expect(staleFlush).toBeUndefined();
+
+    // A write with the CURRENT generation produces a flush tagged with
+    // the current generation.
+    dispatch({ type: "write", channelId: "g2", generation: 2, data: enc("B") });
+    const currentFlush = lastFlushFor("g2");
+    expect(currentFlush?.generation).toBe(2);
+  });
+});

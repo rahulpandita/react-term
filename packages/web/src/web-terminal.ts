@@ -27,6 +27,8 @@ import { AccessibilityManager } from "./accessibility.js";
 import type { ITerminalAddon } from "./addon.js";
 import { calculateFit } from "./fit.js";
 import { InputHandler } from "./input-handler.js";
+import type { ParserChannel, ParserPool } from "./parser-pool.js";
+import type { FlushMessage } from "./parser-worker.js";
 import { canUseOffscreenCanvas, RenderBridge } from "./render-bridge.js";
 import type { HighlightRange, IRenderer, RendererOptions } from "./renderer.js";
 import { Canvas2DRenderer } from "./renderer.js";
@@ -80,8 +82,10 @@ export interface WebTerminalOptions {
    */
   sharedContext?: SharedWebGLContext;
   /**
-   * Unique identifier for this pane within a SharedWebGLContext.
-   * Required when `sharedContext` is provided.
+   * Unique identifier for this pane. Required when `sharedContext` OR
+   * `parserPool` is provided — used as the channel id in both. Passing
+   * either without `paneId` logs a warning and silently skips that
+   * shared resource for this terminal.
    */
   paneId?: string;
   /**
@@ -92,6 +96,12 @@ export interface WebTerminalOptions {
    * - `'main'`: always render on the main thread.
    */
   renderMode?: "auto" | "offscreen" | "main";
+  /**
+   * When provided, the terminal acquires a channel from this shared parser
+   * worker pool instead of spawning its own Worker. Requires `paneId`.
+   * Ignored when `useWorker` is `false`.
+   */
+  parserPool?: ParserPool;
   onData?: (data: Uint8Array) => void;
   onResize?: (size: { cols: number; rows: number }) => void;
   onTitleChange?: (title: string) => void;
@@ -140,8 +150,12 @@ export class WebTerminal {
   private sharedContext: SharedWebGLContext | null = null;
   /** Pane ID within the SharedWebGLContext. */
   private paneId: string | null = null;
-  /** WorkerBridge when using off-thread parsing, null otherwise. */
+  /** WorkerBridge when using off-thread parsing (single-terminal mode), null otherwise. */
   private workerBridge: WorkerBridge | null = null;
+  /** ParserChannel when using a shared parser pool, null otherwise. */
+  private parserChannel: ParserChannel | null = null;
+  /** Reference to the shared parser pool (so releaseChannel can be called on dispose). */
+  private parserPool: ParserPool | null = null;
   /** RenderBridge when using off-thread rendering, null otherwise. */
   private renderBridge: RenderBridge | null = null;
   /** Whether the worker mode is active. */
@@ -200,6 +214,9 @@ export class WebTerminal {
     // Determine whether to use the worker.
     this.useWorkerMode = options?.useWorker ?? SAB_AVAILABLE;
 
+    // Store parser pool reference (used in startWorkerMode).
+    this.parserPool = options?.parserPool ?? null;
+
     // Determine render mode.
     const renderMode = options?.renderMode ?? "auto";
     if (renderMode === "offscreen") {
@@ -233,15 +250,29 @@ export class WebTerminal {
       fontWeightBold,
     };
 
+    // paneId is used by both SharedWebGLContext AND ParserPool as the channel
+    // identifier. Set it whenever it's provided, not just when shared rendering
+    // is also in play — otherwise the parser pool is silently bypassed.
+    if (options?.paneId) {
+      this.paneId = options.paneId;
+    } else if (options?.sharedContext || options?.parserPool) {
+      // Misconfiguration: a shared resource was provided but no paneId.
+      // We can't register the terminal with the shared context/pool, so
+      // both are silently skipped. Warn once at construction so consumers
+      // notice rather than debugging "why is my pool unused?".
+      console.warn(
+        "[WebTerminal] sharedContext/parserPool provided without paneId — shared resources will NOT be used for this terminal. Pass a unique paneId to opt in.",
+      );
+    }
+
     if (options?.sharedContext && options?.paneId) {
       // Shared WebGL context mode: register with the shared context
       // instead of creating our own renderer.
       this.sharedContext = options.sharedContext;
-      this.paneId = options.paneId;
 
       const grid = this.bufferSet.active.grid;
       const cursor = this.bufferSet.active.cursor;
-      this.sharedContext.addTerminal(this.paneId, grid, cursor);
+      this.sharedContext.addTerminal(options.paneId, grid, cursor);
 
       // The canvas is not appended to the DOM — shared context owns the canvas.
       // But we still need a container div for input handling.
@@ -391,107 +422,115 @@ export class WebTerminal {
   // Worker management
   // -----------------------------------------------------------------------
 
+  /** Shared onFlush callback for both WorkerBridge and ParserChannel modes. */
+  private makeWorkerFlushHandler(): (isAlternate: boolean, modes: FlushMessage["modes"]) => void {
+    return (isAlternate, modes) => {
+      if (modes) {
+        this.inputHandler.setApplicationCursorKeys(modes.applicationCursorKeys);
+        this.inputHandler.setBracketedPasteMode(modes.bracketedPasteMode);
+        this.inputHandler.setMouseProtocol(modes.mouseProtocol);
+        this.inputHandler.setMouseEncoding(modes.mouseEncoding);
+        this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
+        this.inputHandler.setKittyFlags(modes.kittyFlags ?? 0);
+        this.applySyncedOutput(modes.syncedOutput ?? false);
+      }
+
+      if (this.pendingResizeCursor && !this.resizeCursorQueued) {
+        this.resizeCursorQueued = true;
+        const saved = this.pendingResizeCursor;
+        queueMicrotask(() => {
+          this.resizeCursorQueued = false;
+          if (this.pendingResizeCursor === saved) {
+            const cursor = this.bufferSet.active.cursor;
+            cursor.row = saved.row;
+            cursor.col = saved.col;
+          }
+        });
+      }
+
+      const altChanged = isAlternate !== this.bufferSet.isAlternate;
+      if (altChanged) {
+        this.bufferSet.setActive(isAlternate);
+
+        const backend = this.workerBridge ?? this.parserChannel;
+        if (backend) {
+          backend.updateGrid(
+            this.bufferSet.normal.grid,
+            this.bufferSet.alternate.grid,
+            this.bufferSet.active.cursor,
+          );
+        }
+
+        this.viewportOffset = 0;
+        this.displayGrid = null;
+
+        this.inputHandler.setGrid(this.bufferSet.active.grid);
+        this.accessibilityManager?.setGrid(
+          this.bufferSet.active.grid,
+          this.bufferSet.active.grid.rows,
+          this.bufferSet.active.grid.cols,
+        );
+      }
+
+      // Schedule a11y update after cell data application. The onFlush
+      // callback runs before the grid is updated, so defer via microtask
+      // so the accessibility tree reads the fresh grid state.
+      queueMicrotask(() => this.accessibilityManager?.update());
+
+      if (this.viewportOffset > 0 && !altChanged) return;
+
+      const { grid, cursor } = this.bufferSet.active;
+      if (this.sharedContext && this.paneId) {
+        this.sharedContext.updateTerminal(this.paneId, grid, cursor);
+      } else if (this.renderBridge) {
+        this.renderBridge.resize(grid.cols, grid.rows, grid.getBuffer() as SharedArrayBuffer);
+      } else {
+        this.renderer.attach(this.canvas, grid, cursor);
+      }
+    };
+  }
+
   private startWorkerMode(cols: number, rows: number, scrollback: number): void {
+    const onFlush = this.makeWorkerFlushHandler();
+    const onError = (message: string) => {
+      console.warn("[WebTerminal] Worker error, falling back to main thread:", message);
+      this.fallbackToMainThread();
+    };
+
     try {
+      // Pool mode: acquire a channel from the shared parser pool.
+      if (this.parserPool && this.paneId) {
+        this.parserChannel = this.parserPool.acquireChannel(
+          this.paneId,
+          this.bufferSet.normal.grid,
+          this.bufferSet.alternate.grid,
+          this.bufferSet.active.cursor,
+          onFlush,
+          onError,
+        );
+        this.parserChannel.start(cols, rows, scrollback);
+        return;
+      }
+
+      // Single-terminal mode: create a dedicated WorkerBridge.
       this.workerBridge = new WorkerBridge(
         this.bufferSet.normal.grid,
         this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
-        (isAlternate, modes) => {
-          // Sync parser modes from worker to main-thread InputHandler.
-          // Use ?? defaults for backward compat with cached worker scripts
-          // that may not include kittyFlags/syncedOutput (#7).
-          if (modes) {
-            this.inputHandler.setApplicationCursorKeys(modes.applicationCursorKeys);
-            this.inputHandler.setBracketedPasteMode(modes.bracketedPasteMode);
-            this.inputHandler.setMouseProtocol(modes.mouseProtocol);
-            this.inputHandler.setMouseEncoding(modes.mouseEncoding);
-            this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
-            this.inputHandler.setKittyFlags(modes.kittyFlags ?? 0);
-
-            this.applySyncedOutput(modes.syncedOutput ?? false);
-          }
-
-          // Restore cursor position adjusted by resize(). The worker's
-          // resize flush sends cursor (0,0) from its fresh BufferSet,
-          // which applyFlush writes after this callback returns.
-          // Keep restoring on every flush until write() clears it —
-          // a stale pre-resize flush may arrive before the resize flush.
-          // Only queue one microtask at a time to avoid unbounded growth.
-          if (this.pendingResizeCursor && !this.resizeCursorQueued) {
-            this.resizeCursorQueued = true;
-            const saved = this.pendingResizeCursor;
-            queueMicrotask(() => {
-              this.resizeCursorQueued = false;
-              if (this.pendingResizeCursor === saved) {
-                const cursor = this.bufferSet.active.cursor;
-                cursor.row = saved.row;
-                cursor.col = saved.col;
-              }
-            });
-          }
-
-          // Sync bufferSet.active so main-thread consumers (resize,
-          // getRowTexts, selection, accessibility) read the correct buffer.
-          // Use setActive() — NOT activateAlternate() which calls
-          // grid.clear() and would destroy SAB data the worker just wrote.
-          const altChanged = isAlternate !== this.bufferSet.isAlternate;
-          if (altChanged) {
-            this.bufferSet.setActive(isAlternate);
-
-            // Retarget WorkerBridge so applyFlush (which runs after this
-            // callback returns) writes cursor and cell data to the correct
-            // buffer.
-            if (this.workerBridge) {
-              this.workerBridge.updateGrid(
-                this.bufferSet.normal.grid,
-                this.bufferSet.alternate.grid,
-                this.bufferSet.active.cursor,
-              );
-            }
-
-            // Alt screen has no scrollback — reset scroll state so
-            // subsequent flushes aren't dropped by the viewportOffset
-            // guard, and getRowTexts reads the live grid.
-            this.viewportOffset = 0;
-            this.displayGrid = null;
-
-            this.inputHandler.setGrid(this.bufferSet.active.grid);
-            this.accessibilityManager?.setGrid(
-              this.bufferSet.active.grid,
-              this.bufferSet.active.grid.rows,
-              this.bufferSet.active.grid.cols,
-            );
-          }
-
-          // #151: When the user is scrolled back, skip renderer re-attach
-          // for normal data flushes — but always re-attach on buffer switch
-          // so the renderer shows the correct buffer (#4).
-          if (this.viewportOffset > 0 && !altChanged) return;
-
-          const { grid, cursor } = this.bufferSet.active;
-          if (this.sharedContext && this.paneId) {
-            this.sharedContext.updateTerminal(this.paneId, grid, cursor);
-          } else if (this.renderBridge) {
-            this.renderBridge.resize(grid.cols, grid.rows, grid.getBuffer() as SharedArrayBuffer);
-          } else {
-            this.renderer.attach(this.canvas, grid, cursor);
-          }
-        },
-        (message: string) => {
-          // On worker error, fall back to main-thread parsing.
-          console.warn("[WebTerminal] Worker error, falling back to main thread:", message);
-          this.fallbackToMainThread();
-        },
+        onFlush,
+        onError,
       );
       this.workerBridge.start(cols, rows, scrollback);
     } catch {
-      // Worker could not be created — fall back silently.
       this.fallbackToMainThread();
     }
   }
 
   private fallbackToMainThread(): void {
+    if (this.parserChannel && this.parserPool && this.paneId) {
+      this.parserPool.releaseChannel(this.paneId);
+      this.parserChannel = null;
+    }
     if (this.workerBridge) {
       this.workerBridge.dispose();
       this.workerBridge = null;
@@ -585,7 +624,9 @@ export class WebTerminal {
 
     const bytes = typeof data === "string" ? this.encoder.encode(data) : data;
 
-    if (this.workerBridge) {
+    if (this.parserChannel) {
+      this.parserChannel.write(bytes);
+    } else if (this.workerBridge) {
       this.workerBridge.write(bytes);
     } else if (this.parser) {
       this.parser.write(bytes);
@@ -848,17 +889,18 @@ export class WebTerminal {
     }
 
     this.bufferSet.active.grid.markAllDirty();
-    if (this.workerBridge) {
+    const backend = this.parserChannel ?? this.workerBridge;
+    if (backend) {
       // Save adjusted cursor — the worker's resize flush will send
       // cursor (0,0) from its fresh BufferSet, overwriting ours.
       this.pendingResizeCursor = { row: finalCursor.row, col: finalCursor.col };
-      // Update the bridge's grid reference and notify the worker.
-      this.workerBridge.updateGrid(
+      // Update the backend's grid reference and notify the worker.
+      backend.updateGrid(
         this.bufferSet.normal.grid,
         this.bufferSet.alternate.grid,
         this.bufferSet.active.cursor,
       );
-      this.workerBridge.resize(cols, rows, scrollback, finalCursor.row, finalCursor.col);
+      backend.resize(cols, rows, scrollback, finalCursor.row, finalCursor.col);
     } else {
       this.parser = new VTParser(this.bufferSet);
       this.parser.setTitleChangeCallback((title: string) => {
@@ -1279,12 +1321,18 @@ export class WebTerminal {
     for (const addon of this.addons) addon.dispose();
     this.addons = [];
 
+    // Release parser channel BEFORE clearing paneId — the pool keys
+    // channels by paneId so it must still be set here.
+    if (this.parserChannel && this.parserPool && this.paneId) {
+      this.parserPool.releaseChannel(this.paneId);
+      this.parserChannel = null;
+    }
+
     if (this.sharedContext && this.paneId) {
       this.sharedContext.removeTerminal(this.paneId);
       this.sharedContext = null;
       this.paneId = null;
     }
-
     if (this.workerBridge) {
       this.workerBridge.dispose();
       this.workerBridge = null;

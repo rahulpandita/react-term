@@ -140,8 +140,9 @@ $("status-mode").textContent = `${PANE_COUNT} panes · react-term (${mode})`;
 const client = new MuxClient({
   onData(paneIndex, data) {
     if (paneIndex < terminals.length) {
+      const len = data.byteLength; // capture before write() transfers the buffer
       terminals[paneIndex].write(data);
-      metrics.recordBytes(data.byteLength, paneIndex);
+      metrics.recordBytes(len, paneIndex);
     }
   },
   onReady(paneNames) {
@@ -162,11 +163,10 @@ const client = new MuxClient({
 });
 
 // Wire input
-const decoder = new TextDecoder();
 for (let i = 0; i < PANE_COUNT; i++) {
   const idx = i;
   terminals[idx].onData((data: Uint8Array) => {
-    client.sendInput(idx, decoder.decode(data));
+    client.sendInput(idx, data);
   });
 }
 

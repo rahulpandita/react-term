@@ -17,14 +17,14 @@ import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 // ---- Flow-control constants ------------------------------------------------
 
 /** Pause sending new writes when pending bytes exceed this threshold. */
-const HIGH_WATERMARK = 2 * 1024 * 1024; // 2 MB
+export const HIGH_WATERMARK = 2 * 1024 * 1024; // 2 MB
 
 /** Resume sending when pending bytes drop below this threshold. */
-const LOW_WATERMARK = 512 * 1024; // 512 KB
+export const LOW_WATERMARK = 512 * 1024; // 512 KB
 
 // ---- Feature detection -----------------------------------------------------
 
-const SAB_AVAILABLE =
+export const SAB_AVAILABLE =
   typeof SharedArrayBuffer !== "undefined" &&
   (typeof crossOriginIsolated !== "undefined" ? crossOriginIsolated : true);
 

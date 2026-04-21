@@ -5,6 +5,11 @@
  * the worker writes directly into the SAB that the main-thread renderer reads.
  * Otherwise it owns the buffer and transfers cell data back via Transferable
  * ArrayBuffers in the flush message.
+ *
+ * Supports multi-channel mode: when messages include a `channelId`, the worker
+ * maintains independent parser/grid state per channel. This allows a pool of N
+ * workers to serve many more terminal panes without thread oversubscription.
+ * Messages without `channelId` use the legacy singleton path for backward compat.
  */
 
 import { BufferSet, VTParser } from "@next_term/core";
@@ -21,6 +26,10 @@ declare type DedicatedWorkerGlobalScope = typeof globalThis & {
 /** Messages the worker can receive from the main thread. */
 interface InitMessage {
   type: "init";
+  channelId?: string;
+  /** Monotonic per-channelId — echoed back on flushes so the pool can drop
+   *  stale messages from a previous lifecycle. */
+  generation?: number;
   cols: number;
   rows: number;
   scrollback: number;
@@ -32,11 +41,15 @@ interface InitMessage {
 
 interface WriteMessage {
   type: "write";
+  channelId?: string;
+  generation?: number;
   data: ArrayBuffer; // Transferable
 }
 
 interface ResizeMessage {
   type: "resize";
+  channelId?: string;
+  generation?: number;
   cols: number;
   rows: number;
   scrollback: number;
@@ -52,6 +65,8 @@ interface ResizeMessage {
 
 interface DisposeMessage {
   type: "dispose";
+  channelId?: string;
+  generation?: number;
 }
 
 type InboundMessage = InitMessage | WriteMessage | ResizeMessage | DisposeMessage;
@@ -59,6 +74,10 @@ type InboundMessage = InitMessage | WriteMessage | ResizeMessage | DisposeMessag
 /** Messages the worker posts back to the main thread. */
 export interface FlushMessage {
   type: "flush";
+  channelId?: string;
+  /** Echoed from the init that created the channel. Pool uses this to
+   *  drop stale flushes after channelId reuse on the same worker. */
+  generation?: number;
   cursor: { row: number; col: number; visible: boolean; style: string };
   /** true when the parser switched to or from the alternate buffer. */
   isAlternate: boolean;
@@ -87,6 +106,8 @@ export interface FlushMessage {
 
 export interface ErrorMessage {
   type: "error";
+  channelId?: string;
+  generation?: number;
   message: string;
 }
 
@@ -94,6 +115,19 @@ export type OutboundMessage = FlushMessage | ErrorMessage;
 
 // ---- Worker state ----------------------------------------------------------
 
+/** Per-channel state for multi-channel mode. */
+interface ChannelState {
+  bufferSet: BufferSet;
+  parser: VTParser;
+  usingSAB: boolean;
+  /** Stored from init; echoed on every outbound flush/error for this channel. */
+  generation: number | undefined;
+}
+
+/** Multi-channel state. */
+const channels = new Map<string, ChannelState>();
+
+/** Legacy singleton state (messages without channelId). */
 let bufferSet: BufferSet | null = null;
 let parser: VTParser | null = null;
 let usingSAB = false;
@@ -106,42 +140,47 @@ function createBufferAndParser(
   scrollback: number,
   sharedBuffer?: SharedArrayBuffer,
   sharedAltBuffer?: SharedArrayBuffer,
-): void {
-  bufferSet = new BufferSet(cols, rows, scrollback, sharedBuffer, sharedAltBuffer);
-  parser = new VTParser(bufferSet);
+  generation?: number,
+): ChannelState {
+  const bs = new BufferSet(cols, rows, scrollback, sharedBuffer, sharedAltBuffer);
+  const p = new VTParser(bs);
+  return {
+    bufferSet: bs,
+    parser: p,
+    usingSAB: sharedBuffer !== undefined,
+    generation,
+  };
 }
 
-function buildFlush(bytesProcessed: number): FlushMessage {
-  if (!bufferSet || !parser) {
-    throw new Error("Worker not initialised");
-  }
-
-  const cursor = parser.cursor;
+function buildFlush(ch: ChannelState, bytesProcessed: number, channelId?: string): FlushMessage {
+  const cursor = ch.parser.cursor;
 
   const msg: FlushMessage = {
     type: "flush",
+    channelId,
+    generation: ch.generation,
     cursor: {
       row: cursor.row,
       col: cursor.col,
       visible: cursor.visible,
       style: cursor.style,
     },
-    isAlternate: bufferSet.isAlternate,
+    isAlternate: ch.bufferSet.isAlternate,
     bytesProcessed,
     modes: {
-      applicationCursorKeys: parser.applicationCursorKeys,
-      bracketedPasteMode: parser.bracketedPasteMode,
-      mouseProtocol: parser.mouseProtocol,
-      mouseEncoding: parser.mouseEncoding,
-      sendFocusEvents: parser.sendFocusEvents,
-      kittyFlags: parser.kittyFlags,
-      syncedOutput: parser.syncedOutput,
+      applicationCursorKeys: ch.parser.applicationCursorKeys,
+      bracketedPasteMode: ch.parser.bracketedPasteMode,
+      mouseProtocol: ch.parser.mouseProtocol,
+      mouseEncoding: ch.parser.mouseEncoding,
+      sendFocusEvents: ch.parser.sendFocusEvents,
+      kittyFlags: ch.parser.kittyFlags,
+      syncedOutput: ch.parser.syncedOutput,
     },
   };
 
-  if (!usingSAB) {
+  if (!ch.usingSAB) {
     // Transfer cell data, dirty flags, and wrap flags to the main thread.
-    const grid = bufferSet.active.grid;
+    const grid = ch.bufferSet.active.grid;
     const cellCopy = grid.data.slice().buffer;
     const dirtyCopy = grid.dirtyRows.slice().buffer;
     const wrapCopy = grid.wrapFlags.slice().buffer;
@@ -154,61 +193,78 @@ function buildFlush(bytesProcessed: number): FlushMessage {
   return msg;
 }
 
+function postFlush(flush: FlushMessage, usingSABMode: boolean): void {
+  if (usingSABMode) {
+    (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush);
+  } else {
+    const transferables: ArrayBuffer[] = [];
+    if (flush.cellData) transferables.push(flush.cellData);
+    if (flush.dirtyRows) transferables.push(flush.dirtyRows);
+    if (flush.wrapFlags) transferables.push(flush.wrapFlags);
+    (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush, transferables);
+  }
+}
+
 // ---- Message handler -------------------------------------------------------
 
 function handleMessage(msg: InboundMessage): void {
+  const channelId = msg.channelId;
+
+  // Multi-channel path: route by channelId
+  if (channelId !== undefined) {
+    handleChannelMessage(msg, channelId);
+    return;
+  }
+
+  // Legacy singleton path (backward compat)
   switch (msg.type) {
     case "init": {
+      // Set usingSAB before creating buffers — if BufferSet throws (e.g.
+      // undersized SAB), the flag must still reflect the intent so writes
+      // against the previous bufferSet use the correct flush mode.
       usingSAB = msg.sharedBuffer !== undefined;
-      createBufferAndParser(
+      const ch = createBufferAndParser(
         msg.cols,
         msg.rows,
         msg.scrollback,
         msg.sharedBuffer,
         msg.sharedAltBuffer,
       );
+      bufferSet = ch.bufferSet;
+      parser = ch.parser;
       break;
     }
 
     case "write": {
-      if (!parser) {
+      if (!parser || !bufferSet) {
         postError("Worker not initialised — ignoring write");
         return;
       }
       const bytes = new Uint8Array(msg.data);
       parser.write(bytes);
-      const flush = buildFlush(bytes.length);
-
-      if (usingSAB) {
-        (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush);
-      } else {
-        // Transfer the ArrayBuffers so they are zero-copy.
-        const transferables: ArrayBuffer[] = [];
-        if (flush.cellData) transferables.push(flush.cellData);
-        if (flush.dirtyRows) transferables.push(flush.dirtyRows);
-        if (flush.wrapFlags) transferables.push(flush.wrapFlags);
-        (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush, transferables);
-      }
+      const flush = buildFlush(
+        { bufferSet, parser, usingSAB, generation: undefined },
+        bytes.length,
+      );
+      postFlush(flush, usingSAB);
       break;
     }
 
     case "resize": {
-      createBufferAndParser(
+      const ch = createBufferAndParser(
         msg.cols,
         msg.rows,
         msg.scrollback,
         msg.sharedBuffer,
         msg.sharedAltBuffer,
       );
-      // Restore cursor position after reflow so the parser continues
-      // at the right spot — prevents shell SIGWINCH response from
-      // overwriting reflowed content at (0,0).
+      bufferSet = ch.bufferSet;
+      parser = ch.parser;
+      usingSAB = ch.usingSAB;
       if (parser && bufferSet && msg.cursorRow != null && msg.cursorCol != null) {
         parser.cursor.row = Math.max(0, Math.min(msg.cursorRow, msg.rows - 1));
         parser.cursor.col = Math.max(0, Math.min(msg.cursorCol, msg.cols - 1));
       }
-      // In non-SAB mode, seed the worker's grid with the main thread's
-      // reflowed data so subsequent flushes don't send blank content.
       if (!usingSAB && bufferSet && msg.reflowedCellData && msg.reflowedWrapFlags) {
         const grid = bufferSet.active.grid;
         const cellView = new Uint32Array(msg.reflowedCellData);
@@ -221,32 +277,109 @@ function handleMessage(msg: InboundMessage): void {
         }
         grid.markAllDirty();
       }
-      // Send a full flush so the main thread gets initial state.
-      const flush = buildFlush(0);
-      if (!usingSAB) {
-        const transferables: ArrayBuffer[] = [];
-        if (flush.cellData) transferables.push(flush.cellData);
-        if (flush.dirtyRows) transferables.push(flush.dirtyRows);
-        if (flush.wrapFlags) transferables.push(flush.wrapFlags);
-        (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush, transferables);
-      } else {
-        (self as unknown as DedicatedWorkerGlobalScope).postMessage(flush);
-      }
+      const flush = buildFlush({ bufferSet, parser, usingSAB, generation: undefined }, 0);
+      postFlush(flush, usingSAB);
       break;
     }
 
     case "dispose": {
       bufferSet = null;
       parser = null;
-      // Close the worker — it cannot be reused.
+      // Close the worker — it cannot be reused (legacy single-channel mode).
       (self as unknown as DedicatedWorkerGlobalScope).close();
       break;
     }
   }
 }
 
-function postError(message: string): void {
-  const err: ErrorMessage = { type: "error", message };
+function handleChannelMessage(msg: InboundMessage, channelId: string): void {
+  switch (msg.type) {
+    case "init": {
+      const ch = createBufferAndParser(
+        msg.cols,
+        msg.rows,
+        msg.scrollback,
+        msg.sharedBuffer,
+        msg.sharedAltBuffer,
+        msg.generation,
+      );
+      channels.set(channelId, ch);
+      break;
+    }
+
+    case "write": {
+      const ch = channels.get(channelId);
+      if (!ch) {
+        postError(
+          `Channel "${channelId}" not initialised — ignoring write`,
+          channelId,
+          msg.generation,
+        );
+        return;
+      }
+      // Drop writes whose generation doesn't match the channel's current
+      // lifecycle — these are from a prior acquire that was disposed.
+      if (msg.generation !== undefined && msg.generation !== ch.generation) return;
+      const bytes = new Uint8Array(msg.data);
+      ch.parser.write(bytes);
+      const flush = buildFlush(ch, bytes.length, channelId);
+      postFlush(flush, ch.usingSAB);
+      break;
+    }
+
+    case "resize": {
+      const existing = channels.get(channelId);
+      // Drop stale resize from a prior lifecycle.
+      if (existing && msg.generation !== undefined && msg.generation !== existing.generation) {
+        return;
+      }
+      const newCh = createBufferAndParser(
+        msg.cols,
+        msg.rows,
+        msg.scrollback,
+        msg.sharedBuffer,
+        msg.sharedAltBuffer,
+        msg.generation ?? existing?.generation,
+      );
+      channels.set(channelId, newCh);
+      if (msg.cursorRow != null && msg.cursorCol != null) {
+        newCh.parser.cursor.row = Math.max(0, Math.min(msg.cursorRow, msg.rows - 1));
+        newCh.parser.cursor.col = Math.max(0, Math.min(msg.cursorCol, msg.cols - 1));
+      }
+      if (!newCh.usingSAB && msg.reflowedCellData && msg.reflowedWrapFlags) {
+        const grid = newCh.bufferSet.active.grid;
+        const cellView = new Uint32Array(msg.reflowedCellData);
+        if (cellView.length === grid.data.length) {
+          grid.data.set(cellView);
+        }
+        const wrapView = new Int32Array(msg.reflowedWrapFlags);
+        if (wrapView.length === grid.wrapFlags.length) {
+          grid.wrapFlags.set(wrapView);
+        }
+        grid.markAllDirty();
+      }
+      const flush = buildFlush(newCh, 0, channelId);
+      postFlush(flush, newCh.usingSAB);
+      break;
+    }
+
+    case "dispose": {
+      const existing = channels.get(channelId);
+      // Drop stale dispose from a prior lifecycle — the newer init has
+      // already taken over this channelId. (This can happen if the main
+      // thread re-acquires while the prior dispose is still in flight.)
+      if (existing && msg.generation !== undefined && msg.generation !== existing.generation) {
+        return;
+      }
+      channels.delete(channelId);
+      // Do NOT close the worker — other channels may still be active.
+      break;
+    }
+  }
+}
+
+function postError(message: string, channelId?: string, generation?: number): void {
+  const err: ErrorMessage = { type: "error", channelId, generation, message };
   (self as unknown as DedicatedWorkerGlobalScope).postMessage(err);
 }
 
@@ -258,7 +391,11 @@ function postError(message: string): void {
     try {
       handleMessage(event.data);
     } catch (e: unknown) {
-      postError(e instanceof Error ? e.message : "Internal parser error");
+      postError(
+        e instanceof Error ? e.message : "Internal parser error",
+        event.data?.channelId,
+        event.data?.generation,
+      );
     }
   },
 );

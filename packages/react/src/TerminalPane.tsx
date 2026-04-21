@@ -10,7 +10,7 @@
  */
 
 import type { Theme } from "@next_term/core";
-import { SharedWebGLContext } from "@next_term/web";
+import { DEFAULT_PARSER_WORKER_COUNT, ParserPool, SharedWebGLContext } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { collectPaneIds, type PaneLayout } from "./pane-layout.js";
@@ -31,6 +31,24 @@ export interface TerminalPaneProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
+  /** Control whether each pane uses a Web Worker for parsing. Defaults to auto-detect (SAB available). */
+  useWorker?: boolean;
+  /**
+   * Number of shared parser workers. All panes share a pool of this many
+   * workers, routed round-robin by the channel id (pane id).
+   *
+   * - `undefined` (default): `min(navigator.hardwareConcurrency ?? 4, 4)`.
+   *   Suitable for multi-pane layouts; at 1–2 panes the unused workers
+   *   cost ~1–2 MB RAM each and sit idle.
+   * - A positive integer: that exact number of workers.
+   * - `0`: disable the shared pool entirely. Each pane gets its own
+   *   dedicated worker via `useWorker`, same as a standalone `<Terminal>`.
+   *
+   * Changing this prop at runtime disposes the current pool and recreates
+   * it — which tears down all pane terminal state. Treat it as a
+   * mount-time setting in practice.
+   */
+  parserWorkers?: number;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -60,6 +78,8 @@ interface PaneLeafProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
+  useWorker?: boolean;
+  parserPool?: ParserPool | null;
   onRef: (id: string, handle: TerminalHandle | null) => void;
   sharedContext: SharedWebGLContext | null;
 }
@@ -72,6 +92,8 @@ function PaneLeaf({
   fontFamily,
   fontWeight,
   fontWeightBold,
+  useWorker,
+  parserPool,
   onRef,
   sharedContext,
 }: PaneLeafProps) {
@@ -126,9 +148,11 @@ function PaneLeaf({
         fontFamily={fontFamily}
         fontWeight={fontWeight}
         fontWeightBold={fontWeightBold}
+        useWorker={useWorker}
+        parserPool={parserPool ?? undefined}
         onData={handleData}
         sharedContext={sharedContext ?? undefined}
-        paneId={sharedContext ? id : undefined}
+        paneId={sharedContext || parserPool ? id : undefined}
         style={{ width: "100%", height: "100%" }}
       />
     </div>
@@ -147,6 +171,8 @@ interface PaneNodeProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
+  useWorker?: boolean;
+  parserPool?: ParserPool | null;
   onRef: (id: string, handle: TerminalHandle | null) => void;
   sharedContext: SharedWebGLContext | null;
 }
@@ -159,6 +185,8 @@ function PaneNode({
   fontFamily,
   fontWeight,
   fontWeightBold,
+  useWorker,
+  parserPool,
   onRef,
   sharedContext,
 }: PaneNodeProps) {
@@ -172,6 +200,8 @@ function PaneNode({
         fontFamily={fontFamily}
         fontWeight={fontWeight}
         fontWeightBold={fontWeightBold}
+        useWorker={useWorker}
+        parserPool={parserPool}
         onRef={onRef}
         sharedContext={sharedContext}
       />
@@ -218,6 +248,8 @@ function PaneNode({
               fontFamily={fontFamily}
               fontWeight={fontWeight}
               fontWeightBold={fontWeightBold}
+              useWorker={useWorker}
+              parserPool={parserPool}
               onRef={onRef}
               sharedContext={sharedContext}
             />
@@ -242,6 +274,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       fontFamily,
       fontWeight,
       fontWeightBold,
+      useWorker,
+      parserWorkers,
       className,
       style,
     } = props;
@@ -249,6 +283,52 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     const terminalsRef = useRef<Map<string, TerminalHandle>>(new Map());
     const sharedContextRef = useRef<SharedWebGLContext | null>(null);
     const [sharedContext, setSharedContext] = useState<SharedWebGLContext | null>(null);
+
+    // Warn on duplicate pane ids — the pool rejects them at acquire time,
+    // which causes WebTerminal to silently fall back to main-thread parsing.
+    useEffect(() => {
+      const ids = collectPaneIds(layout);
+      const seen = new Set<string>();
+      const duplicates: string[] = [];
+      for (const id of ids) {
+        if (seen.has(id)) duplicates.push(id);
+        seen.add(id);
+      }
+      if (duplicates.length > 0) {
+        console.warn(
+          `[TerminalPane] duplicate pane ids in layout: ${duplicates.join(", ")}. Each leaf must have a unique id.`,
+        );
+      }
+    }, [layout]);
+
+    // Create the parser pool in a useEffect so StrictMode's double-invoke
+    // of lazy initializers can't leak workers. Children render a placeholder
+    // until the pool decision is committed (mounted=true), which prevents the
+    // first-render race where panes would create per-pane WorkerBridges only
+    // to tear them down once the pool arrived.
+    const [mounted, setMounted] = useState(false);
+    const [parserPool, setParserPool] = useState<ParserPool | null>(null);
+
+    useEffect(() => {
+      if (useWorker === false || parserWorkers === 0) {
+        setParserPool(null);
+        setMounted(true);
+        return;
+      }
+      let pool: ParserPool | null = null;
+      try {
+        pool = new ParserPool(parserWorkers ?? DEFAULT_PARSER_WORKER_COUNT);
+      } catch {
+        pool = null;
+      }
+      setParserPool(pool);
+      setMounted(true);
+      return () => {
+        pool?.dispose();
+        setParserPool(null);
+        setMounted(false);
+      };
+    }, [useWorker, parserWorkers]);
 
     const handleRef = useCallback((id: string, handle: TerminalHandle | null) => {
       if (handle) {
@@ -359,17 +439,21 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           ...style,
         }}
       >
-        <PaneNode
-          layout={layout}
-          onData={onData}
-          theme={theme}
-          fontSize={fontSize}
-          fontFamily={fontFamily}
-          fontWeight={fontWeight}
-          fontWeightBold={fontWeightBold}
-          onRef={handleRef}
-          sharedContext={sharedContext}
-        />
+        {mounted && (
+          <PaneNode
+            layout={layout}
+            onData={onData}
+            theme={theme}
+            fontSize={fontSize}
+            fontFamily={fontFamily}
+            fontWeight={fontWeight}
+            fontWeightBold={fontWeightBold}
+            useWorker={useWorker}
+            parserPool={parserPool}
+            onRef={handleRef}
+            sharedContext={sharedContext}
+          />
+        )}
       </div>
     );
   },

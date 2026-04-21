@@ -98,14 +98,14 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
             if (settled) return;
             if (event.data instanceof ArrayBuffer) {
               const buf = event.data as ArrayBuffer;
-              recordWrite(buf.byteLength);
-
               const data = new Uint8Array(buf);
+              const len = data.byteLength; // capture before write() may transfer the buffer
               if (terminal === "react-term") {
                 paneRef.current?.getTerminal(`pane-${i}`)?.write(data);
               } else {
                 xtermRefs.current.get(i)?.write(data);
               }
+              recordWrite(len);
             } else {
               let msg: { type?: string; serverElapsedMs?: number; totalBytes?: number };
               try {
@@ -209,6 +209,10 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
   // Render react-term multi-pane
   if (activeTerminal?.terminal === "react-term") {
     const layout = buildLayout(activeTerminal.paneCount);
+    // Size the pool to match the pane count up to the default cap (4) so
+    // low-pane-count benchmarks aren't skewed by idle workers. At 8+ panes
+    // this stops growing and workers serve multiple channels each.
+    const parserWorkers = Math.min(activeTerminal.paneCount, 4);
     return (
       <div
         style={{
@@ -219,7 +223,12 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
           overflow: "hidden",
         }}
       >
-        <TerminalPane ref={paneRef} layout={layout} style={{ width: "100%", height: "100%" }} />
+        <TerminalPane
+          ref={paneRef}
+          layout={layout}
+          parserWorkers={parserWorkers}
+          style={{ width: "100%", height: "100%" }}
+        />
       </div>
     );
   }

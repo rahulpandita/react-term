@@ -1,5 +1,5 @@
 import type { MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
-import type { SharedWebGLContext } from "@next_term/web";
+import type { ParserPool, SharedWebGLContext } from "@next_term/web";
 import { calculateFit, WebTerminal } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -29,8 +29,11 @@ export interface TerminalProps {
   useWorker?: boolean;
   /** Shared WebGL context for multi-pane rendering. */
   sharedContext?: SharedWebGLContext;
-  /** Pane ID within the shared context. Required when sharedContext is provided. */
+  /** Unique identifier for this pane. Required when `sharedContext` or
+   *  `parserPool` is provided — it's used as the channel id in both. */
   paneId?: string;
+  /** Shared parser worker pool for multi-pane parsing. */
+  parserPool?: ParserPool;
 }
 
 export interface TerminalHandle {
@@ -78,6 +81,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     useWorker,
     sharedContext,
     paneId,
+    parserPool,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -178,6 +182,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       useWorker,
       sharedContext,
       paneId,
+      parserPool,
       onData: (data: Uint8Array) => onDataRef.current?.(data),
       onResize: (size: { cols: number; rows: number }) => onResizeRef.current?.(size),
       onTitleChange: (title: string) => onTitleChangeRef.current?.(title),
@@ -204,6 +209,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     sharedContext,
     theme,
     useWorker,
+    parserPool,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update theme when it changes

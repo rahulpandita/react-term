@@ -9,7 +9,8 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TERMINALS = ['react-term', 'xterm'] as const;
-const PANE_COUNTS = [2, 4, 8, 16, 32] as const;
+// Capped at 16 — 32 panes is an unrealistic workload for most users.
+const PANE_COUNTS = [2, 4, 8, 16] as const;
 const SCENARIO = 'sgr-color';
 const WARMUP_RUNS = 2;
 const MEASURED_RUNS = 5;
