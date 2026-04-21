@@ -2,6 +2,50 @@
 
 ## React Component Props
 
+### `TerminalPane` — `parserWorkers` and `useWorker`
+
+`TerminalPane` automatically creates a shared **parser worker pool** so all panes share a fixed set of parser workers. This avoids the thread oversubscription that occurs when one `Web Worker` is spawned per pane at 16–32 panes.
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `parserWorkers` | `number` | `DEFAULT_PARSER_WORKER_COUNT` | Number of workers in the shared pool (default: `min(hardwareConcurrency, 4)`). Set to `0` to disable the pool. |
+| `useWorker` | `boolean` | auto | When `false`, disables the pool entirely; all parsing happens on the main thread. |
+
+```tsx
+// Default: pool of min(hardwareConcurrency, 4) workers shared by all panes
+<TerminalPane layout={layout} onData={handleData} />
+
+// Custom pool size for very large pane counts
+<TerminalPane layout={layout} parserWorkers={8} onData={handleData} />
+
+// Disable workers (main-thread parsing only)
+<TerminalPane layout={layout} parserWorkers={0} onData={handleData} />
+// or equivalently:
+<TerminalPane layout={layout} useWorker={false} onData={handleData} />
+```
+
+### `Terminal` — `parserPool`
+
+Pass an externally-created `ParserPool` to share one pool across multiple `Terminal` instances that are composed outside of `TerminalPane`. Requires `paneId` to be set.
+
+```tsx
+import { ParserPool } from '@next_term/web';
+import { Terminal } from '@next_term/react';
+
+const pool = new ParserPool(); // create once
+
+// Both terminals share the same pool workers
+<Terminal paneId="left"  parserPool={pool} onData={...} />
+<Terminal paneId="right" parserPool={pool} onData={...} />
+
+// Dispose the pool when you're done
+pool.dispose();
+```
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `parserPool` | `ParserPool` | -- | Shared parser worker pool. When provided, `paneId` must also be set. |
+
 ### `Terminal` — `sharedContext` and `paneId`
 
 Two new optional props allow multiple `Terminal` instances to share a single WebGL context, avoiding Chrome's 16-context limit without using the higher-level `TerminalPane` layout component.
@@ -131,6 +175,33 @@ isCombining(0x0041); // false — 'A'
 ```
 
 ## Utilities
+
+### `ParserPool` and `ParserChannel`
+
+Exported from `@next_term/web`. `ParserPool` manages N parser Web Workers shared across many terminal panes, avoiding thread oversubscription. Each pane acquires a `ParserChannel` (same API as `WorkerBridge`) assigned round-robin to one of the pool workers.
+
+```ts
+import { ParserPool, DEFAULT_PARSER_WORKER_COUNT } from '@next_term/web';
+
+// Create a pool (default: min(hardwareConcurrency, 4) workers)
+const pool = new ParserPool();
+
+// Or specify a custom count:
+const pool = new ParserPool(4);
+
+// Each WebTerminal acquires a channel from the pool (via the parserPool option):
+const term = new WebTerminal(container, {
+  paneId: 'my-pane',
+  parserPool: pool,
+});
+
+// Dispose pool after all terminals are disposed
+pool.dispose();
+```
+
+`DEFAULT_PARSER_WORKER_COUNT` is `Math.min(navigator.hardwareConcurrency ?? 4, 4)`.
+
+When using the `<TerminalPane>` React component, the pool is created and managed automatically. Use `parserWorkers={0}` or `useWorker={false}` to disable workers.
 
 ### `collectPaneIds`
 

@@ -35,6 +35,37 @@ terminal.fit();
 terminal.dispose();
 ```
 
+## Multi-Pane with Shared Parser Worker Pool
+
+For 9+ pane layouts, use a `ParserPool` to share a small pool of parser workers instead of spawning one per pane. The pool avoids thread oversubscription and reduces `postMessage` overhead.
+
+```ts
+import { WebTerminal, SharedWebGLContext, ParserPool } from "@next_term/web";
+
+// Create a pool (default: min(hardwareConcurrency, 4) workers)
+const parserPool = new ParserPool();
+
+// Each terminal acquires its own channel from the pool
+const term1 = new WebTerminal(pane1, {
+  sharedContext: sharedCtx,
+  paneId: "pane-1",
+  parserPool,
+});
+
+const term2 = new WebTerminal(pane2, {
+  sharedContext: sharedCtx,
+  paneId: "pane-2",
+  parserPool,
+});
+
+// Clean up
+term1.dispose();
+term2.dispose();
+parserPool.dispose();
+```
+
+> **Note**: When using `<TerminalPane>`, the parser pool is created and managed automatically. The `parserWorkers` prop controls pool size (default: `min(hardwareConcurrency, 4)`).
+
 ## Multi-Pane with SharedWebGLContext
 
 For multiple terminals on one page, use `SharedWebGLContext` to share a single WebGL context. This avoids Chrome's 16-context limit and is more GPU-efficient.
@@ -198,6 +229,9 @@ sharedCtx.dispose();
 // Terminal
 export { WebTerminal, SharedWebGLContext } from "@next_term/web";
 export type { WebTerminalOptions } from "@next_term/web";
+
+// Parser Worker Pool
+export { ParserPool, ParserChannel, DEFAULT_PARSER_WORKER_COUNT } from "@next_term/web";
 
 // Renderers
 export { Canvas2DRenderer, WebGLRenderer, createRenderer } from "@next_term/web";
