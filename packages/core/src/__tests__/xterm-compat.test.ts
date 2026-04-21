@@ -1209,4 +1209,96 @@ describe("xterm.js Compatibility Tests", () => {
       expect(readLineTrimmed(bs, 0)).toBe("");
     });
   });
+
+  // ==================================================================
+  // 256-color and 24-bit truecolor SGR (xterm extension)
+  // ==================================================================
+  describe("256-color and 24-bit truecolor SGR", () => {
+    it("38;5;n sets fg to palette index n", () => {
+      write(parser, "\x1b[38;5;123mA");
+      const grid = bs.active.grid;
+      expect(grid.getFgIndex(0, 0)).toBe(123);
+      expect(grid.isFgRGB(0, 0)).toBe(false);
+    });
+
+    it("48;5;n sets bg to palette index n", () => {
+      write(parser, "\x1b[48;5;200mA");
+      const grid = bs.active.grid;
+      expect(grid.getBgIndex(0, 0)).toBe(200);
+      expect(grid.isBgRGB(0, 0)).toBe(false);
+    });
+
+    it("38;2;r;g;b sets fg to truecolor RGB", () => {
+      write(parser, "\x1b[38;2;255;128;0mA");
+      const grid = bs.active.grid;
+      expect(grid.isFgRGB(0, 0)).toBe(true);
+      expect(grid.getFgRGB(0, 0)).toBe((255 << 16) | (128 << 8) | 0);
+    });
+
+    it("48;2;r;g;b sets bg to truecolor RGB", () => {
+      write(parser, "\x1b[48;2;0;64;255mA");
+      const grid = bs.active.grid;
+      expect(grid.isBgRGB(0, 0)).toBe(true);
+      expect(grid.getBgRGB(0, 0)).toBe((0 << 16) | (64 << 8) | 255);
+    });
+
+    it("combined fg+bg truecolor in one sequence", () => {
+      write(parser, "\x1b[38;2;255;0;0;48;2;0;0;255mA");
+      const grid = bs.active.grid;
+      expect(grid.isFgRGB(0, 0)).toBe(true);
+      expect(grid.getFgRGB(0, 0)).toBe(0xff0000);
+      expect(grid.isBgRGB(0, 0)).toBe(true);
+      expect(grid.getBgRGB(0, 0)).toBe(0x0000ff);
+    });
+
+    it("truecolor persists across multiple cells", () => {
+      write(parser, "\x1b[38;2;100;200;50mABC");
+      const grid = bs.active.grid;
+      const expected = (100 << 16) | (200 << 8) | 50;
+      expect(grid.isFgRGB(0, 0)).toBe(true);
+      expect(grid.getFgRGB(0, 0)).toBe(expected);
+      expect(grid.isFgRGB(0, 1)).toBe(true);
+      expect(grid.getFgRGB(0, 1)).toBe(expected);
+      expect(grid.isFgRGB(0, 2)).toBe(true);
+      expect(grid.getFgRGB(0, 2)).toBe(expected);
+    });
+
+    it("SGR 0 resets truecolor fg and bg flags", () => {
+      write(parser, "\x1b[38;2;255;0;0;48;2;0;255;0mX");
+      write(parser, "\x1b[0mY");
+      const grid = bs.active.grid;
+      expect(grid.isFgRGB(0, 0)).toBe(true);
+      expect(grid.isBgRGB(0, 0)).toBe(true);
+      expect(grid.isFgRGB(0, 1)).toBe(false);
+      expect(grid.isBgRGB(0, 1)).toBe(false);
+      expect(grid.getFgIndex(0, 1)).toBe(7); // default fg
+      expect(grid.getBgIndex(0, 1)).toBe(0); // default bg
+    });
+
+    it("SGR 39 clears truecolor fg and restores default index", () => {
+      write(parser, "\x1b[38;2;128;64;32mX");
+      write(parser, "\x1b[39mY");
+      const grid = bs.active.grid;
+      expect(grid.isFgRGB(0, 0)).toBe(true);
+      expect(grid.isFgRGB(0, 1)).toBe(false);
+      expect(grid.getFgIndex(0, 1)).toBe(7);
+    });
+
+    it("SGR 49 clears truecolor bg and restores default index", () => {
+      write(parser, "\x1b[48;2;32;64;128mX");
+      write(parser, "\x1b[49mY");
+      const grid = bs.active.grid;
+      expect(grid.isBgRGB(0, 0)).toBe(true);
+      expect(grid.isBgRGB(0, 1)).toBe(false);
+      expect(grid.getBgIndex(0, 1)).toBe(0);
+    });
+
+    it("truecolor fg alongside bold attribute", () => {
+      write(parser, "\x1b[1;38;2;200;100;50mA");
+      const grid = bs.active.grid;
+      expect(grid.getAttrs(0, 0) & 0x01).toBe(0x01); // bold
+      expect(grid.isFgRGB(0, 0)).toBe(true);
+      expect(grid.getFgRGB(0, 0)).toBe((200 << 16) | (100 << 8) | 50);
+    });
+  });
 });
