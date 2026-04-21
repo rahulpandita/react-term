@@ -1,5 +1,5 @@
 ## Commands (validated)
-- test: `npx vitest run` (1764 tests as of 2026-04-20)
+- test: `npx vitest run` (1775 tests as of 2026-04-21)
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - No coverage pipeline (missing @vitest/coverage-v8)
@@ -28,21 +28,22 @@
 - 2026-04-16 run 24490999918: Tasks 3+7, branch test-assist/reflow-edge-cases (+8t), 1752→1760
 - 2026-04-17 run 24546619174: Tasks 3+7, branch test-assist/reflow-rgb-preservation (+5t), 1764→1769
 - 2026-04-18 run 24596072736: Tasks 2+3+7, branch test-assist/xterm-truecolor-sgr (256-color and 24-bit truecolor SGR in xterm-compat, +10t), PR #175
-- 2026-04-19 run 24620364049: Tasks 3+7, branch test-assist/ghostty-truecolor-sgr — NO PR created (branch may not exist remotely; only xterm-truecolor-sgr branch found on remote)
+- 2026-04-19 run 24620364049: Tasks 3+7, branch test-assist/ghostty-truecolor-sgr — NO PR created (branch may not exist remotely)
 - 2026-04-20 run 24647557344: Tasks 5+7, commented on issues #157, #158, #159 (worker-mode testing gaps)
+- 2026-04-21 run 24702956531: Tasks 3+4+7, branch test-assist/ghostty-truecolor-sgr (+11t ghostty truecolor SGR), PR #TBD (created via safeoutputs)
 
 ## Open PRs
 - #175: xterm-truecolor-sgr (open, mergeable=true, up-to-date with main)
+- ghostty-truecolor-sgr: created 2026-04-21 (PR number assigned by GitHub at PR creation time)
 
 ## Backlog
 - Implement worker-mode WebTerminal tests (issues #157, #158) - medium complexity, requires MockWorker upgrade
 - Implement render-worker syncedOutput tests (issue #159) - high complexity (module-level state)
-- ghostty-compat truecolor tests: apparently not completed in 2026-04-19 run; base format changed with #172 merge
 
 ## Tasks last run
+- Task 3 (Implement tests): 2026-04-21 (ghostty truecolor, +11t, PR created)
+- Task 4 (Maintain PRs): 2026-04-21 (PR #175 clean, no action needed)
+- Task 7 (Monthly summary): 2026-04-21
 - Task 5 (Comment issues): 2026-04-20
-- Task 7 (Monthly summary): 2026-04-20
-- Task 3 (Implement tests): 2026-04-19
 - Task 2 (Identify opportunities): 2026-04-18
-- Task 4 (Maintain PRs): not recently run (PR #175 is mergeable, no action needed)
-- Task 1 (Commands): validated 2026-04-20 (1764 tests)
+- Task 1 (Commands): validated 2026-04-21 (1775 tests)
