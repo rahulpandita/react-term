@@ -60,5 +60,10 @@ export interface MultiPaneResult {
 
 export type TerminalApi = Pick<TerminalHandle, "write" | "resize">;
 
-export const WS_PORT = 8081;
+// Port is overridable via VITE_BENCH_WS_PORT so a running bench can avoid
+// colliding with another service on 8081.
+const DEFAULT_WS_PORT = 8081;
+const viteEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+const envPort = viteEnv?.VITE_BENCH_WS_PORT ? Number(viteEnv.VITE_BENCH_WS_PORT) : DEFAULT_WS_PORT;
+export const WS_PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : DEFAULT_WS_PORT;
 export const WS_URL = `ws://${typeof window !== "undefined" ? window.location.hostname : "localhost"}:${WS_PORT}`;
