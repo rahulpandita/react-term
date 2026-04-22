@@ -3,17 +3,15 @@
 import type { CursorState } from "@next_term/core";
 import { CellGrid, DEFAULT_THEME } from "@next_term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ATTR_BOLD,
+  ATTR_INVERSE,
+  ATTR_ITALIC,
+  ATTR_STRIKETHROUGH,
+  ATTR_UNDERLINE,
+} from "../cell-attrs.js";
 import type { HighlightRange } from "../renderer.js";
 import { Canvas2DRenderer } from "../renderer.js";
-
-// ---------------------------------------------------------------------------
-// Attribute bit constants (mirror renderer.ts private constants)
-// ---------------------------------------------------------------------------
-const ATTR_BOLD = 0x01;
-const ATTR_ITALIC = 0x02;
-const ATTR_UNDERLINE = 0x04;
-const ATTR_STRIKETHROUGH = 0x08;
-const ATTR_INVERSE = 0x40;
 
 // ---------------------------------------------------------------------------
 // Minimal CanvasRenderingContext2D mock

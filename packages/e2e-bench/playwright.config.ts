@@ -1,5 +1,10 @@
 import { defineConfig } from '@playwright/test';
 
+// BENCH_WS_PORT overrides the replay-server port (and the port Vite exposes
+// to the frontend) so an A/B run can avoid colliding with another service
+// already bound to 8081.
+const WS_PORT = Number(process.env.BENCH_WS_PORT ?? 8081);
+
 export default defineConfig({
   testDir: './tests',
   timeout: 10 * 60 * 1000, // 10 minutes per test
@@ -16,12 +21,12 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'npx tsx server/replay-server.ts',
-      port: 8081,
+      command: `BENCH_WS_PORT=${WS_PORT} npx tsx server/replay-server.ts`,
+      port: WS_PORT,
       reuseExistingServer: true,
     },
     {
-      command: 'npx vite --port 5174',
+      command: `VITE_BENCH_WS_PORT=${WS_PORT} npx vite --port 5174`,
       port: 5174,
       reuseExistingServer: true,
     },

@@ -1,7 +1,7 @@
 import { WebSocketServer, type WebSocket } from 'ws';
 import { scenarios } from '@next_term/bench/src/generators/index.js';
 
-const PORT = 8081;
+const PORT = Number(process.env.BENCH_WS_PORT ?? 8081);
 const CHUNK_SIZE = 64 * 1024; // 64KB
 
 // Pre-generate all payloads on startup

@@ -1,5 +1,12 @@
 import type { CursorState, SelectionRange, Theme } from "@next_term/core";
 import { type CellGrid, DEFAULT_THEME, normalizeSelection } from "@next_term/core";
+import {
+  ATTR_BOLD,
+  ATTR_INVERSE,
+  ATTR_ITALIC,
+  ATTR_STRIKETHROUGH,
+  ATTR_UNDERLINE,
+} from "./cell-attrs.js";
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -91,13 +98,6 @@ export function build256Palette(theme: Theme): string[] {
 
   return palette;
 }
-
-// Attribute bit positions in core's attrs byte
-const ATTR_BOLD = 0x01;
-const ATTR_ITALIC = 0x02;
-const ATTR_UNDERLINE = 0x04;
-const ATTR_STRIKETHROUGH = 0x08;
-const ATTR_INVERSE = 0x40;
 
 // ---------------------------------------------------------------------------
 // Canvas 2D Renderer

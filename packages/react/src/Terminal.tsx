@@ -1,5 +1,5 @@
 import type { MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
-import type { ParserPool, SharedWebGLContext } from "@next_term/web";
+import type { ParserPool, SharedContext } from "@next_term/web";
 import { calculateFit, WebTerminal } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -27,8 +27,8 @@ export interface TerminalProps {
   renderer?: "auto" | "webgl" | "canvas2d";
   /** Whether to use a Web Worker for VT parsing. */
   useWorker?: boolean;
-  /** Shared WebGL context for multi-pane rendering. */
-  sharedContext?: SharedWebGLContext;
+  /** Shared render context (WebGL2 or Canvas2D) for multi-pane rendering. */
+  sharedContext?: SharedContext;
   /** Unique identifier for this pane. Required when `sharedContext` or
    *  `parserPool` is provided — it's used as the channel id in both. */
   paneId?: string;

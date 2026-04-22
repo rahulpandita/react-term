@@ -7,14 +7,18 @@
 
 import type { CursorState, SelectionRange, Theme } from "@next_term/core";
 import type {
+  RenderWorkerCursorMessage,
   RenderWorkerDisposeMessage,
   RenderWorkerFontMessage,
+  RenderWorkerHighlightsMessage,
   RenderWorkerInitMessage,
   RenderWorkerResizeMessage,
+  RenderWorkerSelectionMessage,
   RenderWorkerSyncedOutputMessage,
   RenderWorkerThemeMessage,
-  RenderWorkerUpdateMessage,
 } from "./render-worker.js";
+import type { RendererKind } from "./render-worker-backend.js";
+import type { HighlightRange } from "./renderer.js";
 
 // ---------------------------------------------------------------------------
 // Feature detection
@@ -39,6 +43,8 @@ export interface RenderBridgeOptions {
   fontWeightBold?: number;
   theme: Theme;
   devicePixelRatio?: number;
+  /** Which backend the worker should use. Defaults to `webgl2`. */
+  renderer?: RendererKind;
   /** Called when the worker reports FPS. */
   onFps?: (fps: number) => void;
   /** Called when the worker reports an error. */
@@ -87,39 +93,38 @@ export class RenderBridge {
       devicePixelRatio:
         this.options.devicePixelRatio ??
         (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1),
+      renderer: this.options.renderer ?? "webgl2",
     };
 
     this.worker.postMessage(init, [offscreen]);
   }
 
   /**
-   * Send cursor and selection state to the render worker.
+   * Send cursor state to the render worker. Selection is not touched.
    */
   updateCursor(cursor: CursorState): void {
     if (this.disposed || !this.worker) return;
 
-    const msg: RenderWorkerUpdateMessage = {
-      type: "update",
+    const msg: RenderWorkerCursorMessage = {
+      type: "cursor",
       cursor: {
         row: cursor.row,
         col: cursor.col,
         visible: cursor.visible,
         style: cursor.style,
       },
-      selection: null,
     };
     this.worker.postMessage(msg);
   }
 
   /**
-   * Send selection state to the render worker.
+   * Send selection state to the render worker. Cursor is not touched.
    */
   updateSelection(selection: SelectionRange | null): void {
     if (this.disposed || !this.worker) return;
 
-    const msg: RenderWorkerUpdateMessage = {
-      type: "update",
-      cursor: { row: 0, col: 0, visible: false, style: "block" },
+    const msg: RenderWorkerSelectionMessage = {
+      type: "selection",
       selection: selection
         ? {
             startRow: selection.startRow,
@@ -177,6 +182,24 @@ export class RenderBridge {
       fontFamily,
       fontWeight: fontWeight ?? 400,
       fontWeightBold: fontWeightBold ?? 700,
+    };
+    this.worker.postMessage(msg);
+  }
+
+  /**
+   * Replace the search-highlight set. Empty array clears highlights.
+   */
+  setHighlights(highlights: readonly HighlightRange[]): void {
+    if (this.disposed || !this.worker) return;
+
+    const msg: RenderWorkerHighlightsMessage = {
+      type: "highlights",
+      highlights: highlights.map((h) => ({
+        row: h.row,
+        startCol: h.startCol,
+        endCol: h.endCol,
+        isCurrent: h.isCurrent,
+      })),
     };
     this.worker.postMessage(msg);
   }

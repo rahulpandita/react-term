@@ -32,7 +32,7 @@ import type { FlushMessage } from "./parser-worker.js";
 import { canUseOffscreenCanvas, RenderBridge } from "./render-bridge.js";
 import type { HighlightRange, IRenderer, RendererOptions } from "./renderer.js";
 import { Canvas2DRenderer } from "./renderer.js";
-import type { SharedWebGLContext } from "./shared-context.js";
+import type { SharedContext } from "./shared-context.js";
 import { WebGLRenderer } from "./webgl-renderer.js";
 import { WorkerBridge } from "./worker-bridge.js";
 
@@ -45,6 +45,76 @@ const SAB_AVAILABLE =
   (typeof crossOriginIsolated !== "undefined" ? crossOriginIsolated : true);
 
 const OFFSCREEN_CANVAS_AVAILABLE = canUseOffscreenCanvas();
+
+/**
+ * Pure decision helper for which backend the render worker should use.
+ * Exported for testing — in production only WebTerminal calls it.
+ *
+ * - `canvas2d` / `webgl` force the corresponding backend without probing.
+ *   `webgl` here respects the user's explicit intent even on software
+ *   rasterizers; that's documented force-mode behavior.
+ * - `auto` defers to the probe: hardware WebGL2 → WebGL2, otherwise
+ *   Canvas2D (which is faster than software WebGL2).
+ */
+export function pickWorkerBackend(
+  rendererType: "auto" | "webgl" | "canvas2d",
+  hardwareWebGL2Available: boolean,
+): "webgl2" | "canvas2d" {
+  if (rendererType === "canvas2d") return "canvas2d";
+  if (rendererType === "webgl") return "webgl2";
+  return hardwareWebGL2Available ? "webgl2" : "canvas2d";
+}
+
+/**
+ * Regex for known software rasterizer strings. Kept in sync between the
+ * main-thread probe and the worker-side check.
+ *
+ * - swiftshader / llvmpipe:    Linux CI, SwiftShader in Chromium headless
+ * - software:                  generic software path (some Android drivers)
+ * - microsoft basic render:    Azure VMs / Windows Remote Desktop (WARP)
+ * - warp:                      Windows Advanced Rasterization Platform
+ */
+export const SOFTWARE_RENDERER_RE = /swiftshader|llvmpipe|software|microsoft basic render|warp/i;
+
+/**
+ * Probe whether hardware WebGL2 is available on this page. Returns false when
+ * WebGL2 is missing or backed by a software rasterizer — on those, Canvas2D
+ * is consistently faster and we'd rather skip WebGL2.
+ *
+ * Prefers `WEBGL_debug_renderer_info` (more accurate, identifies the unmasked
+ * GPU driver) but falls back to `gl.getParameter(gl.RENDERER)` when the
+ * extension is unavailable. Firefox is removing the extension over privacy
+ * concerns, so the fallback is how we'll stay correct there long-term.
+ */
+function hasHardwareWebGL2(): boolean {
+  if (typeof document === "undefined") return false;
+  try {
+    const testCanvas = document.createElement("canvas");
+    const testGl = testCanvas.getContext("webgl2");
+    if (!testGl) return false;
+    let ok = true;
+    const debugInfo = testGl.getExtension("WEBGL_debug_renderer_info");
+    let rendererString: string | null = null;
+    if (debugInfo) {
+      rendererString = testGl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
+    }
+    // Fallback for browsers that hide the debug extension (Firefox going forward).
+    // gl.RENDERER returns a masked string but software renderers still identify
+    // themselves there — `webkit webgl`/`mozilla` on real GPUs stay out of our
+    // regex, so false positives are unlikely.
+    if (!rendererString) {
+      rendererString = testGl.getParameter(testGl.RENDERER) as string;
+    }
+    if (rendererString && SOFTWARE_RENDERER_RE.test(rendererString)) {
+      ok = false;
+    }
+    // Release the probe context so it doesn't count against Chrome's limit.
+    testGl.getExtension("WEBGL_lose_context")?.loseContext();
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,10 +147,11 @@ export interface WebTerminalOptions {
    */
   renderer?: "auto" | "webgl" | "canvas2d";
   /**
-   * When provided, the terminal registers with a SharedWebGLContext instead
-   * of creating its own renderer. Must be used together with `paneId`.
+   * When provided, the terminal registers with a SharedContext
+   * (SharedWebGLContext or SharedCanvas2DContext) instead of creating its own
+   * renderer. Must be used together with `paneId`.
    */
-  sharedContext?: SharedWebGLContext;
+  sharedContext?: SharedContext;
   /**
    * Unique identifier for this pane. Required when `sharedContext` OR
    * `parserPool` is provided — used as the channel id in both. Passing
@@ -146,9 +217,9 @@ export class WebTerminal {
   private addons: ITerminalAddon[] = [];
   private accessibilityManager: AccessibilityManager | null = null;
 
-  /** SharedWebGLContext when using shared multi-pane rendering, null otherwise. */
-  private sharedContext: SharedWebGLContext | null = null;
-  /** Pane ID within the SharedWebGLContext. */
+  /** SharedContext when using shared multi-pane rendering, null otherwise. */
+  private sharedContext: SharedContext | null = null;
+  /** Pane ID within the SharedContext. */
   private paneId: string | null = null;
   /** WorkerBridge when using off-thread parsing (single-terminal mode), null otherwise. */
   private workerBridge: WorkerBridge | null = null;
@@ -302,21 +373,14 @@ export class WebTerminal {
       // We still need a main-thread renderer for getCellSize() measurements.
       this.renderer = new Canvas2DRenderer(rendererOpts);
 
-      this.renderBridge = new RenderBridge(this.canvas, {
-        fontSize,
-        fontFamily,
-        theme,
-        devicePixelRatio: options?.devicePixelRatio,
-        onError: (message: string) => {
-          console.warn("[WebTerminal] Render worker error, falling back:", message);
-          this.fallbackToMainThreadRenderer(rendererOpts);
-        },
-      });
-      this.renderBridge.start(
-        this.bufferSet.active.grid.getBuffer() as SharedArrayBuffer,
-        cols,
-        rows,
-      );
+      // Pick the worker backend. 'canvas2d' is respected as-is. For 'webgl'
+      // and 'auto' we probe hardware WebGL2 on the main thread — a software
+      // rasterizer (SwiftShader / llvmpipe on Linux CI, etc.) makes WebGL2
+      // slower than Canvas2D, so we start the worker on Canvas2D directly
+      // and skip a guaranteed round-trip failure + fallback.
+      const workerBackend = pickWorkerBackend(rendererType, hasHardwareWebGL2());
+
+      this.startRenderWorker(workerBackend, rendererOpts, fontSize, fontFamily, theme, options);
 
       // Sync cursor into SAB so the render worker can read it
       this.syncCursorToSAB();
@@ -331,26 +395,7 @@ export class WebTerminal {
         // 'auto': try WebGL2 first, fall back to Canvas 2D.
         // Exclude software renderers (SwiftShader/llvmpipe) — Canvas2D
         // is significantly faster than WebGL2 on software rasterizers.
-        let useWebGL = false;
-        try {
-          const testCanvas = document.createElement("canvas");
-          const testGl = testCanvas.getContext("webgl2");
-          if (testGl) {
-            useWebGL = true;
-            const debugInfo = testGl.getExtension("WEBGL_debug_renderer_info");
-            if (debugInfo) {
-              const renderer = testGl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
-              if (/swiftshader|llvmpipe|software/i.test(renderer)) {
-                useWebGL = false;
-              }
-            }
-            // Lose the test context so it doesn't count against Chrome's limit
-            testGl.getExtension("WEBGL_lose_context")?.loseContext();
-          }
-        } catch {
-          // WebGL2 not available
-        }
-        this.renderer = useWebGL
+        this.renderer = hasHardwareWebGL2()
           ? new WebGLRenderer(rendererOpts)
           : new Canvas2DRenderer(rendererOpts);
       }
@@ -544,6 +589,72 @@ export class WebTerminal {
   }
 
   /**
+   * Start the offscreen render worker with a given backend. On failure this
+   * cascades: WebGL2 worker → Canvas2D worker → main-thread Canvas2D. The
+   * intermediate "retry as canvas2d-in-worker" step keeps rendering off the
+   * main thread whenever the browser can host an OffscreenCanvas 2D context,
+   * even when WebGL2 init hits an unexpected failure (context loss, driver
+   * quirk) that the main-thread probe couldn't predict.
+   */
+  private startRenderWorker(
+    backend: "webgl2" | "canvas2d",
+    rendererOpts: RendererOptions,
+    fontSize: number,
+    fontFamily: string,
+    theme: Theme,
+    options: WebTerminalOptions | undefined,
+  ): void {
+    this.renderBridge = new RenderBridge(this.canvas, {
+      fontSize,
+      fontFamily,
+      theme,
+      devicePixelRatio: options?.devicePixelRatio,
+      renderer: backend,
+      onError: (message: string) => {
+        if (backend === "webgl2") {
+          console.warn(
+            "[WebTerminal] WebGL2 worker error, retrying with canvas2d-in-worker:",
+            message,
+          );
+          // Dispose the failed worker; the OffscreenCanvas was transferred to
+          // it, so we need a fresh one before starting a new worker.
+          if (this.renderBridge) {
+            this.renderBridge.dispose();
+            this.renderBridge = null;
+          }
+          this.replaceCanvasForRetry();
+          this.startRenderWorker("canvas2d", rendererOpts, fontSize, fontFamily, theme, options);
+          this.syncCursorToSAB();
+        } else {
+          console.warn(
+            "[WebTerminal] Canvas2D worker error, falling back to main thread:",
+            message,
+          );
+          this.fallbackToMainThreadRenderer(rendererOpts);
+        }
+      },
+    });
+    this.renderBridge.start(
+      this.bufferSet.active.grid.getBuffer() as SharedArrayBuffer,
+      this.bufferSet.cols,
+      this.bufferSet.rows,
+    );
+  }
+
+  /**
+   * Replace the transferred canvas with a fresh one so a retry can
+   * `transferControlToOffscreen()` again.
+   */
+  private replaceCanvasForRetry(): void {
+    const newCanvas = document.createElement("canvas");
+    newCanvas.style.display = "block";
+    if (this.canvas.parentElement) {
+      this.canvas.parentElement.replaceChild(newCanvas, this.canvas);
+    }
+    this.canvas = newCanvas;
+  }
+
+  /**
    * Fall back from offscreen rendering to main-thread rendering.
    */
   private fallbackToMainThreadRenderer(rendererOpts: RendererOptions): void {
@@ -551,13 +662,7 @@ export class WebTerminal {
       this.renderBridge.dispose();
       this.renderBridge = null;
     }
-    // The canvas was transferred; we need a new one.
-    const newCanvas = document.createElement("canvas");
-    newCanvas.style.display = "block";
-    if (this.canvas.parentElement) {
-      this.canvas.parentElement.replaceChild(newCanvas, this.canvas);
-    }
-    this.canvas = newCanvas;
+    this.replaceCanvasForRetry();
 
     this.renderer = new Canvas2DRenderer(rendererOpts);
     this.renderer.attach(this.canvas, this.bufferSet.active.grid, this.bufferSet.active.cursor);
@@ -1115,6 +1220,20 @@ export class WebTerminal {
 
   /** Set highlight ranges on the renderer (used by SearchAddon). */
   setHighlights(highlights: HighlightRange[]): void {
+    // The active renderer depends on the terminal's mode:
+    //   - shared-context mode:   forward to sharedContext.setHighlights(paneId)
+    //   - worker mode:           forward over the RenderBridge
+    //   - main-thread mode:      call the renderer directly
+    //
+    // All three paths are independent; hitting only `this.renderer` would
+    // silently drop highlights in the first two (renderer is a measurement
+    // stub in shared / worker mode). See PR #181 C1 + N1.
+    if (this.sharedContext && this.paneId) {
+      this.sharedContext.setHighlights(this.paneId, highlights);
+    }
+    if (this.renderBridge) {
+      this.renderBridge.setHighlights(highlights);
+    }
     this.renderer.setHighlights(highlights);
   }
 

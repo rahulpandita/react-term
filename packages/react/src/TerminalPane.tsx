@@ -10,7 +10,13 @@
  */
 
 import type { Theme } from "@next_term/core";
-import { DEFAULT_PARSER_WORKER_COUNT, ParserPool, SharedWebGLContext } from "@next_term/web";
+import {
+  DEFAULT_PARSER_WORKER_COUNT,
+  ParserPool,
+  SharedCanvas2DContext,
+  type SharedContext,
+  SharedWebGLContext,
+} from "@next_term/web";
 import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { collectPaneIds, type PaneLayout } from "./pane-layout.js";
@@ -81,7 +87,7 @@ interface PaneLeafProps {
   useWorker?: boolean;
   parserPool?: ParserPool | null;
   onRef: (id: string, handle: TerminalHandle | null) => void;
-  sharedContext: SharedWebGLContext | null;
+  sharedContext: SharedContext | null;
 }
 
 function PaneLeaf({
@@ -174,7 +180,7 @@ interface PaneNodeProps {
   useWorker?: boolean;
   parserPool?: ParserPool | null;
   onRef: (id: string, handle: TerminalHandle | null) => void;
-  sharedContext: SharedWebGLContext | null;
+  sharedContext: SharedContext | null;
 }
 
 function PaneNode({
@@ -281,8 +287,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     } = props;
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalsRef = useRef<Map<string, TerminalHandle>>(new Map());
-    const sharedContextRef = useRef<SharedWebGLContext | null>(null);
-    const [sharedContext, setSharedContext] = useState<SharedWebGLContext | null>(null);
+    const sharedContextRef = useRef<SharedContext | null>(null);
+    const [sharedContext, setSharedContext] = useState<SharedContext | null>(null);
 
     // Warn on duplicate pane ids — the pool rejects them at acquire time,
     // which causes WebTerminal to silently fall back to main-thread parsing.
@@ -338,76 +344,115 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       }
     }, []);
 
-    // Create and manage the shared WebGL context
+    // Create and manage the shared render context.
+    //
+    // Fallback chain:
+    //   1. SharedWebGLContext — fastest when WebGL2 is hardware-accelerated.
+    //      Throws on SwiftShader/llvmpipe.
+    //   2. SharedCanvas2DContext — one Canvas2D for all panes. Avoids the
+    //      per-pane-worker contention we'd otherwise hit on 2-vCPU CI when
+    //      WebGL2 falls back to software.
+    //   3. No shared context → each pane renders independently (Canvas2D in
+    //      a worker when SAB+OffscreenCanvas are available, main-thread
+    //      otherwise).
     // biome-ignore lint/correctness/useExhaustiveDependencies: theme handled via separate setTheme effect
     useEffect(() => {
       const container = containerRef.current;
       if (!container) return;
 
-      let ctx: SharedWebGLContext | null = null;
-      try {
-        ctx = new SharedWebGLContext({
-          fontSize,
-          fontFamily,
-          theme,
-        });
-
-        const canvas = ctx.getCanvas();
-        canvas.style.position = "absolute";
-        canvas.style.top = "0";
-        canvas.style.left = "0";
-        canvas.style.width = "100%";
-        canvas.style.height = "100%";
-        canvas.style.pointerEvents = "none";
-        canvas.style.zIndex = "1";
-        container.appendChild(canvas);
-
-        ctx.init();
-
-        // Sync canvas size with container (debounced via rAF to avoid
-        // clearing the canvas on every pixel of a drag-resize)
-        const activeCtx = ctx;
-        let resizeRafId = 0;
-        const ro = new ResizeObserver((entries) => {
-          cancelAnimationFrame(resizeRafId);
-          resizeRafId = requestAnimationFrame(() => {
-            for (const entry of entries) {
-              const { width, height } = entry.contentRect;
-              activeCtx.syncCanvasSize(width, height);
+      const tryCreate = (factory: () => SharedContext, label: string): SharedContext | null => {
+        let ctx: SharedContext | null = null;
+        try {
+          ctx = factory();
+          const canvas = ctx.getCanvas();
+          canvas.style.position = "absolute";
+          canvas.style.top = "0";
+          canvas.style.left = "0";
+          canvas.style.width = "100%";
+          canvas.style.height = "100%";
+          canvas.style.pointerEvents = "none";
+          canvas.style.zIndex = "1";
+          container.appendChild(canvas);
+          ctx.init();
+          return ctx;
+        } catch (e) {
+          console.warn(
+            `[TerminalPane] ${label} init failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          if (ctx) {
+            try {
+              const c = ctx.getCanvas();
+              if (c.parentElement) c.parentElement.removeChild(c);
+              ctx.dispose();
+            } catch {
+              // ignore
             }
-          });
-        });
-        ro.observe(container);
-
-        ctx.startRenderLoop();
-        sharedContextRef.current = ctx;
-        setSharedContext(ctx);
-
-        return () => {
-          cancelAnimationFrame(resizeRafId);
-          activeCtx.stopRenderLoop();
-          activeCtx.dispose();
-          ro.disconnect();
-          sharedContextRef.current = null;
-          setSharedContext(null);
-        };
-      } catch {
-        // WebGL2 init failed — fall back to independent per-pane rendering
-        console.warn(
-          "[TerminalPane] SharedWebGLContext init failed, falling back to per-pane rendering",
-        );
-        if (ctx) {
-          try {
-            ctx.dispose();
-          } catch {
-            // ignore
           }
+          return null;
         }
+      };
+
+      const ctx =
+        tryCreate(
+          () =>
+            new SharedWebGLContext({
+              fontSize,
+              fontFamily,
+              fontWeight,
+              fontWeightBold,
+              theme,
+            }),
+          "SharedWebGLContext",
+        ) ??
+        tryCreate(
+          () =>
+            new SharedCanvas2DContext({
+              fontSize,
+              fontFamily,
+              fontWeight,
+              fontWeightBold,
+              theme,
+            }),
+          "SharedCanvas2DContext",
+        );
+
+      if (!ctx) {
+        console.warn(
+          "[TerminalPane] No shared context available; falling back to per-pane rendering",
+        );
         sharedContextRef.current = null;
         setSharedContext(null);
         return;
       }
-    }, [fontSize, fontFamily]); // theme handled via separate setTheme effect below
+
+      // Sync canvas size with container (debounced via rAF to avoid
+      // clearing the canvas on every pixel of a drag-resize)
+      const activeCtx = ctx;
+      let resizeRafId = 0;
+      const ro = new ResizeObserver((entries) => {
+        cancelAnimationFrame(resizeRafId);
+        resizeRafId = requestAnimationFrame(() => {
+          for (const entry of entries) {
+            const { width, height } = entry.contentRect;
+            activeCtx.syncCanvasSize(width, height);
+          }
+        });
+      });
+      ro.observe(container);
+
+      ctx.startRenderLoop();
+      sharedContextRef.current = ctx;
+      setSharedContext(ctx);
+
+      return () => {
+        cancelAnimationFrame(resizeRafId);
+        activeCtx.stopRenderLoop();
+        activeCtx.dispose();
+        ro.disconnect();
+        sharedContextRef.current = null;
+        setSharedContext(null);
+      };
+    }, [fontSize, fontFamily, fontWeight, fontWeightBold]); // theme handled via separate setTheme effect below
 
     // Update theme on existing context without recreating GL resources
     useEffect(() => {
