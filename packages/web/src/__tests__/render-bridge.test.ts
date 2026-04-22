@@ -157,6 +157,21 @@ describe("RenderBridge", () => {
     );
   });
 
+  it("defaults the renderer field to webgl2", () => {
+    bridge.start(makeSharedBuffer(), 10, 5);
+    const initCall = mockWorkerInstance.postMessage.mock.calls.find((c) => c[0]?.type === "init");
+    expect(initCall?.[0].renderer).toBe("webgl2");
+  });
+
+  it("forwards renderer: canvas2d when configured", () => {
+    bridge.dispose();
+    bridge = new RenderBridge(canvas, { ...defaultOptions(), renderer: "canvas2d" });
+    bridge.start(makeSharedBuffer(), 10, 5);
+
+    const initCall = mockWorkerInstance.postMessage.mock.calls.find((c) => c[0]?.type === "init");
+    expect(initCall?.[0].renderer).toBe("canvas2d");
+  });
+
   it("transfers the OffscreenCanvas in the init message", () => {
     const sab = makeSharedBuffer();
     bridge.start(sab, 10, 5);

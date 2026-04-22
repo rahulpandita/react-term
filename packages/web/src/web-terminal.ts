@@ -46,6 +46,31 @@ const SAB_AVAILABLE =
 
 const OFFSCREEN_CANVAS_AVAILABLE = canUseOffscreenCanvas();
 
+/**
+ * Probe whether hardware WebGL2 is available on this page. Returns false when
+ * WebGL2 is missing or backed by a software rasterizer (SwiftShader / llvmpipe)
+ * — on those, Canvas2D is consistently faster and we'd rather skip WebGL2.
+ */
+function hasHardwareWebGL2(): boolean {
+  if (typeof document === "undefined") return false;
+  try {
+    const testCanvas = document.createElement("canvas");
+    const testGl = testCanvas.getContext("webgl2");
+    if (!testGl) return false;
+    let ok = true;
+    const debugInfo = testGl.getExtension("WEBGL_debug_renderer_info");
+    if (debugInfo) {
+      const renderer = testGl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
+      if (/swiftshader|llvmpipe|software/i.test(renderer)) ok = false;
+    }
+    // Release the probe context so it doesn't count against Chrome's limit.
+    testGl.getExtension("WEBGL_lose_context")?.loseContext();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -302,11 +327,26 @@ export class WebTerminal {
       // We still need a main-thread renderer for getCellSize() measurements.
       this.renderer = new Canvas2DRenderer(rendererOpts);
 
+      // Pick the worker backend. 'canvas2d' is respected as-is. For 'webgl'
+      // and 'auto' we probe hardware WebGL2 on the main thread — a software
+      // rasterizer (SwiftShader / llvmpipe on Linux CI, etc.) makes WebGL2
+      // slower than Canvas2D, so we start the worker on Canvas2D directly
+      // and skip a guaranteed round-trip failure + fallback.
+      let workerBackend: "webgl2" | "canvas2d";
+      if (rendererType === "canvas2d") {
+        workerBackend = "canvas2d";
+      } else if (rendererType === "webgl") {
+        workerBackend = "webgl2";
+      } else {
+        workerBackend = hasHardwareWebGL2() ? "webgl2" : "canvas2d";
+      }
+
       this.renderBridge = new RenderBridge(this.canvas, {
         fontSize,
         fontFamily,
         theme,
         devicePixelRatio: options?.devicePixelRatio,
+        renderer: workerBackend,
         onError: (message: string) => {
           console.warn("[WebTerminal] Render worker error, falling back:", message);
           this.fallbackToMainThreadRenderer(rendererOpts);
@@ -331,26 +371,7 @@ export class WebTerminal {
         // 'auto': try WebGL2 first, fall back to Canvas 2D.
         // Exclude software renderers (SwiftShader/llvmpipe) — Canvas2D
         // is significantly faster than WebGL2 on software rasterizers.
-        let useWebGL = false;
-        try {
-          const testCanvas = document.createElement("canvas");
-          const testGl = testCanvas.getContext("webgl2");
-          if (testGl) {
-            useWebGL = true;
-            const debugInfo = testGl.getExtension("WEBGL_debug_renderer_info");
-            if (debugInfo) {
-              const renderer = testGl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
-              if (/swiftshader|llvmpipe|software/i.test(renderer)) {
-                useWebGL = false;
-              }
-            }
-            // Lose the test context so it doesn't count against Chrome's limit
-            testGl.getExtension("WEBGL_lose_context")?.loseContext();
-          }
-        } catch {
-          // WebGL2 not available
-        }
-        this.renderer = useWebGL
+        this.renderer = hasHardwareWebGL2()
           ? new WebGLRenderer(rendererOpts)
           : new Canvas2DRenderer(rendererOpts);
       }

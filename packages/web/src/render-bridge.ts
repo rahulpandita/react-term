@@ -15,6 +15,7 @@ import type {
   RenderWorkerThemeMessage,
   RenderWorkerUpdateMessage,
 } from "./render-worker.js";
+import type { RendererKind } from "./render-worker-backend.js";
 
 // ---------------------------------------------------------------------------
 // Feature detection
@@ -39,6 +40,8 @@ export interface RenderBridgeOptions {
   fontWeightBold?: number;
   theme: Theme;
   devicePixelRatio?: number;
+  /** Which backend the worker should use. Defaults to `webgl2`. */
+  renderer?: RendererKind;
   /** Called when the worker reports FPS. */
   onFps?: (fps: number) => void;
   /** Called when the worker reports an error. */
@@ -87,6 +90,7 @@ export class RenderBridge {
       devicePixelRatio:
         this.options.devicePixelRatio ??
         (typeof devicePixelRatio !== "undefined" ? devicePixelRatio : 1),
+      renderer: this.options.renderer ?? "webgl2",
     };
 
     this.worker.postMessage(init, [offscreen]);
