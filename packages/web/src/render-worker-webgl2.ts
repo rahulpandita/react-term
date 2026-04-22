@@ -516,8 +516,12 @@ export class WebGL2Backend implements RenderBackend {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    this.drawSelection(selection, cols, rows);
+    // Highlights first, then selection, then cursor — matches every other
+    // renderer (Canvas2DBackend, main-thread Canvas2DRenderer, both shared
+    // contexts) so layering stays consistent when search matches overlap
+    // selections.
     this.drawHighlights(highlights, cols);
+    this.drawSelection(selection, cols, rows);
     this.drawCursor(cursorRow, cursorCol, cursorVisible, cursorStyle);
 
     gl.disable(gl.BLEND);

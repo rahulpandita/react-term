@@ -211,19 +211,22 @@ function render(): void {
   cursorVisible = cursor.visible;
   cursorStyle = cursor.style;
 
-  // Mark old + new cursor rows dirty so stale cursors get erased.
-  if (
-    prevCursorRow >= 0 &&
-    prevCursorRow < rows &&
-    (prevCursorRow !== cursorRow || prevCursorCol !== cursorCol)
-  ) {
-    grid.markDirty(prevCursorRow);
+  // Mark the old + new cursor rows dirty only when the cursor actually moved.
+  // Unconditionally marking the current row every frame would defeat the
+  // "skip idle frame" early-out below — the cursor row would always look
+  // dirty and the worker would spin full render passes even with no input.
+  // Matches the same optimization applied to SharedCanvas2DContext (n8).
+  const cursorMoved = prevCursorRow !== cursorRow || prevCursorCol !== cursorCol;
+  if (cursorMoved) {
+    if (prevCursorRow >= 0 && prevCursorRow < rows) {
+      grid.markDirty(prevCursorRow);
+    }
+    if (cursorRow >= 0 && cursorRow < rows) {
+      grid.markDirty(cursorRow);
+    }
+    prevCursorRow = cursorRow;
+    prevCursorCol = cursorCol;
   }
-  if (cursorRow >= 0 && cursorRow < rows) {
-    grid.markDirty(cursorRow);
-  }
-  prevCursorRow = cursorRow;
-  prevCursorCol = cursorCol;
 
   // Skip the frame entirely if nothing is dirty — both backends rely on
   // this to keep selection/cursor overlays stable across idle frames.
