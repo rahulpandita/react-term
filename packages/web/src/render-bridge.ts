@@ -7,14 +7,15 @@
 
 import type { CursorState, SelectionRange, Theme } from "@next_term/core";
 import type {
+  RenderWorkerCursorMessage,
   RenderWorkerDisposeMessage,
   RenderWorkerFontMessage,
   RenderWorkerHighlightsMessage,
   RenderWorkerInitMessage,
   RenderWorkerResizeMessage,
+  RenderWorkerSelectionMessage,
   RenderWorkerSyncedOutputMessage,
   RenderWorkerThemeMessage,
-  RenderWorkerUpdateMessage,
 } from "./render-worker.js";
 import type { RendererKind } from "./render-worker-backend.js";
 import type { HighlightRange } from "./renderer.js";
@@ -99,33 +100,31 @@ export class RenderBridge {
   }
 
   /**
-   * Send cursor and selection state to the render worker.
+   * Send cursor state to the render worker. Selection is not touched.
    */
   updateCursor(cursor: CursorState): void {
     if (this.disposed || !this.worker) return;
 
-    const msg: RenderWorkerUpdateMessage = {
-      type: "update",
+    const msg: RenderWorkerCursorMessage = {
+      type: "cursor",
       cursor: {
         row: cursor.row,
         col: cursor.col,
         visible: cursor.visible,
         style: cursor.style,
       },
-      selection: null,
     };
     this.worker.postMessage(msg);
   }
 
   /**
-   * Send selection state to the render worker.
+   * Send selection state to the render worker. Cursor is not touched.
    */
   updateSelection(selection: SelectionRange | null): void {
     if (this.disposed || !this.worker) return;
 
-    const msg: RenderWorkerUpdateMessage = {
-      type: "update",
-      cursor: { row: 0, col: 0, visible: false, style: "block" },
+    const msg: RenderWorkerSelectionMessage = {
+      type: "selection",
       selection: selection
         ? {
             startRow: selection.startRow,

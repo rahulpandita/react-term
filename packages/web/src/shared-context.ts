@@ -15,6 +15,7 @@
 import type { CellGrid, CursorState, SelectionRange, Theme } from "@next_term/core";
 import { DEFAULT_THEME } from "@next_term/core";
 import { build256Palette } from "./renderer.js";
+import { SOFTWARE_RENDERER_RE } from "./web-terminal.js";
 import { GlyphAtlas, hexToFloat4 } from "./webgl-renderer.js";
 import { type ColorFloat4, resolveColorFloat } from "./webgl-utils.js";
 
@@ -111,6 +112,16 @@ export interface TerminalEntry {
   cursor: CursorState;
   selection: SelectionRange | null;
   viewport: { x: number; y: number; width: number; height: number };
+  /** Search-result highlights. Empty when no search is active. */
+  highlights?: readonly SharedContextHighlight[];
+}
+
+/** Per-terminal highlight range, matching the main-thread renderer's shape. */
+export interface SharedContextHighlight {
+  row: number;
+  startCol: number;
+  endCol: number;
+  isCurrent: boolean;
 }
 
 /**
@@ -124,6 +135,11 @@ export interface SharedContext {
   updateTerminal(id: string, grid: CellGrid, cursor: CursorState): void;
   removeTerminal(id: string): void;
   setViewport(id: string, x: number, y: number, width: number, height: number): void;
+  /**
+   * Replace the highlight set for a single terminal. Empty array clears.
+   * Matches the per-terminal model used for `addTerminal` / `setViewport`.
+   */
+  setHighlights(id: string, highlights: readonly SharedContextHighlight[]): void;
   getTerminalIds(): string[];
   getCanvas(): HTMLCanvasElement;
   getCellSize(): { width: number; height: number };
@@ -250,6 +266,8 @@ export class SharedWebGLContext {
 
   // Reusable cursor data buffer — grows as needed, never shrinks
   private cursorBuffer = new Float32Array(4 * SC_BG_INSTANCE_FLOATS);
+  // Reusable highlight overlay buffer — grows as needed, never shrinks.
+  private highlightBuffer = new Float32Array(32 * SC_BG_INSTANCE_FLOATS);
 
   // Glyph atlas
   private atlas: GlyphAtlas;
@@ -341,10 +359,7 @@ export class SharedWebGLContext {
     if (!rendererString) {
       rendererString = this.gl.getParameter(this.gl.RENDERER) as string;
     }
-    if (
-      rendererString &&
-      /swiftshader|llvmpipe|software|microsoft basic render|warp/i.test(rendererString)
-    ) {
+    if (rendererString && SOFTWARE_RENDERER_RE.test(rendererString)) {
       this.gl = null;
       throw new Error(`Software renderer detected (${rendererString}), skipping shared context`);
     }
@@ -362,7 +377,17 @@ export class SharedWebGLContext {
       cursor,
       selection: null,
       viewport: { x: 0, y: 0, width: 0, height: 0 },
+      highlights: [],
     });
+  }
+
+  setHighlights(id: string, highlights: readonly SharedContextHighlight[]): void {
+    const entry = this.terminals.get(id);
+    if (!entry) return;
+    entry.highlights = highlights;
+    // Force a re-render so old highlight rectangles get cleared.
+    this.terminalFullyRendered.delete(id);
+    this.needsFullClear = true;
   }
 
   setViewport(id: string, x: number, y: number, width: number, height: number): void {
@@ -591,6 +616,60 @@ export class SharedWebGLContext {
       gl.bindVertexArray(activeGlyphVAO);
       gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, totalGlyphCount);
 
+      gl.disable(gl.BLEND);
+    }
+
+    // --- Highlight pass: batch all terminals' search highlights into one draw ---
+    // Ordered before the cursor pass to match the main-thread renderer's
+    // drawHighlights → drawCursor sequence, so layering is consistent.
+    let hlCount = 0;
+    for (const [, entry] of this.terminals) {
+      const { viewport, highlights } = entry;
+      if (!highlights || highlights.length === 0) continue;
+      if (viewport.width <= 0 || viewport.height <= 0) continue;
+      for (const hl of highlights) {
+        const width = hl.endCol - hl.startCol + 1;
+        if (width <= 0) continue;
+        const neededFloats = (hlCount + width) * SC_BG_INSTANCE_FLOATS;
+        if (neededFloats > this.highlightBuffer.length) {
+          const grown = new Float32Array(neededFloats * 2);
+          grown.set(this.highlightBuffer);
+          this.highlightBuffer = grown;
+        }
+        const r = hl.isCurrent ? 1.0 : 1.0;
+        const g = hl.isCurrent ? 0.647 : 1.0;
+        const b = hl.isCurrent ? 0.0 : 0.0;
+        const a = hl.isCurrent ? 0.5 : 0.3;
+        const offX = Math.round(viewport.x * this.dpr);
+        const offY = Math.round(viewport.y * this.dpr);
+        for (let c = hl.startCol; c <= hl.endCol; c++) {
+          const off = hlCount * SC_BG_INSTANCE_FLOATS;
+          this.highlightBuffer[off] = c;
+          this.highlightBuffer[off + 1] = hl.row;
+          this.highlightBuffer[off + 2] = r;
+          this.highlightBuffer[off + 3] = g;
+          this.highlightBuffer[off + 4] = b;
+          this.highlightBuffer[off + 5] = a;
+          this.highlightBuffer[off + 6] = offX;
+          this.highlightBuffer[off + 7] = offY;
+          hlCount++;
+        }
+      }
+    }
+    if (hlCount > 0 && this.bgProgram && activeBgVAO && activeBgVBO) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.useProgram(this.bgProgram);
+      gl.uniform2f(this.bgUniforms.u_resolution, canvasWidth, canvasHeight);
+      gl.uniform2f(this.bgUniforms.u_cellSize, cellW, cellH);
+      gl.bindBuffer(gl.ARRAY_BUFFER, activeBgVBO);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        this.highlightBuffer.subarray(0, hlCount * SC_BG_INSTANCE_FLOATS),
+        gl.STREAM_DRAW,
+      );
+      gl.bindVertexArray(activeBgVAO);
+      gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, hlCount);
       gl.disable(gl.BLEND);
     }
 

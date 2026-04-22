@@ -47,15 +47,35 @@ export interface RenderWorkerInitMessage {
   renderer?: RendererKind;
 }
 
-export interface RenderWorkerUpdateMessage {
-  type: "update";
+/**
+ * Cursor-only update. Selection is NOT touched — earlier revisions combined
+ * both into a single "update" message, which meant updateCursor() would
+ * silently clear any active selection and vice versa. See n7 in PR #181.
+ */
+export interface RenderWorkerCursorMessage {
+  type: "cursor";
   cursor: { row: number; col: number; visible: boolean; style: string };
+}
+
+export interface RenderWorkerSelectionMessage {
+  type: "selection";
   selection: SelectionRect | null;
 }
 
 export interface RenderWorkerHighlightsMessage {
   type: "highlights";
   highlights: HighlightRect[];
+}
+
+/**
+ * @deprecated Kept so older code (including tests that predate the split) can
+ * still read the type name. New code should send `cursor`/`selection` messages
+ * separately. The worker still handles this for one release cycle.
+ */
+export interface RenderWorkerUpdateMessage {
+  type: "update";
+  cursor: { row: number; col: number; visible: boolean; style: string };
+  selection: SelectionRect | null;
 }
 
 export interface RenderWorkerResizeMessage {
@@ -90,6 +110,8 @@ export interface RenderWorkerDisposeMessage {
 export type RenderWorkerInboundMessage =
   | RenderWorkerInitMessage
   | RenderWorkerUpdateMessage
+  | RenderWorkerCursorMessage
+  | RenderWorkerSelectionMessage
   | RenderWorkerHighlightsMessage
   | RenderWorkerResizeMessage
   | RenderWorkerThemeMessage
@@ -332,13 +354,34 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
       break;
     }
 
+    case "cursor": {
+      cursorRow = msg.cursor.row;
+      cursorCol = msg.cursor.col;
+      cursorVisible = msg.cursor.visible;
+      cursorStyle = msg.cursor.style;
+      if (grid) {
+        grid.setCursor(cursorRow, cursorCol, cursorVisible, cursorStyle);
+        grid.markAllDirty();
+      }
+      break;
+    }
+
+    case "selection": {
+      selection = msg.selection;
+      if (grid) grid.markAllDirty();
+      break;
+    }
+
+    // Back-compat: the old combined update message is still accepted so any
+    // out-of-tree caller building against the previous shape keeps working.
+    // Prefer the split messages for new code — they let you change cursor
+    // without clearing selection (and vice versa).
     case "update": {
       cursorRow = msg.cursor.row;
       cursorCol = msg.cursor.col;
       cursorVisible = msg.cursor.visible;
       cursorStyle = msg.cursor.style;
       selection = msg.selection;
-
       if (grid) {
         grid.setCursor(cursorRow, cursorCol, cursorVisible, cursorStyle);
         grid.markAllDirty();

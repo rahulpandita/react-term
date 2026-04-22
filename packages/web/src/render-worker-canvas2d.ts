@@ -197,8 +197,23 @@ export class Canvas2DBackend implements RenderBackend {
         }
       }
 
-      // Selection overlay for this row, painted once on a freshly-cleared row
-      // so alpha does not stack across frames.
+      // Search-result highlights first, then selection on top — matches the
+      // main-thread `Canvas2DRenderer` draw order so users see consistent
+      // layering across renderers. Both are painted on the freshly-cleared
+      // row to avoid alpha stacking across frames.
+      if (highlights.length > 0) {
+        for (const hl of highlights) {
+          if (hl.row !== row) continue;
+          ctx.fillStyle = hl.isCurrent ? "rgba(255, 165, 0, 0.5)" : "rgba(255, 255, 0, 0.3)";
+          ctx.fillRect(
+            hl.startCol * cellWidth,
+            y,
+            (hl.endCol - hl.startCol + 1) * cellWidth,
+            cellHeight,
+          );
+        }
+      }
+
       if (normSel && row >= selStart && row <= selEnd) {
         let colStart: number;
         let colEnd: number;
@@ -219,21 +234,6 @@ export class Canvas2DBackend implements RenderBackend {
         ctx.globalAlpha = 0.5;
         ctx.fillRect(colStart * cellWidth, y, (colEnd - colStart + 1) * cellWidth, cellHeight);
         ctx.globalAlpha = 1.0;
-      }
-
-      // Search-result highlights for this row. Painted on the freshly-cleared
-      // row for the same alpha-stacking reason as selection above.
-      if (highlights.length > 0) {
-        for (const hl of highlights) {
-          if (hl.row !== row) continue;
-          ctx.fillStyle = hl.isCurrent ? "rgba(255, 165, 0, 0.5)" : "rgba(255, 255, 0, 0.3)";
-          ctx.fillRect(
-            hl.startCol * cellWidth,
-            y,
-            (hl.endCol - hl.startCol + 1) * cellWidth,
-            cellHeight,
-          );
-        }
       }
 
       // Cursor for this row (cursor row is always marked dirty by the worker).

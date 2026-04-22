@@ -9,12 +9,13 @@
  *
  * Each registered terminal owns a viewport rectangle in CSS pixels; the
  * renderer iterates terminals, then dirty rows per terminal, clears the row
- * inside the viewport, and repaints cells + selection + cursor.
+ * inside the viewport, and repaints cells + cursor.
  */
 
-import type { CellGrid, CursorState, SelectionRange, Theme } from "@next_term/core";
-import { DEFAULT_THEME, normalizeSelection } from "@next_term/core";
+import type { CellGrid, CursorState, Theme } from "@next_term/core";
+import { DEFAULT_THEME } from "@next_term/core";
 import { build256Palette } from "./renderer.js";
+import type { SharedContextHighlight } from "./shared-context.js";
 
 const ATTR_BOLD = 0x01;
 const ATTR_ITALIC = 0x02;
@@ -25,8 +26,8 @@ const ATTR_INVERSE = 0x40;
 interface TerminalEntry {
   grid: CellGrid;
   cursor: CursorState;
-  selection: SelectionRange | null;
   viewport: { x: number; y: number; width: number; height: number };
+  highlights: readonly SharedContextHighlight[];
   /** prev cursor position for dirty-marking when cursor moves */
   prevCursorRow: number;
   prevCursorCol: number;
@@ -102,8 +103,8 @@ export class SharedCanvas2DContext {
     this.terminals.set(id, {
       grid,
       cursor,
-      selection: null,
       viewport: { x: 0, y: 0, width: 0, height: 0 },
+      highlights: [],
       prevCursorRow: -1,
       prevCursorCol: -1,
       fullyRendered: false,
@@ -140,6 +141,16 @@ export class SharedCanvas2DContext {
   removeTerminal(id: string): void {
     this.terminals.delete(id);
     this.needsFullClear = true;
+  }
+
+  setHighlights(id: string, highlights: readonly SharedContextHighlight[]): void {
+    const entry = this.terminals.get(id);
+    if (!entry) return;
+    entry.highlights = highlights;
+    // Mark the union of old+new highlight rows dirty so old painted rectangles
+    // get cleared. Simplest correct thing is to force a full repaint of this
+    // terminal — highlight sets are small and change infrequently.
+    entry.fullyRendered = false;
   }
 
   getTerminalIds(): string[] {
@@ -213,14 +224,15 @@ export class SharedCanvas2DContext {
     const ctx = this.ctx;
     if (this.disposed || !ctx) return;
 
-    // Mark cursor-moved rows dirty so the old cursor is erased + new drawn.
+    // Mark the old + new cursor rows dirty only when the cursor actually
+    // moved. Unconditionally marking the current row every frame would defeat
+    // the "skip idle frame" optimization below — the cursor row would always
+    // look dirty even when nothing changed.
     for (const entry of this.terminals.values()) {
       const { cursor, grid } = entry;
-      if (
-        entry.prevCursorRow >= 0 &&
-        entry.prevCursorRow < grid.rows &&
-        (entry.prevCursorRow !== cursor.row || entry.prevCursorCol !== cursor.col)
-      ) {
+      const moved = entry.prevCursorRow !== cursor.row || entry.prevCursorCol !== cursor.col;
+      if (!moved) continue;
+      if (entry.prevCursorRow >= 0 && entry.prevCursorRow < grid.rows) {
         grid.markDirty(entry.prevCursorRow);
       }
       if (cursor.row >= 0 && cursor.row < grid.rows) {
@@ -265,7 +277,7 @@ export class SharedCanvas2DContext {
   }
 
   private renderTerminal(ctx: CanvasRenderingContext2D, entry: TerminalEntry): void {
-    const { grid, cursor, selection, viewport } = entry;
+    const { grid, cursor, viewport, highlights } = entry;
     if (viewport.width <= 0 || viewport.height <= 0) return;
 
     const { cellWidth, cellHeight, baselineOffset, theme } = this;
@@ -278,20 +290,9 @@ export class SharedCanvas2DContext {
 
     const forceAll = !entry.fullyRendered;
 
-    // Selection row range (if any), for per-row overlay painting.
-    // Normalize so reversed (bottom-up) selections still render.
-    let selStart = -1;
-    let selEnd = -1;
-    const normSel = selection ? normalizeSelection(selection) : null;
-    if (normSel) {
-      const sr = Math.max(0, normSel.startRow);
-      const er = Math.min(visibleRows - 1, normSel.endRow);
-      const empty = sr === er && normSel.startCol === normSel.endCol;
-      if (!empty && sr <= er) {
-        selStart = sr;
-        selEnd = er;
-      }
-    }
+    // NOTE: selection is intentionally not drawn in shared-context mode yet —
+    // matches SharedWebGLContext. Selection is a per-pane concept; wiring it
+    // through the SharedContext interface is tracked as a follow-up.
 
     for (let row = 0; row < visibleRows; row++) {
       if (!forceAll && !grid.isDirty(row)) continue;
@@ -359,33 +360,19 @@ export class SharedCanvas2DContext {
         }
       }
 
-      // Selection overlay for this row, painted on the freshly-cleared row
-      // so the 50% alpha doesn't stack across frames.
-      if (normSel && row >= selStart && row <= selEnd) {
-        let colStart: number;
-        let colEnd: number;
-        if (selStart === selEnd) {
-          colStart = normSel.startCol;
-          colEnd = normSel.endCol;
-        } else if (row === selStart) {
-          colStart = normSel.startCol;
-          colEnd = visibleCols - 1;
-        } else if (row === selEnd) {
-          colStart = 0;
-          colEnd = normSel.endCol;
-        } else {
-          colStart = 0;
-          colEnd = visibleCols - 1;
+      // Search-result highlights for this row. Painted on the freshly-cleared
+      // row so the translucent fill doesn't stack across frames.
+      if (highlights.length > 0) {
+        for (const hl of highlights) {
+          if (hl.row !== row) continue;
+          ctx.fillStyle = hl.isCurrent ? "rgba(255, 165, 0, 0.5)" : "rgba(255, 255, 0, 0.3)";
+          ctx.fillRect(
+            vpX + hl.startCol * cellWidth,
+            y,
+            (hl.endCol - hl.startCol + 1) * cellWidth,
+            cellHeight,
+          );
         }
-        ctx.fillStyle = theme.selectionBackground;
-        ctx.globalAlpha = 0.5;
-        ctx.fillRect(
-          vpX + colStart * cellWidth,
-          y,
-          (colEnd - colStart + 1) * cellWidth,
-          cellHeight,
-        );
-        ctx.globalAlpha = 1.0;
       }
 
       if (cursor.visible && row === cursor.row && cursor.col < visibleCols) {

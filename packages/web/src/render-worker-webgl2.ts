@@ -6,6 +6,7 @@
  */
 
 import type { Theme } from "@next_term/core";
+import { normalizeSelection } from "@next_term/core";
 import type { BackendInitOptions, RenderBackend, RenderFrame } from "./render-worker-backend.js";
 import { build256Palette } from "./renderer.js";
 import {
@@ -679,9 +680,12 @@ export class WebGL2Backend implements RenderBackend {
     if (!gl || !selection) return;
     if (!this.bgProgram || !this.bgVAOs[0] || !this.bgInstanceVBOs[0]) return;
 
-    const sr = Math.max(0, selection.startRow);
-    const er = Math.min(rows - 1, selection.endRow);
-    if (sr === er && selection.startCol === selection.endCol) return;
+    // Normalize so reversed (bottom-up) drags still render — without this the
+    // `sr > er` case leaves `sr <= er` false and the whole loop is skipped.
+    const norm = normalizeSelection(selection);
+    const sr = Math.max(0, norm.startRow);
+    const er = Math.min(rows - 1, norm.endRow);
+    if (sr === er && norm.startCol === norm.endCol) return;
 
     const selColor = hexToFloat4(this.theme.selectionBackground);
     let selIdx = 0;
@@ -690,14 +694,14 @@ export class WebGL2Backend implements RenderBackend {
       let colStart: number;
       let colEnd: number;
       if (sr === er) {
-        colStart = selection.startCol;
-        colEnd = selection.endCol;
+        colStart = norm.startCol;
+        colEnd = norm.endCol;
       } else if (row === sr) {
-        colStart = selection.startCol;
+        colStart = norm.startCol;
         colEnd = cols - 1;
       } else if (row === er) {
         colStart = 0;
-        colEnd = selection.endCol;
+        colEnd = norm.endCol;
       } else {
         colStart = 0;
         colEnd = cols - 1;

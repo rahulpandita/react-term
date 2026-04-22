@@ -1220,9 +1220,17 @@ export class WebTerminal {
 
   /** Set highlight ranges on the renderer (used by SearchAddon). */
   setHighlights(highlights: HighlightRange[]): void {
-    // In worker mode the on-screen renderer is the one inside the worker, not
-    // `this.renderer` (which is only kept around for getCellSize measurements),
-    // so we must forward highlights over the bridge or they'd silently drop.
+    // The active renderer depends on the terminal's mode:
+    //   - shared-context mode:   forward to sharedContext.setHighlights(paneId)
+    //   - worker mode:           forward over the RenderBridge
+    //   - main-thread mode:      call the renderer directly
+    //
+    // All three paths are independent; hitting only `this.renderer` would
+    // silently drop highlights in the first two (renderer is a measurement
+    // stub in shared / worker mode). See PR #181 C1 + N1.
+    if (this.sharedContext && this.paneId) {
+      this.sharedContext.setHighlights(this.paneId, highlights);
+    }
     if (this.renderBridge) {
       this.renderBridge.setHighlights(highlights);
     }

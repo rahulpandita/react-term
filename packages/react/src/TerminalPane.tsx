@@ -394,11 +394,25 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
 
       const ctx =
         tryCreate(
-          () => new SharedWebGLContext({ fontSize, fontFamily, theme }),
+          () =>
+            new SharedWebGLContext({
+              fontSize,
+              fontFamily,
+              fontWeight,
+              fontWeightBold,
+              theme,
+            }),
           "SharedWebGLContext",
         ) ??
         tryCreate(
-          () => new SharedCanvas2DContext({ fontSize, fontFamily, theme }),
+          () =>
+            new SharedCanvas2DContext({
+              fontSize,
+              fontFamily,
+              fontWeight,
+              fontWeightBold,
+              theme,
+            }),
           "SharedCanvas2DContext",
         );
 
@@ -438,7 +452,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         sharedContextRef.current = null;
         setSharedContext(null);
       };
-    }, [fontSize, fontFamily]); // theme handled via separate setTheme effect below
+    }, [fontSize, fontFamily, fontWeight, fontWeightBold]); // theme handled via separate setTheme effect below
 
     // Update theme on existing context without recreating GL resources
     useEffect(() => {

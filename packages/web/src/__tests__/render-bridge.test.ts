@@ -189,7 +189,7 @@ describe("RenderBridge", () => {
 
   // ---- updateCursor -------------------------------------------------------
 
-  it("sends an update message for cursor changes", () => {
+  it("sends a cursor-only message for cursor changes (does not touch selection)", () => {
     bridge.start(makeSharedBuffer(), 10, 5);
     mockWorkerInstance.postMessage.mockClear();
 
@@ -198,15 +198,19 @@ describe("RenderBridge", () => {
 
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "update",
+        type: "cursor",
         cursor: { row: 3, col: 7, visible: true, style: "bar" },
       }),
     );
+    // n7 regression: cursor updates must not carry a selection field that
+    // would overwrite the worker's selection state.
+    const lastCall = mockWorkerInstance.postMessage.mock.calls.at(-1)?.[0];
+    expect(lastCall).not.toHaveProperty("selection");
   });
 
   // ---- updateSelection ----------------------------------------------------
 
-  it("sends an update message with selection", () => {
+  it("sends a selection-only message (does not touch cursor)", () => {
     bridge.start(makeSharedBuffer(), 10, 5);
     mockWorkerInstance.postMessage.mockClear();
 
@@ -214,10 +218,12 @@ describe("RenderBridge", () => {
 
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "update",
+        type: "selection",
         selection: { startRow: 0, startCol: 2, endRow: 1, endCol: 5 },
       }),
     );
+    const lastCall = mockWorkerInstance.postMessage.mock.calls.at(-1)?.[0];
+    expect(lastCall).not.toHaveProperty("cursor");
   });
 
   it("sends null selection to clear it", () => {
@@ -228,7 +234,7 @@ describe("RenderBridge", () => {
 
     expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "update",
+        type: "selection",
         selection: null,
       }),
     );

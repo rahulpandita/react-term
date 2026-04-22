@@ -5,14 +5,29 @@ import { Canvas2DBackend } from "../render-worker-canvas2d.js";
 
 /**
  * A hand-rolled mock of the subset of OffscreenCanvasRenderingContext2D that
- * Canvas2DBackend actually touches. We assert against the recorded call log
- * rather than pixel output, since jsdom has no real 2D context.
+ * Canvas2DBackend actually touches. Records both method calls AND state-setter
+ * writes (fillStyle, globalAlpha) so we can assert on the style that was
+ * active when a particular drawing call fired.
+ *
+ * Every recorded entry lands in `calls` in the order it happened — so a
+ * fillStyle assignment followed by fillRect is visible as two adjacent entries,
+ * which is enough to verify "the highlight color was in effect when fillRect
+ * painted on row 1".
  */
+interface CallLog {
+  ops: Array<[string, unknown[]]>;
+  /** For each op, the fillStyle / globalAlpha that was active when it ran. */
+  state: Array<{ fillStyle: unknown; globalAlpha: number }>;
+}
+
 function createMockContext() {
-  const calls: Array<[string, unknown[]]> = [];
+  const log: CallLog = { ops: [], state: [] };
+  let fillStyle: unknown = "";
+  let globalAlpha = 1;
   const record = (name: string) =>
     vi.fn((...args: unknown[]) => {
-      calls.push([name, args]);
+      log.ops.push([name, args]);
+      log.state.push({ fillStyle, globalAlpha });
     });
   const ctx = {
     clearRect: record("clearRect"),
@@ -25,12 +40,23 @@ function createMockContext() {
     setTransform: record("setTransform"),
     measureText: vi.fn(() => ({ width: 8, fontBoundingBoxAscent: 10, fontBoundingBoxDescent: 2 })),
     font: "",
-    fillStyle: "",
+    get fillStyle() {
+      return fillStyle;
+    },
+    set fillStyle(v: unknown) {
+      fillStyle = v;
+    },
     strokeStyle: "",
     lineWidth: 1,
-    globalAlpha: 1,
+    get globalAlpha() {
+      return globalAlpha;
+    },
+    set globalAlpha(v: number) {
+      globalAlpha = v;
+    },
   } as unknown as CanvasRenderingContext2D;
-  return { ctx, calls };
+  // Expose the simple `calls` alias for existing tests that only care about op names.
+  return { ctx, calls: log.ops, log };
 }
 
 function createMockOffscreenCanvas(mockCtx: CanvasRenderingContext2D) {
@@ -141,8 +167,8 @@ describe("Canvas2DBackend", () => {
     expect(calls.some(([n]) => n === "fillRect")).toBe(true);
   });
 
-  it("paints highlight overlays on their row", () => {
-    const { ctx, calls } = createMockContext();
+  it("paints current-match highlights in orange at their row", () => {
+    const { ctx, log } = createMockContext();
     const canvas = createMockOffscreenCanvas(ctx);
     const backend = new Canvas2DBackend();
     backend.init(defaultInit(canvas));
@@ -162,10 +188,108 @@ describe("Canvas2DBackend", () => {
       highlights: [{ row: 1, startCol: 2, endCol: 5, isCurrent: true }],
     });
 
-    // fillRect called at least once on the highlighted row (row 1 starts at y=16).
-    const highlightFill = calls.find(
-      ([n, args]) => n === "fillRect" && Array.isArray(args) && args[1] === 16 && args[3] === 16,
-    );
-    expect(highlightFill).toBeDefined();
+    // Find a fillRect that was issued while the highlight color was active on
+    // row 1 (y=16, the second row at cellHeight=16). Tautological-guard: this
+    // assertion fails if the highlight code is removed, because no fillRect
+    // for row 1 would land with the orange fillStyle.
+    const matches = log.ops
+      .map((op, i) => ({ op, state: log.state[i] }))
+      .filter(
+        ({ op, state }) =>
+          op[0] === "fillRect" &&
+          Array.isArray(op[1]) &&
+          op[1][1] === 16 &&
+          state.fillStyle === "rgba(255, 165, 0, 0.5)",
+      );
+    expect(matches.length).toBeGreaterThan(0);
+  });
+
+  it("paints non-current highlights in yellow", () => {
+    const { ctx, log } = createMockContext();
+    const canvas = createMockOffscreenCanvas(ctx);
+    const backend = new Canvas2DBackend();
+    backend.init(defaultInit(canvas));
+    const grid = new CellGrid(10, 3);
+    grid.markAllDirty();
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 0,
+      cursorCol: 0,
+      cursorVisible: false,
+      cursorStyle: "block",
+      selection: null,
+      highlights: [{ row: 0, startCol: 0, endCol: 3, isCurrent: false }],
+    });
+    const matches = log.ops
+      .map((op, i) => ({ op, state: log.state[i] }))
+      .filter(
+        ({ op, state }) => op[0] === "fillRect" && state.fillStyle === "rgba(255, 255, 0, 0.3)",
+      );
+    expect(matches.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["block", { globalAlpha: 0.5 }],
+    ["bar", { globalAlpha: 1 }],
+    ["underline", { globalAlpha: 1 }],
+  ])("draws a %s cursor with the theme cursor color", (style, expectedState) => {
+    const { ctx, log } = createMockContext();
+    const canvas = createMockOffscreenCanvas(ctx);
+    const backend = new Canvas2DBackend();
+    backend.init(defaultInit(canvas));
+    const grid = new CellGrid(10, 3);
+    grid.markAllDirty();
+
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 1,
+      cursorCol: 2,
+      cursorVisible: true,
+      cursorStyle: style,
+      selection: null,
+      highlights: [],
+    });
+
+    // The cursor's fillRect must run with the theme cursor color AND the
+    // style-specific alpha. Block cursors use globalAlpha 0.5; bar and
+    // underline leave alpha at 1.
+    const cursorFills = log.ops
+      .map((op, i) => ({ op, state: log.state[i] }))
+      .filter(
+        ({ op, state }) =>
+          op[0] === "fillRect" &&
+          state.fillStyle === DEFAULT_THEME.cursor &&
+          state.globalAlpha === expectedState.globalAlpha,
+      );
+    expect(cursorFills.length).toBeGreaterThan(0);
+  });
+
+  it("does not draw a cursor when cursorVisible is false", () => {
+    const { ctx, log } = createMockContext();
+    const canvas = createMockOffscreenCanvas(ctx);
+    const backend = new Canvas2DBackend();
+    backend.init(defaultInit(canvas));
+    const grid = new CellGrid(10, 3);
+    grid.markAllDirty();
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 1,
+      cursorCol: 2,
+      cursorVisible: false,
+      cursorStyle: "block",
+      selection: null,
+      highlights: [],
+    });
+    // No fillRect should have used theme.cursor as fillStyle.
+    const cursorFills = log.ops
+      .map((op, i) => ({ op, state: log.state[i] }))
+      .filter(({ op, state }) => op[0] === "fillRect" && state.fillStyle === DEFAULT_THEME.cursor);
+    expect(cursorFills).toHaveLength(0);
   });
 });
