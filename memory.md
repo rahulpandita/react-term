@@ -1,5 +1,5 @@
 ## Commands (validated)
-- test: `npx vitest run` (1775 tests as of 2026-04-21)
+- test: `npx vitest run` (1809 tests as of 2026-04-22)
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - No coverage pipeline (missing @vitest/coverage-v8)
@@ -17,7 +17,9 @@
 - biome auto-fix: `npx biome check --write <file>` (add --unsafe for template literal fixes)
 - Scrollback: compact format (2 words/cell) for non-RGB rows, full (4 words/cell) for RGB rows
 - MockWorker in web-terminal.test.ts is simple (no simulateMessage); render-bridge.test.ts and worker-bridge.test.ts have full simulateMessage-capable mocks
-- Testing worker-mode WebTerminal paths requires upgrading web-terminal.test.ts MockWorker to support simulateMessage
+- NEW: packages/web/src/__tests__/test-utils.ts — shared MockWorker, createMock2DContext, patchCanvas, MockURL for new web tests
+- Worker-mode WebTerminal flush needs: { type:"flush", isAlternate:bool, cursor:{row,col,visible,style,wrapPending}, modes:{...} }
+- noNonNullAssertion rule: use helper function `getWorker()` that throws if null, instead of `activeWorker!`
 
 ## Monthly summary issue
 - #83: open [Test Improver] Monthly Activity 2026-04
@@ -27,23 +29,25 @@
 - 2026-04-10 run 24225264112: Tasks 3+7, branch test-assist/parser-state-table (+43t), 1580→1623
 - 2026-04-16 run 24490999918: Tasks 3+7, branch test-assist/reflow-edge-cases (+8t), 1752→1760
 - 2026-04-17 run 24546619174: Tasks 3+7, branch test-assist/reflow-rgb-preservation (+5t), 1764→1769
-- 2026-04-18 run 24596072736: Tasks 2+3+7, branch test-assist/xterm-truecolor-sgr (256-color and 24-bit truecolor SGR in xterm-compat, +10t), PR #175
+- 2026-04-18 run 24596072736: Tasks 2+3+7, branch test-assist/xterm-truecolor-sgr (256-color and 24-bit truecolor SGR in xterm-compat, +10t), PR #175 (now closed/merged)
 - 2026-04-19 run 24620364049: Tasks 3+7, branch test-assist/ghostty-truecolor-sgr — NO PR created (branch may not exist remotely)
 - 2026-04-20 run 24647557344: Tasks 5+7, commented on issues #157, #158, #159 (worker-mode testing gaps)
-- 2026-04-21 run 24702956531: Tasks 3+4+7, branch test-assist/ghostty-truecolor-sgr (+11t ghostty truecolor SGR), PR #TBD (created via safeoutputs)
+- 2026-04-21 run 24702956531: Tasks 3+4+7, branch test-assist/ghostty-truecolor-sgr (+11t ghostty truecolor SGR), PR created (merged into main — test count 1801)
+- 2026-04-22 run 24759063095: Tasks 6+3+7, branch test-assist/web-terminal-worker-mode-30039 (+8t worker-mode WebTerminal + shared test-utils), PR pending
 
 ## Open PRs
-- #175: xterm-truecolor-sgr (open, mergeable=true, up-to-date with main)
-- ghostty-truecolor-sgr: created 2026-04-21 (PR number assigned by GitHub at PR creation time)
+- None (all previous merged or closed)
 
 ## Backlog
-- Implement worker-mode WebTerminal tests (issues #157, #158) - medium complexity, requires MockWorker upgrade
-- Implement render-worker syncedOutput tests (issue #159) - high complexity (module-level state)
+- Render-worker syncedOutput tests (issue #159) - high complexity (module-level state)
+- Coverage pipeline: add @vitest/coverage-v8 as devDependency (needs issue discussion first, per policy)
+- Worker-mode WebTerminal tests: partially addressed by PR in 2026-04-22 run; more could be done (render-offscreen path, parserPool mode)
 
 ## Tasks last run
-- Task 3 (Implement tests): 2026-04-21 (ghostty truecolor, +11t, PR created)
-- Task 4 (Maintain PRs): 2026-04-21 (PR #175 clean, no action needed)
-- Task 7 (Monthly summary): 2026-04-21
+- Task 3 (Implement tests): 2026-04-22 (worker-mode WebTerminal, +8t, PR created)
+- Task 6 (Test infrastructure): 2026-04-22 (shared test-utils.ts created)
+- Task 7 (Monthly summary): 2026-04-22
+- Task 4 (Maintain PRs): 2026-04-21 (no open PRs)
 - Task 5 (Comment issues): 2026-04-20
 - Task 2 (Identify opportunities): 2026-04-18
-- Task 1 (Commands): validated 2026-04-21 (1775 tests)
+- Task 1 (Commands): validated 2026-04-22 (1809 tests)
