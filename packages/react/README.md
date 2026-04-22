@@ -109,7 +109,8 @@ paneRef.current?.getTerminal("logs")?.write("Build complete.\r\n");
 | `renderMode` | `"auto" \| "offscreen" \| "main"` | `"auto"` | Where rendering runs |
 | `useWorker` | `boolean` | auto | VT parser in Web Worker |
 | `sharedContext` | `SharedWebGLContext` | -- | Shared WebGL context for multi-pane |
-| `paneId` | `string` | -- | Pane ID (required with sharedContext) |
+| `paneId` | `string` | -- | Pane ID (required with sharedContext or parserPool) |
+| `parserPool` | `ParserPool` | -- | Shared parser worker pool (managed automatically by TerminalPane) |
 | `onData` | `(data: Uint8Array) => void` | -- | User input callback |
 | `onResize` | `(size) => void` | -- | Resize callback |
 | `onTitleChange` | `(title: string) => void` | -- | OSC title change |
@@ -118,17 +119,19 @@ paneRef.current?.getTerminal("logs")?.write("Build complete.\r\n");
 
 ### `<TerminalPane>`
 
-| Prop | Type | Description |
-|------|------|-------------|
-| `layout` | `PaneLayout` | Split layout tree |
-| `onData` | `(paneId, data) => void` | Input from any pane |
-| `fontSize` | `number` | Shared font size |
-| `fontFamily` | `string` | Shared font family |
-| `fontWeight` | `number` | Shared normal text weight |
-| `fontWeightBold` | `number` | Shared bold text weight |
-| `theme` | `Partial<Theme>` | Shared theme |
-| `className` | `string` | CSS class on root container |
-| `style` | `React.CSSProperties` | Inline styles on root container |
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `layout` | `PaneLayout` | — | Split layout tree |
+| `onData` | `(paneId, data) => void` | — | Input from any pane |
+| `fontSize` | `number` | — | Shared font size |
+| `fontFamily` | `string` | — | Shared font family |
+| `fontWeight` | `number` | — | Shared normal text weight |
+| `fontWeightBold` | `number` | — | Shared bold text weight |
+| `theme` | `Partial<Theme>` | — | Shared theme |
+| `useWorker` | `boolean` | auto | Enable/disable the parser worker pool. `false` or `parserWorkers={0}` disables workers entirely. |
+| `parserWorkers` | `number` | `DEFAULT_PARSER_WORKER_COUNT` | Number of shared parser workers in the pool (default: `min(hardwareConcurrency, 4)`). Set to `0` to disable. |
+| `className` | `string` | — | CSS class on root container |
+| `style` | `React.CSSProperties` | — | Inline styles on root container |
 
 ### `TerminalPaneHandle`
 
