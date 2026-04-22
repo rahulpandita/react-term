@@ -12,7 +12,12 @@
 
 import type { Theme } from "@next_term/core";
 import { CellGrid, DEFAULT_THEME } from "@next_term/core";
-import type { RenderBackend, RendererKind, SelectionRect } from "./render-worker-backend.js";
+import type {
+  HighlightRect,
+  RenderBackend,
+  RendererKind,
+  SelectionRect,
+} from "./render-worker-backend.js";
 import { Canvas2DBackend } from "./render-worker-canvas2d.js";
 import { WebGL2Backend } from "./render-worker-webgl2.js";
 
@@ -48,6 +53,11 @@ export interface RenderWorkerUpdateMessage {
   selection: SelectionRect | null;
 }
 
+export interface RenderWorkerHighlightsMessage {
+  type: "highlights";
+  highlights: HighlightRect[];
+}
+
 export interface RenderWorkerResizeMessage {
   type: "resize";
   cols: number;
@@ -80,6 +90,7 @@ export interface RenderWorkerDisposeMessage {
 export type RenderWorkerInboundMessage =
   | RenderWorkerInitMessage
   | RenderWorkerUpdateMessage
+  | RenderWorkerHighlightsMessage
   | RenderWorkerResizeMessage
   | RenderWorkerThemeMessage
   | RenderWorkerFontMessage
@@ -118,6 +129,7 @@ let cursorStyle = "block";
 let prevCursorRow = -1;
 let prevCursorCol = -1;
 let selection: SelectionRect | null = null;
+let highlights: HighlightRect[] = [];
 
 let rafId: number | null = null;
 let disposed = false;
@@ -211,6 +223,7 @@ function render(): void {
     cursorVisible,
     cursorStyle,
     selection,
+    highlights,
   });
 }
 
@@ -330,6 +343,14 @@ function handleMessage(msg: RenderWorkerInboundMessage): void {
         grid.setCursor(cursorRow, cursorCol, cursorVisible, cursorStyle);
         grid.markAllDirty();
       }
+      break;
+    }
+
+    case "highlights": {
+      highlights = msg.highlights;
+      // Repaint everything once so old highlights get cleared and new ones
+      // show up on their rows.
+      if (grid) grid.markAllDirty();
       break;
     }
 

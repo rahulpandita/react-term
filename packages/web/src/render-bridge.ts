@@ -9,6 +9,7 @@ import type { CursorState, SelectionRange, Theme } from "@next_term/core";
 import type {
   RenderWorkerDisposeMessage,
   RenderWorkerFontMessage,
+  RenderWorkerHighlightsMessage,
   RenderWorkerInitMessage,
   RenderWorkerResizeMessage,
   RenderWorkerSyncedOutputMessage,
@@ -16,6 +17,7 @@ import type {
   RenderWorkerUpdateMessage,
 } from "./render-worker.js";
 import type { RendererKind } from "./render-worker-backend.js";
+import type { HighlightRange } from "./renderer.js";
 
 // ---------------------------------------------------------------------------
 // Feature detection
@@ -181,6 +183,24 @@ export class RenderBridge {
       fontFamily,
       fontWeight: fontWeight ?? 400,
       fontWeightBold: fontWeightBold ?? 700,
+    };
+    this.worker.postMessage(msg);
+  }
+
+  /**
+   * Replace the search-highlight set. Empty array clears highlights.
+   */
+  setHighlights(highlights: readonly HighlightRange[]): void {
+    if (this.disposed || !this.worker) return;
+
+    const msg: RenderWorkerHighlightsMessage = {
+      type: "highlights",
+      highlights: highlights.map((h) => ({
+        row: h.row,
+        startCol: h.startCol,
+        endCol: h.endCol,
+        isCurrent: h.isCurrent,
+      })),
     };
     this.worker.postMessage(msg);
   }

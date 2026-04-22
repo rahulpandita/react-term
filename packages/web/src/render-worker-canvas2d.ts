@@ -8,6 +8,7 @@
  */
 
 import type { Theme } from "@next_term/core";
+import { normalizeSelection } from "@next_term/core";
 import type { BackendInitOptions, RenderBackend, RenderFrame } from "./render-worker-backend.js";
 import { build256Palette } from "./renderer.js";
 
@@ -99,16 +100,29 @@ export class Canvas2DBackend implements RenderBackend {
   render(frame: RenderFrame): void {
     const ctx = this.ctx;
     if (!ctx) return;
-    const { grid, cols, rows, cursorRow, cursorCol, cursorVisible, cursorStyle, selection } = frame;
+    const {
+      grid,
+      cols,
+      rows,
+      cursorRow,
+      cursorCol,
+      cursorVisible,
+      cursorStyle,
+      selection,
+      highlights,
+    } = frame;
     const { cellWidth, cellHeight, baselineOffset, theme } = this;
 
     // Pre-compute the selection row range and whether the selection is empty.
+    // Normalize so selections made bottom-up still render (otherwise endRow <
+    // startRow and the whole range drops).
     let selStart = -1;
     let selEnd = -1;
-    if (selection) {
-      const sr = Math.max(0, selection.startRow);
-      const er = Math.min(rows - 1, selection.endRow);
-      const empty = sr === er && selection.startCol === selection.endCol;
+    const normSel = selection ? normalizeSelection(selection) : null;
+    if (normSel) {
+      const sr = Math.max(0, normSel.startRow);
+      const er = Math.min(rows - 1, normSel.endRow);
+      const empty = sr === er && normSel.startCol === normSel.endCol;
       if (!empty && sr <= er) {
         selStart = sr;
         selEnd = er;
@@ -185,18 +199,18 @@ export class Canvas2DBackend implements RenderBackend {
 
       // Selection overlay for this row, painted once on a freshly-cleared row
       // so alpha does not stack across frames.
-      if (selection && row >= selStart && row <= selEnd) {
+      if (normSel && row >= selStart && row <= selEnd) {
         let colStart: number;
         let colEnd: number;
         if (selStart === selEnd) {
-          colStart = selection.startCol;
-          colEnd = selection.endCol;
+          colStart = normSel.startCol;
+          colEnd = normSel.endCol;
         } else if (row === selStart) {
-          colStart = selection.startCol;
+          colStart = normSel.startCol;
           colEnd = cols - 1;
         } else if (row === selEnd) {
           colStart = 0;
-          colEnd = selection.endCol;
+          colEnd = normSel.endCol;
         } else {
           colStart = 0;
           colEnd = cols - 1;
@@ -205,6 +219,21 @@ export class Canvas2DBackend implements RenderBackend {
         ctx.globalAlpha = 0.5;
         ctx.fillRect(colStart * cellWidth, y, (colEnd - colStart + 1) * cellWidth, cellHeight);
         ctx.globalAlpha = 1.0;
+      }
+
+      // Search-result highlights for this row. Painted on the freshly-cleared
+      // row for the same alpha-stacking reason as selection above.
+      if (highlights.length > 0) {
+        for (const hl of highlights) {
+          if (hl.row !== row) continue;
+          ctx.fillStyle = hl.isCurrent ? "rgba(255, 165, 0, 0.5)" : "rgba(255, 255, 0, 0.3)";
+          ctx.fillRect(
+            hl.startCol * cellWidth,
+            y,
+            (hl.endCol - hl.startCol + 1) * cellWidth,
+            cellHeight,
+          );
+        }
       }
 
       // Cursor for this row (cursor row is always marked dirty by the worker).

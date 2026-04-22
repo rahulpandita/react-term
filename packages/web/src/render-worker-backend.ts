@@ -37,6 +37,14 @@ export interface SelectionRect {
   endCol: number;
 }
 
+/** Search-result highlight on a single row, matching the main-thread API. */
+export interface HighlightRect {
+  row: number;
+  startCol: number;
+  endCol: number;
+  isCurrent: boolean;
+}
+
 export interface RenderFrame {
   grid: CellGrid;
   cols: number;
@@ -46,6 +54,7 @@ export interface RenderFrame {
   cursorVisible: boolean;
   cursorStyle: string;
   selection: SelectionRect | null;
+  highlights: readonly HighlightRect[];
 }
 
 export interface RenderBackend {

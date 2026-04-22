@@ -13,7 +13,7 @@
  */
 
 import type { CellGrid, CursorState, SelectionRange, Theme } from "@next_term/core";
-import { DEFAULT_THEME } from "@next_term/core";
+import { DEFAULT_THEME, normalizeSelection } from "@next_term/core";
 import { build256Palette } from "./renderer.js";
 
 const ATTR_BOLD = 0x01;
@@ -279,12 +279,14 @@ export class SharedCanvas2DContext {
     const forceAll = !entry.fullyRendered;
 
     // Selection row range (if any), for per-row overlay painting.
+    // Normalize so reversed (bottom-up) selections still render.
     let selStart = -1;
     let selEnd = -1;
-    if (selection) {
-      const sr = Math.max(0, selection.startRow);
-      const er = Math.min(visibleRows - 1, selection.endRow);
-      const empty = sr === er && selection.startCol === selection.endCol;
+    const normSel = selection ? normalizeSelection(selection) : null;
+    if (normSel) {
+      const sr = Math.max(0, normSel.startRow);
+      const er = Math.min(visibleRows - 1, normSel.endRow);
+      const empty = sr === er && normSel.startCol === normSel.endCol;
       if (!empty && sr <= er) {
         selStart = sr;
         selEnd = er;
@@ -359,18 +361,18 @@ export class SharedCanvas2DContext {
 
       // Selection overlay for this row, painted on the freshly-cleared row
       // so the 50% alpha doesn't stack across frames.
-      if (selection && row >= selStart && row <= selEnd) {
+      if (normSel && row >= selStart && row <= selEnd) {
         let colStart: number;
         let colEnd: number;
         if (selStart === selEnd) {
-          colStart = selection.startCol;
-          colEnd = selection.endCol;
+          colStart = normSel.startCol;
+          colEnd = normSel.endCol;
         } else if (row === selStart) {
-          colStart = selection.startCol;
+          colStart = normSel.startCol;
           colEnd = visibleCols - 1;
         } else if (row === selEnd) {
           colStart = 0;
-          colEnd = selection.endCol;
+          colEnd = normSel.endCol;
         } else {
           colStart = 0;
           colEnd = visibleCols - 1;

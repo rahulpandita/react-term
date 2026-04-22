@@ -288,6 +288,37 @@ describe("RenderBridge", () => {
     );
   });
 
+  // ---- setHighlights ------------------------------------------------------
+
+  it("sends a highlights message with the correct shape", () => {
+    bridge.start(makeSharedBuffer(), 10, 5);
+    mockWorkerInstance.postMessage.mockClear();
+
+    bridge.setHighlights([
+      { row: 2, startCol: 3, endCol: 8, isCurrent: true },
+      { row: 4, startCol: 0, endCol: 4, isCurrent: false },
+    ]);
+
+    expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "highlights",
+        highlights: [
+          { row: 2, startCol: 3, endCol: 8, isCurrent: true },
+          { row: 4, startCol: 0, endCol: 4, isCurrent: false },
+        ],
+      }),
+    );
+  });
+
+  it("setHighlights with empty array clears highlights", () => {
+    bridge.start(makeSharedBuffer(), 10, 5);
+    mockWorkerInstance.postMessage.mockClear();
+    bridge.setHighlights([]);
+    expect(mockWorkerInstance.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "highlights", highlights: [] }),
+    );
+  });
+
   // ---- setSyncedOutput -----------------------------------------------------
 
   it("sends syncedOutput message to the worker", () => {
@@ -336,6 +367,7 @@ describe("RenderBridge", () => {
     bridge.resize(80, 24, makeSharedBuffer());
     bridge.setTheme(DEFAULT_THEME);
     bridge.setFont(14, "monospace");
+    bridge.setHighlights([{ row: 0, startCol: 0, endCol: 3, isCurrent: false }]);
     bridge.setSyncedOutput(true);
 
     expect(mockWorkerInstance.postMessage).not.toHaveBeenCalled();

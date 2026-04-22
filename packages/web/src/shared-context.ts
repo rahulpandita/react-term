@@ -327,16 +327,26 @@ export class SharedWebGLContext {
       throw new Error("WebGL2 is not available");
     }
 
-    // Detect software rendering (SwiftShader) — shared context is a net loss
-    // on software renderers because it concentrates all panes on one slow context.
-    // Fall back to independent per-pane rendering in that case.
+    // Detect software rendering — shared context is a net loss on software
+    // renderers because it concentrates all panes on one slow context. Fall
+    // back to SharedCanvas2DContext (or per-pane) in that case.
+    //
+    // Prefer WEBGL_debug_renderer_info; fall back to gl.RENDERER for Firefox,
+    // which is removing the extension. Also catches Windows WARP (Azure / RDP).
     const debugInfo = this.gl.getExtension("WEBGL_debug_renderer_info");
+    let rendererString: string | null = null;
     if (debugInfo) {
-      const renderer = this.gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
-      if (/swiftshader|llvmpipe|software/i.test(renderer)) {
-        this.gl = null;
-        throw new Error(`Software renderer detected (${renderer}), skipping shared context`);
-      }
+      rendererString = this.gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
+    }
+    if (!rendererString) {
+      rendererString = this.gl.getParameter(this.gl.RENDERER) as string;
+    }
+    if (
+      rendererString &&
+      /swiftshader|llvmpipe|software|microsoft basic render|warp/i.test(rendererString)
+    ) {
+      this.gl = null;
+      throw new Error(`Software renderer detected (${rendererString}), skipping shared context`);
     }
 
     this.initGLResources();

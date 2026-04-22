@@ -199,14 +199,11 @@ export class WebGL2Backend implements RenderBackend {
 
     if (!gl) throw new Error("WebGL2 not available in worker");
 
-    // Detect software renderers — Canvas2D is faster on SwiftShader/llvmpipe.
-    const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-    if (debugInfo) {
-      const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string;
-      if (/swiftshader|llvmpipe|software/i.test(renderer)) {
-        throw new Error(`Software renderer detected (${renderer}), falling back`);
-      }
-    }
+    // NOTE: software-renderer detection lives on the main thread
+    // (hasHardwareWebGL2 in web-terminal.ts), which is the single source of
+    // truth for picking the backend. The backend obeys the main thread's
+    // choice — that's what makes renderer:"webgl" actually force WebGL2 even
+    // on software rasterizers, as documented.
 
     this.gl = gl;
 
@@ -290,7 +287,17 @@ export class WebGL2Backend implements RenderBackend {
     const gl = this.gl;
     const atlas = this.atlas;
     if (!gl || !atlas) return;
-    const { grid, cols, rows, cursorRow, cursorCol, cursorVisible, cursorStyle, selection } = frame;
+    const {
+      grid,
+      cols,
+      rows,
+      cursorRow,
+      cursorCol,
+      cursorVisible,
+      cursorStyle,
+      selection,
+      highlights,
+    } = frame;
 
     // Instance packing — background for every cell, glyphs for non-space cells.
     const bgCount = cols * rows;
@@ -509,6 +516,7 @@ export class WebGL2Backend implements RenderBackend {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     this.drawSelection(selection, cols, rows);
+    this.drawHighlights(highlights, cols);
     this.drawCursor(cursorRow, cursorCol, cursorVisible, cursorStyle);
 
     gl.disable(gl.BLEND);
@@ -728,6 +736,55 @@ export class WebGL2Backend implements RenderBackend {
 
     gl.bindVertexArray(this.bgVAOs[0]);
     gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, selIdx);
+  }
+
+  private drawHighlights(highlights: RenderFrame["highlights"], cols: number): void {
+    const gl = this.gl;
+    if (!gl || highlights.length === 0) return;
+    if (!this.bgProgram || !this.bgVAOs[0] || !this.bgInstanceVBOs[0]) return;
+
+    // Pack: cellCol, cellRow, r, g, b, a per instance (BG_INSTANCE_FLOATS).
+    // Current match: orange ~ (1.0, 0.647, 0.0, 0.5). Other: yellow (1, 1, 0, 0.3).
+    let idx = 0;
+    for (const hl of highlights) {
+      const width = hl.endCol - hl.startCol + 1;
+      if (width <= 0) continue;
+      const neededCells = idx + width;
+      const neededFloats = neededCells * BG_INSTANCE_FLOATS;
+      if (neededFloats > this.selBuffer.length) {
+        const grown = new Float32Array(neededFloats * 2);
+        grown.set(this.selBuffer);
+        this.selBuffer = grown;
+      }
+      const r = hl.isCurrent ? 1.0 : 1.0;
+      const g = hl.isCurrent ? 0.647 : 1.0;
+      const b = hl.isCurrent ? 0.0 : 0.0;
+      const a = hl.isCurrent ? 0.5 : 0.3;
+      for (let c = hl.startCol; c <= hl.endCol && c < cols; c++) {
+        const off = idx * BG_INSTANCE_FLOATS;
+        this.selBuffer[off] = c;
+        this.selBuffer[off + 1] = hl.row;
+        this.selBuffer[off + 2] = r;
+        this.selBuffer[off + 3] = g;
+        this.selBuffer[off + 4] = b;
+        this.selBuffer[off + 5] = a;
+        idx++;
+      }
+    }
+    if (idx === 0) return;
+
+    gl.useProgram(this.bgProgram);
+    gl.uniform2f(this.bgResolutionLoc, this.canvas?.width ?? 0, this.canvas?.height ?? 0);
+    gl.uniform2f(this.bgCellSizeLoc, this.cellWidth * this.dpr, this.cellHeight * this.dpr);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bgInstanceVBOs[0]);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      this.selBuffer.subarray(0, idx * BG_INSTANCE_FLOATS),
+      gl.STREAM_DRAW,
+    );
+    gl.bindVertexArray(this.bgVAOs[0]);
+    gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, idx);
   }
 
   private drawCursor(
