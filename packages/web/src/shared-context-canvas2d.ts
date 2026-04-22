@@ -14,14 +14,15 @@
 
 import type { CellGrid, CursorState, Theme } from "@next_term/core";
 import { DEFAULT_THEME } from "@next_term/core";
+import {
+  ATTR_BOLD,
+  ATTR_INVERSE,
+  ATTR_ITALIC,
+  ATTR_STRIKETHROUGH,
+  ATTR_UNDERLINE,
+} from "./cell-attrs.js";
 import { build256Palette } from "./renderer.js";
 import type { SharedContextHighlight } from "./shared-context.js";
-
-const ATTR_BOLD = 0x01;
-const ATTR_ITALIC = 0x02;
-const ATTR_UNDERLINE = 0x04;
-const ATTR_STRIKETHROUGH = 0x08;
-const ATTR_INVERSE = 0x40;
 
 interface TerminalEntry {
   grid: CellGrid;

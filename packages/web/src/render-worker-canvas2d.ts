@@ -9,14 +9,15 @@
 
 import type { Theme } from "@next_term/core";
 import { normalizeSelection } from "@next_term/core";
+import {
+  ATTR_BOLD,
+  ATTR_INVERSE,
+  ATTR_ITALIC,
+  ATTR_STRIKETHROUGH,
+  ATTR_UNDERLINE,
+} from "./cell-attrs.js";
 import type { BackendInitOptions, RenderBackend, RenderFrame } from "./render-worker-backend.js";
 import { build256Palette } from "./renderer.js";
-
-const ATTR_BOLD = 0x01;
-const ATTR_ITALIC = 0x02;
-const ATTR_UNDERLINE = 0x04;
-const ATTR_STRIKETHROUGH = 0x08;
-const ATTR_INVERSE = 0x40;
 
 export class Canvas2DBackend implements RenderBackend {
   private canvas: OffscreenCanvas | null = null;

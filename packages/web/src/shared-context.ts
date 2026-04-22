@@ -14,18 +14,11 @@
 
 import type { CellGrid, CursorState, SelectionRange, Theme } from "@next_term/core";
 import { DEFAULT_THEME } from "@next_term/core";
+import { ATTR_BOLD, ATTR_INVERSE, ATTR_ITALIC } from "./cell-attrs.js";
 import { build256Palette } from "./renderer.js";
 import { SOFTWARE_RENDERER_RE } from "./web-terminal.js";
 import { GlyphAtlas, hexToFloat4 } from "./webgl-renderer.js";
 import { type ColorFloat4, resolveColorFloat } from "./webgl-utils.js";
-
-// ---------------------------------------------------------------------------
-// Attribute bit positions
-// ---------------------------------------------------------------------------
-
-const ATTR_BOLD = 0x01;
-const ATTR_ITALIC = 0x02;
-const ATTR_INVERSE = 0x40;
 
 // ---------------------------------------------------------------------------
 // Shader sources (same as webgl-renderer.ts)

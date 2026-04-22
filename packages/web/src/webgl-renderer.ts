@@ -9,19 +9,10 @@
 
 import type { CursorState, SelectionRange, Theme } from "@next_term/core";
 import { type CellGrid, DEFAULT_THEME, normalizeSelection } from "@next_term/core";
+import { ATTR_BOLD, ATTR_INVERSE, ATTR_ITALIC } from "./cell-attrs.js";
 import type { HighlightRange, IRenderer, RendererOptions } from "./renderer.js";
 import { build256Palette, Canvas2DRenderer } from "./renderer.js";
 import { type ColorFloat4, resolveColorFloat } from "./webgl-utils.js";
-
-// ---------------------------------------------------------------------------
-// Attribute bit positions (mirrors renderer.ts / cell-grid.ts)
-// ---------------------------------------------------------------------------
-
-const ATTR_BOLD = 0x01;
-const ATTR_ITALIC = 0x02;
-const _ATTR_UNDERLINE = 0x04;
-const _ATTR_STRIKETHROUGH = 0x08;
-const ATTR_INVERSE = 0x40;
 
 /**
  * When the dirty region exceeds 1/FULL_UPLOAD_THRESHOLD_INV of the atlas area,
