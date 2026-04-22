@@ -32,7 +32,7 @@ import type { FlushMessage } from "./parser-worker.js";
 import { canUseOffscreenCanvas, RenderBridge } from "./render-bridge.js";
 import type { HighlightRange, IRenderer, RendererOptions } from "./renderer.js";
 import { Canvas2DRenderer } from "./renderer.js";
-import type { SharedWebGLContext } from "./shared-context.js";
+import type { SharedContext } from "./shared-context.js";
 import { WebGLRenderer } from "./webgl-renderer.js";
 import { WorkerBridge } from "./worker-bridge.js";
 
@@ -102,10 +102,11 @@ export interface WebTerminalOptions {
    */
   renderer?: "auto" | "webgl" | "canvas2d";
   /**
-   * When provided, the terminal registers with a SharedWebGLContext instead
-   * of creating its own renderer. Must be used together with `paneId`.
+   * When provided, the terminal registers with a SharedContext
+   * (SharedWebGLContext or SharedCanvas2DContext) instead of creating its own
+   * renderer. Must be used together with `paneId`.
    */
-  sharedContext?: SharedWebGLContext;
+  sharedContext?: SharedContext;
   /**
    * Unique identifier for this pane. Required when `sharedContext` OR
    * `parserPool` is provided — used as the channel id in both. Passing
@@ -171,9 +172,9 @@ export class WebTerminal {
   private addons: ITerminalAddon[] = [];
   private accessibilityManager: AccessibilityManager | null = null;
 
-  /** SharedWebGLContext when using shared multi-pane rendering, null otherwise. */
-  private sharedContext: SharedWebGLContext | null = null;
-  /** Pane ID within the SharedWebGLContext. */
+  /** SharedContext when using shared multi-pane rendering, null otherwise. */
+  private sharedContext: SharedContext | null = null;
+  /** Pane ID within the SharedContext. */
   private paneId: string | null = null;
   /** WorkerBridge when using off-thread parsing (single-terminal mode), null otherwise. */
   private workerBridge: WorkerBridge | null = null;

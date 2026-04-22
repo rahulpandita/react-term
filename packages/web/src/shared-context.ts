@@ -113,6 +113,27 @@ export interface TerminalEntry {
   viewport: { x: number; y: number; width: number; height: number };
 }
 
+/**
+ * Public surface shared between `SharedWebGLContext` and `SharedCanvas2DContext`.
+ * Lets consumers (TerminalPane, WebTerminal) treat either implementation the
+ * same way — only the concrete constructor and the backend differ.
+ */
+export interface SharedContext {
+  init(): void;
+  addTerminal(id: string, grid: CellGrid, cursor: CursorState): void;
+  updateTerminal(id: string, grid: CellGrid, cursor: CursorState): void;
+  removeTerminal(id: string): void;
+  setViewport(id: string, x: number, y: number, width: number, height: number): void;
+  getTerminalIds(): string[];
+  getCanvas(): HTMLCanvasElement;
+  getCellSize(): { width: number; height: number };
+  syncCanvasSize(width: number, height: number): void;
+  startRenderLoop(): void;
+  stopRenderLoop(): void;
+  dispose(): void;
+  setTheme(theme: Partial<import("@next_term/core").Theme>): void;
+}
+
 // ---------------------------------------------------------------------------
 // Shader compilation helpers
 // ---------------------------------------------------------------------------
