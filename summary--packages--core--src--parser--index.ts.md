@@ -1,1 +1,1 @@
-h:71004 VTParser:OSC:4/7/8/10/11/12/52/104/133,DCS,mode2026,kitty
+h:76103 VTParser:OSC:4/7/8/10/11/12/52/104/133,DCS(finalByte/params/intermediate/data,4096cap),DCS-tmux(8192cap,recursion-guard,ESC-unescaping),mode2026(syncedOutput,setSyncOutputCallback),kitty(flags1-16,push-pop-stack-99,setKittyFlagsCallback,kittyFlags,reset-on-RIS),wcwidth-integration(wide=2cells+ATTR_WIDE,combining-absorbed),setOsc8Callback(params+uri,empty-uri=close),setOsc133Callback(A/B/C/D/E/P+payload),setDcsCallback,setDcsTmuxCallback
