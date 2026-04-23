@@ -48,25 +48,36 @@ pool.dispose();
 
 ### `Terminal` — `sharedContext` and `paneId`
 
-Two new optional props allow multiple `Terminal` instances to share a single WebGL context, avoiding Chrome's 16-context limit without using the higher-level `TerminalPane` layout component.
+Two optional props allow multiple `Terminal` instances to share a single rendering context (either WebGL2 or Canvas 2D), avoiding Chrome's 16-context limit without using the higher-level `TerminalPane` layout component.
 
 ```ts
-import { SharedWebGLContext } from '@next_term/web';
+import { SharedWebGLContext, SharedCanvas2DContext } from '@next_term/web';
 import { Terminal } from '@next_term/react';
 
+// Hardware WebGL2 available — share one GL context:
 const sharedCtx = new SharedWebGLContext();
 
-// Both terminals share one GL context:
 <Terminal sharedContext={sharedCtx} paneId="left" onData={...} />
 <Terminal sharedContext={sharedCtx} paneId="right" onData={...} />
+
+// Software renderer / no WebGL2 — share one Canvas 2D context instead:
+const sharedCtx2d = new SharedCanvas2DContext();
+
+<Terminal sharedContext={sharedCtx2d} paneId="left" onData={...} />
+<Terminal sharedContext={sharedCtx2d} paneId="right" onData={...} />
 ```
 
 | Prop | Type | Description |
 |------|------|-------------|
-| `sharedContext` | `SharedWebGLContext \| undefined` | Shared WebGL context to use for rendering. When provided, `paneId` must also be set. |
+| `sharedContext` | `SharedWebGLContext \| SharedCanvas2DContext \| undefined` | Shared render context for multi-pane rendering. When provided, `paneId` must also be set. |
 | `paneId` | `string \| undefined` | Unique identifier for this terminal within the shared context. Required when `sharedContext` is provided. |
 
-`TerminalPane` now automatically creates and manages a `SharedWebGLContext` internally — these props are only needed when composing terminals manually outside of `TerminalPane`.
+`TerminalPane` automatically creates and manages the shared context internally using the following fallback chain:
+1. **`SharedWebGLContext`** — hardware WebGL2 (fastest)
+2. **`SharedCanvas2DContext`** — software/SwiftShader or no WebGL2 (one Canvas 2D for all panes)
+3. **No shared context** — per-pane independent rendering (rarely reached)
+
+These props are only needed when composing `Terminal` instances manually outside of `TerminalPane`.
 
 ### `Terminal` and `TerminalPane` — `fontWeight` and `fontWeightBold`
 
@@ -99,9 +110,14 @@ import { WebTerminal } from '@next_term/web';
 // renderer: 'auto' (default) — Canvas 2D is chosen automatically on software renderers:
 const term = new WebTerminal(container, { renderer: 'auto' });
 
+// Force Canvas 2D explicitly:
+const term = new WebTerminal(container, { renderer: 'canvas2d' });
+
 // Force WebGL2 even on software renderers (not recommended):
 const term = new WebTerminal(container, { renderer: 'webgl' });
 ```
+
+The `renderer` option accepts `'auto'` (default), `'canvas2d'`, or `'webgl'`.
 
 ### CSS Color Format Support
 
@@ -175,6 +191,69 @@ isCombining(0x0041); // false — 'A'
 ```
 
 ## Utilities
+
+### `SharedCanvas2DContext`
+
+Exported from `@next_term/web`. A Canvas 2D equivalent of `SharedWebGLContext`: one canvas renders all registered terminal panes via per-terminal viewport rectangles, repainting only dirty rows each frame. Use it when WebGL2 is unavailable (e.g., SwiftShader on Linux CI, VMs without a GPU).
+
+```ts
+import { SharedCanvas2DContext } from '@next_term/web';
+
+const ctx = new SharedCanvas2DContext({
+  fontSize: 14,
+  fontFamily: "'Menlo', monospace",
+  theme: { background: '#1e1e2e', foreground: '#cdd6f4' },
+});
+
+ctx.init(); // acquires the 2D context — throws if unavailable
+
+// Mount the canvas in the DOM
+document.getElementById('terminal-container').appendChild(ctx.getCanvas());
+ctx.syncCanvasSize(container.clientWidth, container.clientHeight);
+
+// Register terminals (one per pane)
+ctx.addTerminal('left', grid, cursor);
+ctx.setViewport('left', 0, 0, halfWidth, height);
+
+ctx.addTerminal('right', grid2, cursor2);
+ctx.setViewport('right', halfWidth, 0, halfWidth, height);
+
+ctx.startRenderLoop();
+
+// Cleanup
+ctx.dispose();
+```
+
+**Constructor options** (all optional):
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `fontSize` | `number` | `14` | Font size in pixels |
+| `fontFamily` | `string` | `'Menlo', 'DejaVu Sans Mono', 'Consolas', monospace` | Font family |
+| `fontWeight` | `number` | `400` | CSS font-weight for normal text |
+| `fontWeightBold` | `number` | `700` | CSS font-weight for bold text |
+| `theme` | `Partial<Theme>` | `DEFAULT_THEME` | Color theme |
+| `devicePixelRatio` | `number` | `window.devicePixelRatio` | DPR for HiDPI screens |
+
+**Key methods** (mirrors `SharedWebGLContext`):
+
+| Method | Description |
+|--------|-------------|
+| `init()` | Acquire the 2D context. Throws if unavailable. |
+| `addTerminal(id, grid, cursor)` | Register a terminal pane. |
+| `updateTerminal(id, grid, cursor)` | Update grid/cursor reference for a pane. |
+| `setViewport(id, x, y, w, h)` | Set the pane's viewport rectangle in CSS pixels. |
+| `removeTerminal(id)` | Unregister a terminal pane. |
+| `setHighlights(id, highlights)` | Update search highlights for a pane. |
+| `syncCanvasSize(w, h)` | Resize the backing canvas (call on container resize). |
+| `startRenderLoop()` | Start the `requestAnimationFrame` render loop. |
+| `stopRenderLoop()` | Pause rendering. |
+| `setTheme(theme)` | Apply a new partial theme and force repaint. |
+| `getCanvas()` | Return the underlying `HTMLCanvasElement`. |
+| `getCellSize()` | Return `{ width, height }` of one cell in pixels. |
+| `dispose()` | Stop rendering, remove the canvas, and free resources. |
+
+`TerminalPane` manages `SharedCanvas2DContext` automatically as the second item in its fallback chain — direct usage is only needed when composing `Terminal` instances manually.
 
 ### `ParserPool` and `ParserChannel`
 

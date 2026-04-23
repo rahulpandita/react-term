@@ -9,7 +9,7 @@ A modern terminal emulator for React and React Native, built from the ground up 
 - **SharedArrayBuffer** — zero-copy cell grid shared between workers
 - **Canvas 2D fallback** — automatic degradation when WebGL2/SAB unavailable
 - **React Native** — touch input, Skia renderer, TurboModule-ready
-- **Multi-pane** — single shared WebGL context (bypasses Chrome's 16-context limit)
+- **Multi-pane** — shared WebGL2 or Canvas 2D context (bypasses Chrome's 16-context limit, works on software renderers)
 - **Accessibility** — parallel DOM with ARIA attributes, screen reader support
 - **Addons** — search (regex), web links, fit
 - **Wide character support** — CJK, Hangul, Hiragana/Katakana, emoji, and fullwidth forms occupy 2 cells; combining marks absorbed without cursor advance
@@ -69,6 +69,12 @@ react-term auto-detects the best rendering strategy:
 1. **Full Worker** — Parser + OffscreenCanvas render worker (requires SAB + OffscreenCanvas)
 2. **Parser Worker** — Parser in worker, WebGL2 on main thread (requires SAB)
 3. **Main Thread** — Canvas 2D fallback (works everywhere)
+
+For **multi-pane** layouts, `TerminalPane` selects a shared renderer context:
+
+1. **`SharedWebGLContext`** — one WebGL2 context for all panes (hardware GPU)
+2. **`SharedCanvas2DContext`** — one Canvas 2D for all panes (software/SwiftShader, or no WebGL2)
+3. **Per-pane fallback** — independent rendering per pane (rarely needed)
 
 ## Addons
 
