@@ -1,5 +1,5 @@
 ## Commands (validated)
-- test: `npx vitest run` (1842 tests as of 2026-04-23)
+- test: `npx vitest run` (1857 tests as of 2026-04-24)
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - No coverage pipeline (missing @vitest/coverage-v8)
@@ -18,9 +18,11 @@
 - Scrollback: compact format (2 words/cell) for non-RGB rows, full (4 words/cell) for RGB rows
 - MockWorker in web-terminal.test.ts is simple (no simulateMessage); render-bridge.test.ts and worker-bridge.test.ts have full simulateMessage-capable mocks
 - Worker-mode WebTerminal flush needs: { type:"flush", isAlternate:bool, cursor:{row,col,visible,style}, bytesProcessed:N, modes:{...} }
-- noNonNullAssertion rule: use helper function `getWorker()` that throws if null, instead of `activeWorker!` - OR use `?.` optional chain
+- noNonNullAssertion rule: use `?? fallback` instead of `!` — e.g. `"X".codePointAt(0) ?? 0x58`
 - Worker-mode MockWorker needs URL stubbed as a CLASS (not plain object) so `new URL(...)` works in WorkerBridge.start()
 - URL mock pattern: `class MockURL { static createObjectURL=vi.fn(()=>"blob:mock"); static revokeObjectURL=vi.fn(); constructor(path,base){...} }`
+- SharedCanvas2DContext mock: use installLoggedMockGetContext() (tracks fillStyle/globalAlpha at call time) for cursor/highlight assertions
+- `vi.restoreAllMocks()` in afterEach is important when spying on window.requestAnimationFrame/cancelAnimationFrame
 
 ## Monthly summary issue
 - #83: open [Test Improver] Monthly Activity 2026-04
@@ -30,28 +32,29 @@
 - 2026-04-10 run 24225264112: Tasks 3+7, branch test-assist/parser-state-table (+43t), 1580→1623
 - 2026-04-16 run 24490999918: Tasks 3+7, branch test-assist/reflow-edge-cases (+8t), 1752→1760
 - 2026-04-17 run 24546619174: Tasks 3+7, branch test-assist/reflow-rgb-preservation (+5t), 1764→1769
-- 2026-04-18 run 24596072736: Tasks 2+3+7, branch test-assist/xterm-truecolor-sgr (256-color and 24-bit truecolor SGR in xterm-compat, +10t), PR #175 (now merged)
-- 2026-04-19 run 24620364049: Tasks 3+7, branch test-assist/ghostty-truecolor-sgr — NO PR created (branch may not exist remotely)
-- 2026-04-20 run 24647557344: Tasks 5+7, commented on issues #157, #158, #159 (worker-mode testing gaps)
-- 2026-04-21 run 24702956531: Tasks 3+4+7, branch test-assist/ghostty-truecolor-sgr (+11t ghostty truecolor SGR), PR created (merged into main — test count 1801)
-- 2026-04-22 run 24759063095: Tasks 6+3+7, branch test-assist/web-terminal-worker-mode-30039 — PR NOT created (run failed to create PR)
-- 2026-04-23 run 24815638393: Tasks 2+3+7, branch test-assist/worker-flush-viewport-157 (+5t worker-mode onFlush viewport reset, addresses issue #157), PR created
+- 2026-04-18 run 24596072736: Tasks 2+3+7, branch test-assist/xterm-truecolor-sgr (256-color and 24-bit truecolor SGR in xterm-compat, +10t), PR #175 (merged)
+- 2026-04-19 run 24620364049: Tasks 3+7, branch test-assist/ghostty-truecolor-sgr — NO PR created
+- 2026-04-20 run 24647557344: Tasks 5+7, commented on issues #157, #158, #159
+- 2026-04-21 run 24702956531: Tasks 3+4+7, branch test-assist/ghostty-truecolor-sgr (+11t ghostty truecolor SGR), PR merged
+- 2026-04-22 run 24759063095: Tasks 6+3+7, branch test-assist/web-terminal-worker-mode-30039 — PR NOT created
+- 2026-04-23 run 24815638393: Tasks 2+3+7, branch test-assist/worker-flush-viewport-157 (+5t worker-mode onFlush viewport reset) — PR status unknown (not visible in open/closed PRs)
+- 2026-04-24 run 24871251214: Tasks 3+7, branch test-assist/shared-canvas2d-coverage (+20t SharedCanvas2DContext), PR created
 
 ## Open PRs
-- TBD (just created for worker-flush-viewport-157)
+- (just created for shared-canvas2d-coverage — PR number TBD)
 
 ## Backlog
-- SharedCanvas2DContext (470 lines, only 6 tests) - untested: updateTerminal cursor tracking, setHighlights, setFont, syncCanvasSize, render with highlights
 - Render-worker syncedOutput tests (issue #159) - high complexity (module-level state)
 - Coverage pipeline: add @vitest/coverage-v8 as devDependency (needs issue discussion first, per policy)
-- Worker-mode WebTerminal tests: partially addressed by worker-flush test; more could be done (render-offscreen path, parserPool mode)
-- Issue #158: Worker-mode WebTerminal paths — more tests needed beyond viewport reset
+- Worker-mode WebTerminal tests: more could be done (render-offscreen path, parserPool mode)
+- Issue #158: Worker-mode WebTerminal paths — more tests needed
+- SharedCanvas2DContext text attributes: bold/italic rendering (font string), strikethrough, ATTR_INVERSE color swap (now 26 tests, more could be added for cell painting details)
 
 ## Tasks last run
-- Task 2 (Identify opportunities): 2026-04-23 (SharedCanvas2DContext identified as big testing gap)
-- Task 3 (Implement tests): 2026-04-23 (worker-mode onFlush viewport reset, +5t)
-- Task 7 (Monthly summary): 2026-04-23
-- Task 4 (Maintain PRs): 2026-04-21 (no open PRs)
+- Task 3 (Implement tests): 2026-04-24 (SharedCanvas2DContext +20t)
+- Task 7 (Monthly summary): 2026-04-24
+- Task 2 (Identify opportunities): 2026-04-23
+- Task 4 (Maintain PRs): 2026-04-21 (no open PRs at time)
 - Task 5 (Comment issues): 2026-04-20
-- Task 6 (Test infrastructure): 2026-04-22 (shared test-utils.ts — but PR was not created)
-- Task 1 (Commands): validated 2026-04-23 (1842 tests)
+- Task 6 (Test infrastructure): 2026-04-22
+- Task 1 (Commands): validated 2026-04-24 (1857 tests)
