@@ -1,5 +1,5 @@
 ## Commands (validated)
-- test: `npx vitest run` (1857 tests as of 2026-04-24)
+- test: `npx vitest run` (1850 tests as of 2026-04-25)
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - No coverage pipeline (missing @vitest/coverage-v8)
@@ -23,6 +23,9 @@
 - URL mock pattern: `class MockURL { static createObjectURL=vi.fn(()=>"blob:mock"); static revokeObjectURL=vi.fn(); constructor(path,base){...} }`
 - SharedCanvas2DContext mock: use installLoggedMockGetContext() (tracks fillStyle/globalAlpha at call time) for cursor/highlight assertions
 - `vi.restoreAllMocks()` in afterEach is important when spying on window.requestAnimationFrame/cancelAnimationFrame
+- Canvas2DBackend: ATTR_WIDE=0x80; wide char needs spacer at col+1 (setCell(row,col+1,0,fgIdx,bgIdx,ATTR_WIDE)); spacer is skipped in render
+- Canvas2DBackend: RGB cells use setCell(..., true, false, fgRGB, 0) — fgIsRGB=true, fgRGB=(r<<16)|(g<<8)|b
+- Canvas2DBackend: mock context must track fillStyle/globalAlpha at call time (log.state[i]) for reliable assertions
 
 ## Monthly summary issue
 - #83: open [Test Improver] Monthly Activity 2026-04
@@ -38,23 +41,24 @@
 - 2026-04-21 run 24702956531: Tasks 3+4+7, branch test-assist/ghostty-truecolor-sgr (+11t ghostty truecolor SGR), PR merged
 - 2026-04-22 run 24759063095: Tasks 6+3+7, branch test-assist/web-terminal-worker-mode-30039 — PR NOT created
 - 2026-04-23 run 24815638393: Tasks 2+3+7, branch test-assist/worker-flush-viewport-157 (+5t worker-mode onFlush viewport reset) — PR status unknown (not visible in open/closed PRs)
-- 2026-04-24 run 24871251214: Tasks 3+7, branch test-assist/shared-canvas2d-coverage (+20t SharedCanvas2DContext), PR created
+- 2026-04-24 run 24871251214: Tasks 3+7, branch test-assist/shared-canvas2d-coverage (+20t SharedCanvas2DContext) — PR status unknown (not visible in open/closed PRs)
+- 2026-04-25 run 24921758917: Tasks 3+7, branch test-assist/canvas2d-backend-attrs (+13t Canvas2DBackend attrs/RGB/wide/selection), 1837→1850
 
 ## Open PRs
-- (just created for shared-canvas2d-coverage — PR number TBD)
+- PR for test-assist/canvas2d-backend-attrs — just created (number TBD)
 
 ## Backlog
 - Render-worker syncedOutput tests (issue #159) - high complexity (module-level state)
 - Coverage pipeline: add @vitest/coverage-v8 as devDependency (needs issue discussion first, per policy)
 - Worker-mode WebTerminal tests: more could be done (render-offscreen path, parserPool mode)
 - Issue #158: Worker-mode WebTerminal paths — more tests needed
-- SharedCanvas2DContext text attributes: bold/italic rendering (font string), strikethrough, ATTR_INVERSE color swap (now 26 tests, more could be added for cell painting details)
+- SharedCanvas2DContext: palette colors (colorIdx 1-6, 8+), bold/italic in shared context
 
 ## Tasks last run
-- Task 3 (Implement tests): 2026-04-24 (SharedCanvas2DContext +20t)
+- Task 3 (Implement tests): 2026-04-25 (Canvas2DBackend attrs/RGB/wide/selection +13t)
 - Task 7 (Monthly summary): 2026-04-24
 - Task 2 (Identify opportunities): 2026-04-23
-- Task 4 (Maintain PRs): 2026-04-21 (no open PRs at time)
 - Task 5 (Comment issues): 2026-04-20
 - Task 6 (Test infrastructure): 2026-04-22
-- Task 1 (Commands): validated 2026-04-24 (1857 tests)
+- Task 4 (Maintain PRs): 2026-04-21 (no open PRs at time)
+- Task 1 (Commands): validated 2026-04-25 (1850 tests)
