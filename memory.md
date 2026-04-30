@@ -1,5 +1,5 @@
 ## Commands (validated)
-- test: `npx vitest run` (1848 tests as of 2026-04-29)
+- test: `npx vitest run` (1850 tests as of 2026-04-30)
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - No coverage pipeline (missing @vitest/coverage-v8)
@@ -27,6 +27,8 @@
 - Worker-mode viewportOffset: set directly via (t as unknown as TermPrivate).viewportOffset to bypass snapToBottom()
 - applySyncedOutput idempotency: `if (synced === this._syncedOutput) return` — repeated same-value flushes are no-ops
 - render-worker.ts tests: use `// @vitest-environment node`, stub `self` as plain object to capture message listener, use vi.resetModules() + dynamic import() per test for fresh module state
+- render-worker.ts SAB size: cols*rows*4*4 + rows*4 + 4*4 + 4 + rows*4 (cells+dirty+cursor+offset+wrap)
+- Typecheck errors in packages/e2e-bench are pre-existing (missing react types, not caused by test changes)
 
 ## Monthly summary issue
 - #83: open [Test Improver] Monthly Activity 2026-04
@@ -41,27 +43,24 @@
 - 2026-04-26 run 24947668353: Tasks 3+7, branch test-assist/canvas2d-rendering-attrs (intended +17t, but PR never created)
 - 2026-04-27 run 24975760516: Tasks 3+5+7, branch test-assist/worker-mode-viewport-flush (never created PR), commented on #157, #158, #159
 - 2026-04-28 run 25033058596: Tasks 3+7, branch test-assist/worker-mode-flush-behaviour (+10t worker-mode flush), PR not created (MCP blocked)
-- 2026-04-29 run 25090103221: Tasks 3+7, branch test-assist/render-worker-synced-output (+11t render-worker syncedOutput/rAF idempotency), PR NOT pushed (MCP servers blocked by policy - safeoutputs MCP server unavailable)
+- 2026-04-29 run 25090103221: Tasks 3+7, branch test-assist/render-worker-synced-output (+11t render-worker syncedOutput/rAF idempotency), PR NOT pushed (MCP servers blocked by policy)
+- 2026-04-30 run 25146538112: Tasks 3+7, branch test-assist/render-worker-message-handler (+13t render-worker message handler), PR created (see below)
 
 ## Open PRs
-- None (all previous PRs were merged or not submitted due to MCP policy blocks)
-
-## Pending local work
-- Branch test-assist/render-worker-synced-output: 11 tests (+11, 1837→1848), addresses #159
-  - NEEDS: push to origin + PR creation (blocked by MCP policy in run 25090103221)
-  - Next run should retry: git push origin test-assist/render-worker-synced-output + create PR
+- test-assist/render-worker-message-handler: +13t (1837→1850), render-worker message handler tests, closes #159
 
 ## Backlog
 - Coverage pipeline: add @vitest/coverage-v8 as devDependency (needs issue discussion first, per policy)
 - Canvas2DBackend: more worker-mode paths (parserPool, offscreen render)
 - Issue #158: Worker-mode WebTerminal tests - partial coverage via web-terminal-worker-mode.test.ts; more paths remain (parserPool mode, offscreen rendering path)
 - Issue #157: viewportOffset tautological test — see previous comments
+- Issue #156: WebGL context restore ignores syncedOutput state — potential regression test
 
-## Tasks last run (2026-04-29)
-- Task 3 (Implement tests): 2026-04-29 (render-worker syncedOutput +11t, closes #159)
-- Task 7 (Monthly summary): 2026-04-29 (not updated - MCP blocked)
+## Tasks last run (2026-04-30)
+- Task 3 (Implement tests): 2026-04-30 (render-worker message handler +13t, closes #159)
+- Task 7 (Monthly summary): 2026-04-30
 - Task 5 (Comment issues): 2026-04-27 (commented on #157, #158, #159)
 - Task 2 (Identify opportunities): 2026-04-23
 - Task 6 (Test infrastructure): 2026-04-22
-- Task 4 (Maintain PRs): 2026-04-29 (no open PRs)
-- Task 1 (Commands): validated 2026-04-29 (1848 tests)
+- Task 4 (Maintain PRs): 2026-04-30 (no open PRs before this run)
+- Task 1 (Commands): validated 2026-04-30 (1850 tests)
