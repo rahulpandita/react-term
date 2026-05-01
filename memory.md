@@ -1,5 +1,5 @@
 ## Commands (validated)
-- test: `npx vitest run` (1850 tests as of 2026-04-30)
+- test: `npx vitest run` (1849 tests as of 2026-05-01)
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - No coverage pipeline (missing @vitest/coverage-v8)
@@ -29,9 +29,14 @@
 - render-worker.ts tests: use `// @vitest-environment node`, stub `self` as plain object to capture message listener, use vi.resetModules() + dynamic import() per test for fresh module state
 - render-worker.ts SAB size: cols*rows*4*4 + rows*4 + 4*4 + 4 + rows*4 (cells+dirty+cursor+offset+wrap)
 - Typecheck errors in packages/e2e-bench are pre-existing (missing react types, not caused by test changes)
+- Canvas2DBackend: ATTR_WIDE=0x80 (bit 7 of attrs → bit 15 of word1), no public setWide API
+- Canvas2DBackend createMockContext() tracks fillStyle/globalAlpha state at time of each call (CallLog pattern)
+- ATTR_INVERSE=0x40 (bit 6 of attrs → bit 14 of word1); isSpacerCell() checks col>0 && codepoint===0 && isWide(col-1) — NOT bit 14
+- safeoutputs MCP tools blocked in CI environment (create_pull_request, create_issue, noop all fail)
 
 ## Monthly summary issue
-- #83: open [Test Improver] Monthly Activity 2026-04
+- #83: April 2026 issue — should be closed (now May 2026)
+- May 2026 issue: NOT YET CREATED (MCP tools blocked)
 
 ## Completed work
 - 2026-04-09: PR #118 (accessibility-edge-cases) merged
@@ -44,23 +49,25 @@
 - 2026-04-27 run 24975760516: Tasks 3+5+7, branch test-assist/worker-mode-viewport-flush (never created PR), commented on #157, #158, #159
 - 2026-04-28 run 25033058596: Tasks 3+7, branch test-assist/worker-mode-flush-behaviour (+10t worker-mode flush), PR not created (MCP blocked)
 - 2026-04-29 run 25090103221: Tasks 3+7, branch test-assist/render-worker-synced-output (+11t render-worker syncedOutput/rAF idempotency), PR NOT pushed (MCP servers blocked by policy)
-- 2026-04-30 run 25146538112: Tasks 3+7, branch test-assist/render-worker-message-handler (+13t render-worker message handler), PR created (see below)
+- 2026-04-30 run 25146538112: Tasks 3+7, branch test-assist/render-worker-message-handler (+13t render-worker message handler), PR created status unknown (MCP issue)
+- 2026-05-01 run 25201520527: Tasks 3+7, branch test-assist/canvas2d-backend-attrs (+12t Canvas2DBackend attrs/lifecycle/colors), 1837→1849, PR NOT created (MCP blocked)
 
-## Open PRs
-- test-assist/render-worker-message-handler: +13t (1837→1850), render-worker message handler tests, closes #159
+## Open branches (not yet PRed due to MCP issues)
+- test-assist/canvas2d-backend-attrs: +12t (1837→1849), Canvas2DBackend attrs/lifecycle/colors
 
 ## Backlog
 - Coverage pipeline: add @vitest/coverage-v8 as devDependency (needs issue discussion first, per policy)
 - Canvas2DBackend: more worker-mode paths (parserPool, offscreen render)
-- Issue #158: Worker-mode WebTerminal tests - partial coverage via web-terminal-worker-mode.test.ts; more paths remain (parserPool mode, offscreen rendering path)
+- Issue #158: Worker-mode WebTerminal tests - partial coverage; more paths remain (parserPool mode, offscreen rendering path)
 - Issue #157: viewportOffset tautological test — see previous comments
 - Issue #156: WebGL context restore ignores syncedOutput state — potential regression test
+- Monthly summary: April issue #83 needs to be closed, May issue needs creation
 
-## Tasks last run (2026-04-30)
-- Task 3 (Implement tests): 2026-04-30 (render-worker message handler +13t, closes #159)
-- Task 7 (Monthly summary): 2026-04-30
+## Tasks last run (2026-05-01)
+- Task 3 (Implement tests): 2026-05-01 (Canvas2DBackend attrs/lifecycle/colors +12t)
+- Task 7 (Monthly summary): 2026-05-01 (SKIPPED — MCP tools blocked)
 - Task 5 (Comment issues): 2026-04-27 (commented on #157, #158, #159)
 - Task 2 (Identify opportunities): 2026-04-23
 - Task 6 (Test infrastructure): 2026-04-22
-- Task 4 (Maintain PRs): 2026-04-30 (no open PRs before this run)
-- Task 1 (Commands): validated 2026-04-30 (1850 tests)
+- Task 4 (Maintain PRs): 2026-04-30
+- Task 1 (Commands): validated 2026-05-01 (1849 tests)
