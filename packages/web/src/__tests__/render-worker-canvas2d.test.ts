@@ -1,5 +1,12 @@
 import { CellGrid, DEFAULT_THEME } from "@next_term/core";
 import { describe, expect, it, vi } from "vitest";
+import {
+  ATTR_BOLD,
+  ATTR_INVERSE,
+  ATTR_ITALIC,
+  ATTR_STRIKETHROUGH,
+  ATTR_UNDERLINE,
+} from "../cell-attrs.js";
 import type { BackendInitOptions } from "../render-worker-backend.js";
 import { Canvas2DBackend } from "../render-worker-canvas2d.js";
 
@@ -291,5 +298,279 @@ describe("Canvas2DBackend", () => {
       .map((op, i) => ({ op, state: log.state[i] }))
       .filter(({ op, state }) => op[0] === "fillRect" && state.fillStyle === DEFAULT_THEME.cursor);
     expect(cursorFills).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Attribute rendering tests
+// ---------------------------------------------------------------------------
+
+describe("Canvas2DBackend — attribute rendering", () => {
+  function makeBackend() {
+    const { ctx, calls, log } = createMockContext();
+    const canvas = createMockOffscreenCanvas(ctx);
+    const backend = new Canvas2DBackend();
+    backend.init(defaultInit(canvas));
+    return { ctx, calls, log, backend };
+  }
+
+  function renderCell(backend: Canvas2DBackend, attrs: number, codepoint = 0x41) {
+    const grid = new CellGrid(10, 3);
+    grid.setCell(0, 0, codepoint, 7, 0, attrs);
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 0,
+      cursorCol: 0,
+      cursorVisible: false,
+      cursorStyle: "block",
+      selection: null,
+      highlights: [],
+    });
+  }
+
+  it("ATTR_BOLD: font string uses fontWeightBold (700)", () => {
+    const { ctx, backend } = makeBackend();
+    renderCell(backend, ATTR_BOLD);
+    expect(ctx.font).toContain("700");
+  });
+
+  it("ATTR_ITALIC: font string starts with 'italic '", () => {
+    const { ctx, backend } = makeBackend();
+    renderCell(backend, ATTR_ITALIC);
+    expect(ctx.font).toMatch(/^italic /);
+  });
+
+  it("ATTR_UNDERLINE: stroke() is called for the underline", () => {
+    const { calls, backend } = makeBackend();
+    renderCell(backend, ATTR_UNDERLINE);
+    expect(calls.some(([n]) => n === "stroke")).toBe(true);
+  });
+
+  it("ATTR_STRIKETHROUGH: stroke() is called for the strikethrough", () => {
+    const { calls, backend } = makeBackend();
+    renderCell(backend, ATTR_STRIKETHROUGH);
+    expect(calls.some(([n]) => n === "stroke")).toBe(true);
+  });
+
+  it("ATTR_INVERSE: background fillRect painted with theme.foreground", () => {
+    // Default fg=index 7 → theme.foreground; bg=index 0 → theme.background.
+    // ATTR_INVERSE swaps fg↔bg, making bg = theme.foreground, which ≠ background
+    // → a background fillRect must be painted.
+    const { log, backend } = makeBackend();
+    renderCell(backend, ATTR_INVERSE);
+    const bgFills = log.ops
+      .map((op, i) => ({ op, state: log.state[i] }))
+      .filter(
+        ({ op, state }) => op[0] === "fillRect" && state.fillStyle === DEFAULT_THEME.foreground,
+      );
+    expect(bgFills.length).toBeGreaterThan(0);
+  });
+
+  it("wide cell: underline spans two cell widths", () => {
+    // ATTR_WIDE = 0x80 (bit 7 of the attrs byte), ATTR_UNDERLINE = 0x04.
+    const ATTR_WIDE = 0x80;
+    const { calls, backend } = makeBackend();
+    const grid = new CellGrid(10, 3);
+    grid.setCell(0, 0, 0x4100 /* ㄀ wide codepoint placeholder */, 7, 0, ATTR_WIDE | ATTR_UNDERLINE);
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 0,
+      cursorCol: 0,
+      cursorVisible: false,
+      cursorStyle: "block",
+      selection: null,
+      highlights: [],
+    });
+    // The lineTo call for the underline should target x + effWidth = 0 + 2*8 = 16.
+    const lineToCalls = calls.filter(([n]) => n === "lineTo");
+    expect(lineToCalls.some(([, args]) => Array.isArray(args) && args[0] === 16)).toBe(true);
+  });
+
+  it("RGB foreground: fillStyle is set to rgb(r,g,b) string", () => {
+    // fgIsRGB=true, fgRGB=0xff8040 → "rgb(255,128,64)"
+    const { log, backend } = makeBackend();
+    const grid = new CellGrid(10, 3);
+    grid.setCell(0, 0, 0x41, 0, 0, 0, true, false, 0xff8040, 0);
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 0,
+      cursorCol: 0,
+      cursorVisible: false,
+      cursorStyle: "block",
+      selection: null,
+      highlights: [],
+    });
+    const textFills = log.ops
+      .map((op, i) => ({ op, state: log.state[i] }))
+      .filter(({ op, state }) => op[0] === "fillText" && state.fillStyle === "rgb(255,128,64)");
+    expect(textFills.length).toBeGreaterThan(0);
+  });
+
+  it("RGB background: bg fillRect is painted with rgb(r,g,b)", () => {
+    // bgIsRGB=true, bgRGB=0x102030 → "rgb(16,32,48)" ≠ theme.background
+    const { log, backend } = makeBackend();
+    const grid = new CellGrid(10, 3);
+    grid.setCell(0, 0, 0x41, 7, 0, 0, false, true, 0, 0x102030);
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 0,
+      cursorCol: 0,
+      cursorVisible: false,
+      cursorStyle: "block",
+      selection: null,
+      highlights: [],
+    });
+    const bgFills = log.ops
+      .map((op, i) => ({ op, state: log.state[i] }))
+      .filter(({ op, state }) => op[0] === "fillRect" && state.fillStyle === "rgb(16,32,48)");
+    expect(bgFills.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Configuration method tests
+// ---------------------------------------------------------------------------
+
+describe("Canvas2DBackend — configuration methods", () => {
+  it("setFont: updated fontWeightBold appears in bold text render", () => {
+    const { ctx } = createMockContext();
+    const canvas = createMockOffscreenCanvas(ctx);
+    const backend = new Canvas2DBackend();
+    backend.init(defaultInit(canvas));
+    backend.setFont(14, "monospace", 400, 900, 1, 8, 16, 12);
+
+    const grid = new CellGrid(10, 3);
+    grid.setCell(0, 0, 0x41, 7, 0, ATTR_BOLD);
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 0,
+      cursorCol: 0,
+      cursorVisible: false,
+      cursorStyle: "block",
+      selection: null,
+      highlights: [],
+    });
+    expect(ctx.font).toContain("900");
+  });
+
+  it("setTheme: updated foreground color appears in text render", () => {
+    const { log } = createMockContext();
+    // Re-create with a fresh pair to avoid state from other tests.
+    const { ctx: ctx2, log: log2 } = createMockContext();
+    const canvas = createMockOffscreenCanvas(ctx2);
+    const backend = new Canvas2DBackend();
+    backend.init(defaultInit(canvas));
+    backend.setTheme({ ...DEFAULT_THEME, foreground: "#ff0000" });
+
+    const grid = new CellGrid(10, 3);
+    grid.setCell(0, 0, 0x41, 7, 0, 0); // index 7 → theme.foreground
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 0,
+      cursorCol: 0,
+      cursorVisible: false,
+      cursorStyle: "block",
+      selection: null,
+      highlights: [],
+    });
+
+    void log; // silence unused warning
+    const textFills = log2.ops
+      .map((op, i) => ({ op, state: log2.state[i] }))
+      .filter(({ op, state }) => op[0] === "fillText" && state.fillStyle === "#ff0000");
+    expect(textFills.length).toBeGreaterThan(0);
+  });
+
+  it("syncCanvasSize: updates canvas width and height", () => {
+    const { ctx } = createMockContext();
+    const canvas = createMockOffscreenCanvas(ctx);
+    const backend = new Canvas2DBackend();
+    backend.init(defaultInit(canvas));
+    // cols=5, rows=2, cellWidth=10, cellHeight=20, dpr=2 → 100×80 physical
+    backend.syncCanvasSize(5, 2, 10, 20, 2);
+    expect(canvas.width).toBe(100);
+    expect(canvas.height).toBe(80);
+  });
+
+  it("dispose: render() is a no-op and does not throw", () => {
+    const { ctx, calls } = createMockContext();
+    const canvas = createMockOffscreenCanvas(ctx);
+    const backend = new Canvas2DBackend();
+    backend.init(defaultInit(canvas));
+    backend.dispose();
+
+    const grid = new CellGrid(10, 3);
+    grid.setCell(0, 0, 0x41, 7, 0, 0);
+    expect(() =>
+      backend.render({
+        grid,
+        cols: 10,
+        rows: 3,
+        cursorRow: 0,
+        cursorCol: 0,
+        cursorVisible: false,
+        cursorStyle: "block",
+        selection: null,
+        highlights: [],
+      }),
+    ).not.toThrow();
+    expect(calls.filter(([n]) => n === "fillText")).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-row selection tests
+// ---------------------------------------------------------------------------
+
+describe("Canvas2DBackend — multi-row selection geometry", () => {
+  it("middle row of a multi-row selection uses full column span", () => {
+    const { log } = createMockContext();
+    const { ctx: ctx2, log: log2 } = createMockContext();
+    const canvas = createMockOffscreenCanvas(ctx2);
+    const backend = new Canvas2DBackend();
+    backend.init(defaultInit(canvas));
+
+    const grid = new CellGrid(10, 3);
+    grid.markAllDirty();
+
+    // 3-row selection: row 0 (start at col 3) → row 2 (end at col 6).
+    // Row 1 is the middle row — should cover cols 0..9 (full width = 10*8 = 80).
+    backend.render({
+      grid,
+      cols: 10,
+      rows: 3,
+      cursorRow: 0,
+      cursorCol: 0,
+      cursorVisible: false,
+      cursorStyle: "block",
+      selection: { startRow: 0, startCol: 3, endRow: 2, endCol: 6 },
+      highlights: [],
+    });
+
+    void log; // silence unused
+    // A fillRect at y=16 (row 1) with width 80 (10 cols × 8 px) using selectionBackground.
+    const middleRowSel = log2.ops
+      .map((op, i) => ({ op, state: log2.state[i] }))
+      .filter(
+        ({ op, state }) =>
+          op[0] === "fillRect" &&
+          Array.isArray(op[1]) &&
+          op[1][1] === 16 &&
+          (op[1][2] as number) === 80 &&
+          state.fillStyle === DEFAULT_THEME.selectionBackground,
+      );
+    expect(middleRowSel.length).toBeGreaterThan(0);
   });
 });
