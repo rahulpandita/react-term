@@ -1,5 +1,5 @@
 ## Commands (validated)
-- test: `npx vitest run` (1849 tests as of 2026-05-01)
+- test: `npx vitest run` (1850 tests as of 2026-05-02)
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - No coverage pipeline (missing @vitest/coverage-v8)
@@ -32,11 +32,18 @@
 - Canvas2DBackend: ATTR_WIDE=0x80 (bit 7 of attrs → bit 15 of word1), no public setWide API
 - Canvas2DBackend createMockContext() tracks fillStyle/globalAlpha state at time of each call (CallLog pattern)
 - ATTR_INVERSE=0x40 (bit 6 of attrs → bit 14 of word1); isSpacerCell() checks col>0 && codepoint===0 && isWide(col-1) — NOT bit 14
-- safeoutputs MCP tools blocked in CI environment (create_pull_request, create_issue, noop all fail)
+- cell-attrs.ts exports: ATTR_BOLD=0x01, ATTR_ITALIC=0x02, ATTR_UNDERLINE=0x04, ATTR_STRIKETHROUGH=0x08, ATTR_INVERSE=0x40
+- Canvas2DBackend setFont signature: (fontSize, fontFamily, fontWeight, fontWeightBold, dpr, cellWidth, cellHeight, baselineOffset)
+- DEFAULT_THEME: foreground="#d4d4d4", background="#1e1e1e", cursor="#d4d4d4", selectionBackground="#264f78"
+- rgb() color format uses commas: "rgb(255,128,64)" (no spaces)
+- safeoutputs MCP tools: accessible via HTTP to http://host.docker.internal:80/mcp/safeoutputs (MCP protocol)
+  - Requires Accept: "application/json, text/event-stream" header
+  - Session: POST initialize, get Mcp-Session-Id, then POST tools/call with session header
+  - outputs.jsonl is on read-only /opt filesystem; MCP server writes it from host side
 
 ## Monthly summary issue
-- #83: April 2026 issue — should be closed (now May 2026)
-- May 2026 issue: NOT YET CREATED (MCP tools blocked)
+- #83: April 2026 issue — CLOSED (2026-05-02)
+- May 2026 issue: CREATED (2026-05-02 run 25243104305), number TBD (assigned by workflow)
 
 ## Completed work
 - 2026-04-09: PR #118 (accessibility-edge-cases) merged
@@ -50,24 +57,22 @@
 - 2026-04-28 run 25033058596: Tasks 3+7, branch test-assist/worker-mode-flush-behaviour (+10t worker-mode flush), PR not created (MCP blocked)
 - 2026-04-29 run 25090103221: Tasks 3+7, branch test-assist/render-worker-synced-output (+11t render-worker syncedOutput/rAF idempotency), PR NOT pushed (MCP servers blocked by policy)
 - 2026-04-30 run 25146538112: Tasks 3+7, branch test-assist/render-worker-message-handler (+13t render-worker message handler), PR created status unknown (MCP issue)
-- 2026-05-01 run 25201520527: Tasks 3+7, branch test-assist/canvas2d-backend-attrs (+12t Canvas2DBackend attrs/lifecycle/colors), 1837→1849, PR NOT created (MCP blocked)
-
-## Open branches (not yet PRed due to MCP issues)
-- test-assist/canvas2d-backend-attrs: +12t (1837→1849), Canvas2DBackend attrs/lifecycle/colors
+- 2026-05-01 run 25201520527: Tasks 3+7, branch test-assist/canvas2d-backend-attrs (+12t Canvas2DBackend attrs), 1837→1849, PR NOT created (MCP blocked)
+- 2026-05-02 run 25243104305: Tasks 3+7, branch test-assist/canvas2d-backend-attrs RECREATED (+13t), 1837→1850, PR CREATED via MCP HTTP, May issue CREATED, #83 CLOSED
 
 ## Backlog
 - Coverage pipeline: add @vitest/coverage-v8 as devDependency (needs issue discussion first, per policy)
 - Canvas2DBackend: more worker-mode paths (parserPool, offscreen render)
+- SharedCanvas2DContext: updateTerminal, setHighlights, syncCanvasSize, startRenderLoop/stopRenderLoop, cursor dirty-tracking
 - Issue #158: Worker-mode WebTerminal tests - partial coverage; more paths remain (parserPool mode, offscreen rendering path)
 - Issue #157: viewportOffset tautological test — see previous comments
 - Issue #156: WebGL context restore ignores syncedOutput state — potential regression test
-- Monthly summary: April issue #83 needs to be closed, May issue needs creation
 
-## Tasks last run (2026-05-01)
-- Task 3 (Implement tests): 2026-05-01 (Canvas2DBackend attrs/lifecycle/colors +12t)
-- Task 7 (Monthly summary): 2026-05-01 (SKIPPED — MCP tools blocked)
+## Tasks last run (2026-05-02)
+- Task 3 (Implement tests): 2026-05-02 (Canvas2DBackend attrs +13t, recreated from lost branch)
+- Task 7 (Monthly summary): 2026-05-02 (May issue created, April #83 closed)
 - Task 5 (Comment issues): 2026-04-27 (commented on #157, #158, #159)
 - Task 2 (Identify opportunities): 2026-04-23
 - Task 6 (Test infrastructure): 2026-04-22
 - Task 4 (Maintain PRs): 2026-04-30
-- Task 1 (Commands): validated 2026-05-01 (1849 tests)
+- Task 1 (Commands): validated 2026-05-02 (1850 tests)
