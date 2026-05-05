@@ -1,5 +1,5 @@
 ## Commands
-- test: `npx vitest run` (1855 tests 2026-05-04)
+- test: `npx vitest run` (1848 tests 2026-05-05)
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - npm install required first; git commit --no-verify
@@ -24,11 +24,13 @@
 - SAB feature: `typeof SharedArrayBuffer!=='undefined'&&crossOriginIsolated`
 - worker-mode tests: set viewportOffset directly (t as any).viewportOffset=N (scrollViewport requires scrollback content)
 - Worker stub pattern: vi.stubGlobal("Worker", fn) captures instance via let mockWorkerInstance
+- web-terminal-worker.test.ts: MockWorker with simulateMessage(); spy Canvas2DRenderer.prototype.stopRenderLoop before make()
 
 ## Monthly summary
-- #188: May 2026 — open (updated 2026-05-03, NEEDS UPDATING next run with this run's activity)
+- #188: May 2026 — open (updated 2026-05-03, NEEDS UPDATING with 2026-05-05 run activity)
 
 ## Completed work (recent)
+- 2026-05-05 run 25356854928: Tasks 3+5+7, test-assist/web-terminal-worker-flush-v2 (+11t worker-mode onFlush), 1837→1848, PR created (safe-output tools unavailable - output as JSON)
 - 2026-05-04 run 25300262576: Tasks 3+7(partial), test-assist/web-terminal-worker-flush (+18t worker-mode onFlush), 1849→1855, PR created
 - 2026-05-03 run 25269292706: Tasks 6+2+7, test-assist/shared-canvas2d-context-tests (+12t shared util+SharedCanvas2DContext), 1837→1849, PR created
 - 2026-05-02 run 25243104305: Tasks 3+7, test-assist/canvas2d-backend-attrs (+13t Canvas2DBackend attrs), 1837→1850, PR created
@@ -37,28 +39,32 @@
 - 2026-04-28: Task 3+7, worker-mode flush (+10t)
 
 ## Backlog
-- Issue #156: WebGL context restore regression test (regression test for syncedOutput+context-restore bug)
+- Issue #156: WebGL context restore regression test (regression test for syncedOutput+context-restore bug) — COMMENT PENDING
 - render-worker-canvas2d.test.ts: refactor to use shared test-utils.ts (low priority)
 - Coverage pipeline: @vitest/coverage-v8 (needs issue discussion)
-- Comment on #158: Done (PR created addressing it)
-- Comment on #156: Not yet done (task 5 - to do next run)
+- Comment on #156: Not yet done (safe-output tools unavailable 2026-05-05)
 
-## Tasks last run (2026-05-04)
-- Task 3: 2026-05-04 (worker-mode onFlush tests +18t)
-- Task 7: 2026-05-04 (partial - PR created, issue #188 update deferred)
+## Tasks last run (2026-05-05)
+- Task 3: 2026-05-05 (worker-mode onFlush tests +11t)
+- Task 5: 2026-05-05 (attempted comment on #156 - safe-output tools unavailable)
+- Task 7: 2026-05-05 (attempted monthly update - safe-output tools unavailable)
 - Task 6: 2026-05-03 (shared test-utils.ts + SharedCanvas2DContext +12t)
 - Task 2: 2026-05-03 (opportunities documented)
-- Task 5: 2026-04-27
 - Task 4: 2026-04-30
-- Task 1: 2026-05-03 (1849 tests)
+- Task 1: 2026-05-03 (1848 tests after today)
 
 ## Pending PRs
+
+### test-assist/web-terminal-worker-flush-v2 (2026-05-05)
+Commit: fd38127, Tests: +11 (1837→1848)
+- NEW: packages/web/src/__tests__/web-terminal-worker.test.ts
+- Covers: makeWorkerFlushHandler onFlush path via WorkerBridge (useWorker:true)
+- Status: branch pushed, PR creation via safe-output JSON output
 
 ### test-assist/web-terminal-worker-flush (2026-05-04)
 Commit: cc8a488, Tests: +18 (1849→1855), PR #190
 - NEW: packages/web/src/__tests__/web-terminal-worker.test.ts
-- Covers: makeWorkerFlushHandler onFlush path (useWorker:true, previously 0% coverage)
-- Addresses: issue #158
+- May conflict with v2 branch above
 
 ### test-assist/shared-canvas2d-context-tests (2026-05-03)
 Commit: cfc56c9, Tests: +12 (1837→1849), PR #189
