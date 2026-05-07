@@ -1,5 +1,5 @@
 ## Commands
-- test: `npx vitest run` (1854 tests 2026-05-06)
+- test: `npx vitest run` (1848 tests 2026-05-07)
 - lint: `npm run lint` (biome check packages/)
 - typecheck: `npm run typecheck` (tsc -b)
 - npm install required first; git commit --no-verify
@@ -19,6 +19,8 @@
 - vi.restoreAllMocks() in afterEach important for rAF spies
 - Worker-mode: use separate file with full MockWorker; flush={type:"flush",isAlternate,cursor,bytesProcessed,modes}
 - render-worker.ts tests: @vitest-environment node, stub self, vi.resetModules()+dynamic import() per test
+- CellGrid SAB size: cellBytes(cols*rows*CELL_SIZE*4)+dirtyBytes(rows*4)+cursorBytes(16)+offsetBytes(4)+wrapBytes(rows*4)
+- render-worker-dispatch tests: vi.mock() Canvas2DBackend+WebGL2Backend before import; vi.unstubAllGlobals() in afterEach
 - applySyncedOutput: idempotent if same synced value
 - Canvas2DBackend: ATTR_WIDE=0x80, ATTR_INVERSE=0x40, ATTR_BOLD=0x01,0x02,0x04,0x08
 - SAB feature: `typeof SharedArrayBuffer!=='undefined'&&crossOriginIsolated`
@@ -27,9 +29,10 @@
 - web-terminal-worker.test.ts: MockWorker with simulateMessage(); spy Canvas2DRenderer.prototype.stopRenderLoop before make()
 
 ## Monthly summary
-- #188: May 2026 — open (updated 2026-05-06)
+- #188: May 2026 — open (updated 2026-05-07)
 
 ## Completed work (recent)
+- 2026-05-07 run 25475227641: Tasks 4+3+7, render-worker syncedOutput+rAF idempotency (+11t), branch test-assist/render-worker-synced-output-9c05a19, 1837→1848, safe-output tools unavailable
 - 2026-05-06 run 25415612342: Tasks 4+3+7, verified PRs #187/#189 (passing), test-assist/web-terminal-worker-mode (+17t worker-mode WebTerminal), 1837→1854, safe-output tools STILL unavailable
 - 2026-05-05 run 25356854928: Tasks 3+5+7, test-assist/web-terminal-worker-flush-v2 (+11t worker-mode onFlush), 1837→1848, PR created (safe-output tools unavailable - output as JSON)
 - 2026-05-04 run 25300262576: Tasks 3+7(partial), test-assist/web-terminal-worker-flush (+18t worker-mode onFlush), 1849→1855, PR created
@@ -38,14 +41,13 @@
 
 ## Backlog
 - Issue #156: WebGL context restore regression test (regression test for syncedOutput+context-restore bug) — COMMENT PENDING
-- Issue #159: render-worker syncedOutput and rAF idempotency guard — direct tests needed
 - render-worker-canvas2d.test.ts: refactor to use shared test-utils.ts (low priority)
 - Coverage pipeline: @vitest/coverage-v8 (needs issue discussion)
 
-## Tasks last run (2026-05-06)
-- Task 4: 2026-05-06 (verified PRs #187/#189 pass, no CI/merge issues)
-- Task 3: 2026-05-06 (worker-mode WebTerminal integration tests +17t, branch test-assist/web-terminal-worker-mode)
-- Task 7: 2026-05-06 (monthly update - safe-output tools unavailable again)
+## Tasks last run (2026-05-07)
+- Task 4: 2026-05-07 (checked worker-mode branch has tests passing; PR creation requires safe-output tools)
+- Task 3: 2026-05-07 (render-worker syncedOutput+rAF dispatch tests +11t, branch test-assist/render-worker-synced-output-9c05a19)
+- Task 7: 2026-05-07 (monthly update - safe-output tools unavailable)
 - Task 5: 2026-05-05 (attempted comment on #156 - unavailable)
 - Task 6: 2026-05-03 (shared test-utils.ts + SharedCanvas2DContext +12t)
 - Task 2: 2026-05-03 (opportunities documented)
@@ -53,12 +55,19 @@
 
 ## Pending PRs
 
-### test-assist/web-terminal-worker-mode (2026-05-06) — THIS RUN
-Commit: 82ba4d2, Tests: +17 (1837→1854)
+### test-assist/render-worker-synced-output-9c05a19 (2026-05-07) — THIS RUN
+Commit: 0976bd5, Tests: +11 (1837→1848)
+- NEW: packages/web/src/__tests__/render-worker-dispatch.test.ts
+- Covers: syncedOutput enabled/disabled, rAF idempotency, dispose, init+syncedOutput integration
+- Addresses: issue #159
+- Status: committed+pushed, PR creation requires safe-output tools (unavailable)
+
+### test-assist/web-terminal-worker-mode-782e7c846214921b (2026-05-06)
+Commit: e78fb6a, Tests: +17 (1837→1854)
 - NEW: packages/web/src/__tests__/web-terminal-worker.test.ts
 - Covers: WebTerminal useWorker:true — startup, write forwarding, onFlush modes/alt-buffer, error fallback, resize, dispose
 - Addresses: issue #158
-- Status: committed locally, push requires safe-output tools (unavailable)
+- Status: pushed, PR creation requires safe-output tools (unavailable)
 
 ### test-assist/shared-canvas2d-context-tests-bdf35317a04965e5 (2026-05-03)
 Tests: +12 (1837→1849), PR #189 (open, draft, clean, passing)
