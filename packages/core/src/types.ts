@@ -13,6 +13,57 @@ export interface CursorState {
   wrapPending: boolean;
 }
 
+/**
+ * DEC private-mode + mouse state that's sticky across output (i.e. not reset
+ * between writes). Surfaced for save/restore so a remounted terminal reacts
+ * to keyboard/mouse the same way the old one did.
+ */
+export interface ParserModeState {
+  readonly applicationCursorKeys: boolean;
+  readonly bracketedPasteMode: boolean;
+  readonly mouseProtocol: import("./parser/index.js").MouseProtocol;
+  readonly mouseEncoding: import("./parser/index.js").MouseEncoding;
+  readonly sendFocusEvents: boolean;
+}
+
+/**
+ * Serialized terminal state for save/restore scenarios (e.g. remount without
+ * losing grid content, cursor, scrollback, or parser modes). Treat the shape
+ * as opaque — pass it from `serialize()` back into `hydrate()` or
+ * `initialState` without inspecting internals.
+ *
+ * Captures the active buffer only — the inactive normal/alternate buffer is
+ * not serialized. Intended for fast remount of the visible buffer; callers
+ * that need full dual-buffer restore should maintain their own snapshot.
+ *
+ * In worker-mode terminals, scrollback lives in the parser worker and is not
+ * reachable from the main thread — `scrollback` will be empty in that mode.
+ * Callers that drive a server-side snapshot replay typically don't need it.
+ */
+export interface TerminalState {
+  /** Bumped if the schema changes so callers can detect incompatible snapshots. */
+  readonly version: 1;
+  readonly cols: number;
+  readonly rows: number;
+  /** Active grid cell data in full format: length === rows * cols * CELL_SIZE. */
+  readonly cells: Uint32Array;
+  /** One Int32 per row (0 or 1) indicating soft-wrap. */
+  readonly wrapFlags: Int32Array;
+  readonly cursor: {
+    readonly row: number;
+    readonly col: number;
+    readonly visible: boolean;
+    readonly style: "block" | "underline" | "bar";
+  };
+  readonly scrollback: {
+    readonly rows: readonly Uint32Array[];
+    readonly wrap: readonly boolean[];
+    readonly compact: readonly boolean[];
+  };
+  readonly parserModes: ParserModeState;
+  readonly isAlternate: boolean;
+}
+
 export interface TerminalOptions {
   cols: number;
   rows: number;
