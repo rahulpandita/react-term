@@ -69,7 +69,39 @@ interface DisposeMessage {
   generation?: number;
 }
 
-type InboundMessage = InitMessage | WriteMessage | ResizeMessage | DisposeMessage;
+/**
+ * Seeds the worker's parser/buffer state from a previously serialized
+ * snapshot. Applied WITHOUT a flush so the hydrated cursor/modes/active-buffer
+ * aren't clobbered when the next `write` produces the first real flush.
+ *
+ * Grid `cellData` and `wrapFlags` are OPTIONAL. Omit them when the main
+ * thread has already applied cells directly to the SAB (constructor
+ * initialState path, where the worker hasn't started yet and can't race).
+ * Include them when applying post-construction in worker mode, so the grid
+ * write is serialized in the worker's message queue behind any pending
+ * `write`s — otherwise concurrent main-thread and worker writes would race
+ * against the shared buffer.
+ */
+interface SeedMessage {
+  type: "seed";
+  channelId?: string;
+  generation?: number;
+  cursor: { row: number; col: number; visible: boolean; style: string };
+  isAlternate: boolean;
+  modes: {
+    applicationCursorKeys: boolean;
+    bracketedPasteMode: boolean;
+    mouseProtocol: "none" | "x10" | "vt200" | "drag" | "any";
+    mouseEncoding: "default" | "sgr";
+    sendFocusEvents: boolean;
+  };
+  /** Full-format active-grid cell data (Transferable). */
+  cellData?: ArrayBuffer;
+  /** Per-row wrap flags as Int32 (Transferable). */
+  wrapFlags?: ArrayBuffer;
+}
+
+type InboundMessage = InitMessage | WriteMessage | ResizeMessage | DisposeMessage | SeedMessage;
 
 /** Messages the worker posts back to the main thread. */
 export interface FlushMessage {
@@ -150,6 +182,51 @@ function createBufferAndParser(
     usingSAB: sharedBuffer !== undefined,
     generation,
   };
+}
+
+/**
+ * Apply a hydrated snapshot to an existing channel without producing a flush.
+ * Seeds cursor, parser modes, and active buffer — and, if supplied, the grid
+ * cell data. Running in the worker's single-threaded message loop means any
+ * pending `write` completes before this applies, so grid writes can't race.
+ */
+function applySeed(ch: ChannelState, msg: SeedMessage): void {
+  const active = msg.isAlternate ? ch.bufferSet.alternate : ch.bufferSet.normal;
+  ch.bufferSet.setActive(msg.isAlternate);
+
+  // Grid payload (optional). Applied to the now-active grid.
+  if (msg.cellData) {
+    const grid = active.grid;
+    const cellView = new Uint32Array(msg.cellData);
+    if (cellView.length === grid.data.length) {
+      grid.rowOffsetData[0] = 0;
+      grid.data.set(cellView);
+      if (msg.wrapFlags) {
+        const wrapView = new Int32Array(msg.wrapFlags);
+        if (wrapView.length === grid.wrapFlags.length) {
+          grid.wrapFlags.set(wrapView);
+        }
+      }
+      grid.markAllDirty();
+    }
+  }
+
+  active.cursor.row = Math.max(0, Math.min(msg.cursor.row, ch.bufferSet.rows - 1));
+  active.cursor.col = Math.max(0, Math.min(msg.cursor.col, ch.bufferSet.cols - 1));
+  active.cursor.visible = msg.cursor.visible;
+  active.cursor.style = msg.cursor.style as "block" | "underline" | "bar";
+  active.cursor.wrapPending = false;
+  active.grid.setCursor(
+    active.cursor.row,
+    active.cursor.col,
+    active.cursor.visible,
+    active.cursor.style,
+  );
+  ch.parser.applicationCursorKeys = msg.modes.applicationCursorKeys;
+  ch.parser.bracketedPasteMode = msg.modes.bracketedPasteMode;
+  ch.parser.mouseProtocol = msg.modes.mouseProtocol;
+  ch.parser.mouseEncoding = msg.modes.mouseEncoding;
+  ch.parser.sendFocusEvents = msg.modes.sendFocusEvents;
 }
 
 function buildFlush(ch: ChannelState, bytesProcessed: number, channelId?: string): FlushMessage {
@@ -282,6 +359,22 @@ function handleMessage(msg: InboundMessage): void {
       break;
     }
 
+    case "seed": {
+      if (!parser || !bufferSet) {
+        postError("Worker not initialised — ignoring seed");
+        return;
+      }
+      const ch = { bufferSet, parser, usingSAB, generation: undefined };
+      applySeed(ch, msg);
+      // Post a flush so:
+      //   - non-SAB mode: worker-owned cell data reaches the main-thread grid
+      //   - any pre-seed write flushes are naturally superseded (this flush
+      //     arrives after them in FIFO order and carries post-seed state)
+      const flush = buildFlush(ch, 0);
+      postFlush(flush, usingSAB);
+      break;
+    }
+
     case "dispose": {
       bufferSet = null;
       parser = null;
@@ -360,6 +453,25 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
       }
       const flush = buildFlush(newCh, 0, channelId);
       postFlush(flush, newCh.usingSAB);
+      break;
+    }
+
+    case "seed": {
+      const ch = channels.get(channelId);
+      if (!ch) {
+        postError(
+          `Channel "${channelId}" not initialised — ignoring seed`,
+          channelId,
+          msg.generation,
+        );
+        return;
+      }
+      if (msg.generation !== undefined && msg.generation !== ch.generation) return;
+      applySeed(ch, msg);
+      // Flush so non-SAB cell data reaches main and any in-flight pre-seed
+      // write flushes get naturally superseded (FIFO convergence).
+      const flush = buildFlush(ch, 0, channelId);
+      postFlush(flush, ch.usingSAB);
       break;
     }
 

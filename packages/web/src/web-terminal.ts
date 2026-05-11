@@ -13,7 +13,7 @@
  * RenderBridge, leaving the main thread free for DOM event handling only.
  */
 
-import type { CursorState, MouseEncoding, MouseProtocol, RowData, Theme } from "@next_term/core";
+import type { CursorState, ParserModeState, RowData, TerminalState, Theme } from "@next_term/core";
 import {
   BufferSet,
   CELL_SIZE,
@@ -176,6 +176,12 @@ export interface WebTerminalOptions {
   onData?: (data: Uint8Array) => void;
   onResize?: (size: { cols: number; rows: number }) => void;
   onTitleChange?: (title: string) => void;
+  /**
+   * Snapshot produced by `WebTerminal.serialize()` on a previous terminal.
+   * Applied before the render loop / worker starts so the first frame shows
+   * the restored grid. Dimensions in the snapshot must match `cols`/`rows`.
+   */
+  initialState?: TerminalState;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +193,9 @@ const DEFAULT_ROWS = 24;
 const DEFAULT_FONT_SIZE = 14;
 const DEFAULT_FONT_FAMILY = "'Menlo', 'DejaVu Sans Mono', 'Consolas', monospace";
 const DEFAULT_SCROLLBACK = 1000;
+
+/** Bumped when the `TerminalState` schema changes incompatibly. */
+const SNAPSHOT_VERSION = 1;
 
 // ---------------------------------------------------------------------------
 // WebTerminal
@@ -301,6 +310,15 @@ export class WebTerminal {
 
     // Create core buffer set
     this.bufferSet = new BufferSet(cols, rows, scrollback);
+
+    // Apply grid/cursor/scrollback from an initial snapshot BEFORE the render
+    // worker / render loop read the SAB, so the first frame shows the restored
+    // content. Parser modes + worker seed happen later, after the InputHandler
+    // exists and the worker has been started — but ONLY if the snapshot was
+    // accepted; rejected snapshots (bad version/dimensions/shape) leave the
+    // fresh BufferSet intact and we skip the downstream steps.
+    const initialStateAccepted =
+      options?.initialState !== undefined && this.applyStateToBufferSet(options.initialState);
 
     // Create canvas element
     this.canvas = document.createElement("canvas");
@@ -438,9 +456,42 @@ export class WebTerminal {
     const { width, height } = this.renderer.getCellSize();
     this.inputHandler.attach(container, width, height);
 
+    // Apply parser modes from the initial snapshot now that InputHandler exists.
+    if (initialStateAccepted && options?.initialState) {
+      this.setParserModes(options.initialState.parserModes);
+    }
+
     // Set up parsing: worker mode or direct mode.
     if (this.useWorkerMode) {
       this.startWorkerMode(cols, rows, scrollback);
+      // Seed worker-side parser state so the first flush doesn't revert the
+      // hydrated cursor/modes/active-buffer to worker defaults. Posted after
+      // the init message, before any write, so the worker applies it to its
+      // just-created BufferSet/VTParser.
+      //
+      // Grid cells: in SAB mode, the worker's BufferSet wraps the SAME shared
+      // buffer the main thread already wrote to — skip cellData. In non-SAB
+      // fallback mode, the worker's grid is independent and would stay blank
+      // without explicit cell data, so include it.
+      if (initialStateAccepted && options?.initialState) {
+        const backend = this.parserChannel ?? this.workerBridge;
+        const s = options.initialState;
+        const isShared = this.bufferSet.active.grid.isShared;
+        const cellsBuf = isShared ? undefined : s.cells.slice().buffer;
+        const wrapBuf = isShared ? undefined : s.wrapFlags.slice().buffer;
+        backend?.seed(
+          {
+            row: s.cursor.row,
+            col: s.cursor.col,
+            visible: s.cursor.visible,
+            style: s.cursor.style,
+          },
+          s.isAlternate,
+          s.parserModes,
+          cellsBuf,
+          wrapBuf,
+        );
+      }
     } else {
       this.parser = new VTParser(this.bufferSet);
       // Wire up title change callback
@@ -1194,14 +1245,258 @@ export class WebTerminal {
    * In worker mode, parser modes are synced from the worker via flush
    * messages. Values reflect the most recent flush.
    */
-  getParserModes(): {
-    applicationCursorKeys: boolean;
-    bracketedPasteMode: boolean;
-    mouseProtocol: MouseProtocol;
-    mouseEncoding: MouseEncoding;
-    sendFocusEvents: boolean;
-  } {
+  getParserModes(): ParserModeState {
     return this.inputHandler.getModes();
+  }
+
+  /**
+   * Apply parser/input modes.
+   *
+   * Intended for save/restore scenarios — pair with `getParserModes()` or
+   * a `serialize()` snapshot. In worker mode, the authoritative parser
+   * state lives in the worker, so these values may be overwritten by the
+   * next flush. Callers relying on parser modes across a remount typically
+   * re-issue the relevant DECSET sequences (e.g. via a replayed snapshot).
+   */
+  setParserModes(modes: ParserModeState): void {
+    if (this.disposed) return;
+    this.inputHandler.setApplicationCursorKeys(modes.applicationCursorKeys);
+    this.inputHandler.setBracketedPasteMode(modes.bracketedPasteMode);
+    this.inputHandler.setMouseProtocol(modes.mouseProtocol);
+    this.inputHandler.setMouseEncoding(modes.mouseEncoding);
+    this.inputHandler.setSendFocusEvents(modes.sendFocusEvents);
+  }
+
+  /**
+   * Snapshot the active buffer's grid, cursor, scrollback, and parser modes
+   * for later restoration. Use with the `initialState` constructor option on
+   * a fresh terminal, or `hydrate()` on an existing one.
+   *
+   * Captures the ACTIVE buffer only (normal OR alternate). Inactive-buffer
+   * content is not preserved — callers that need full dual-buffer restore
+   * should maintain their own snapshot.
+   *
+   * In worker-mode terminals, scrollback accumulates in the parser worker
+   * and is NOT reachable from the main thread — the `scrollback` field will
+   * be empty in that mode. Deployments driving a server-side snapshot
+   * replay typically don't need it.
+   */
+  serialize(): TerminalState {
+    if (this.disposed) {
+      throw new Error("[WebTerminal] serialize() called after dispose()");
+    }
+    const grid = this.bufferSet.active.grid;
+    const cols = grid.cols;
+    const rows = grid.rows;
+    const rowLen = cols * CELL_SIZE;
+    const cells = new Uint32Array(rows * rowLen);
+    const wrapFlags = new Int32Array(rows);
+    for (let r = 0; r < rows; r++) {
+      grid.copyRowInto(r, cells.subarray(r * rowLen, (r + 1) * rowLen));
+      wrapFlags[r] = grid.isWrapped(r) ? 1 : 0;
+    }
+    const cursor = this.bufferSet.active.cursor;
+    // Deep-copy scrollback rows: when scrollback is full, BufferSet's
+    // borrowRowBuffer() recycles the about-to-be-evicted row for the next
+    // pushScrollback. Sharing refs would corrupt the snapshot on the next
+    // scroll. See `BufferSet.borrowRowBuffer` for the recycling logic.
+    return {
+      version: SNAPSHOT_VERSION,
+      cols,
+      rows,
+      cells,
+      wrapFlags,
+      cursor: {
+        row: cursor.row,
+        col: cursor.col,
+        visible: cursor.visible,
+        style: cursor.style,
+      },
+      scrollback: {
+        rows: this.bufferSet.scrollback.map((r) => new Uint32Array(r)),
+        wrap: this.bufferSet.scrollbackWrap.slice(),
+        compact: this.bufferSet.scrollbackCompact.slice(),
+      },
+      parserModes: this.getParserModes(),
+      isAlternate: this.bufferSet.isAlternate,
+    };
+  }
+
+  /**
+   * Apply a serialized snapshot to this terminal. Dimensions must match
+   * the terminal's current `cols`/`rows`; otherwise this no-ops with a
+   * warning.
+   *
+   * Prefer the `initialState` constructor option when possible — it avoids
+   * a brief flash of the blank grid before content paints, and the work
+   * happens before the render worker / parser worker begin their loops.
+   *
+   * Worker-mode safety: the grid, cursor, modes, and active-buffer portion
+   * is posted to the parser worker so it's serialized behind any pending
+   * `write()` messages in the worker's queue. This means hydrate takes
+   * effect asynchronously in worker mode — subsequent `write()` calls on
+   * the same terminal still apply in order (FIFO postMessage), so callers
+   * don't need to await anything.
+   */
+  hydrate(state: TerminalState): void {
+    if (this.disposed) return;
+    if (!this.validateSnapshot(state)) return;
+
+    const backend = this.parserChannel ?? this.workerBridge;
+    if (backend) {
+      // Worker mode: route cells + cursor + modes + isAlternate through the
+      // worker so its in-flight writes don't race our grid writes.
+      // Scrollback, viewport, parser-mode mirror, and render rebind happen
+      // on the main thread — none of those touch the shared cell buffer.
+      this.applyScrollbackSnapshot(state);
+      this.setParserModes(state.parserModes);
+      // Keep the main-thread cursor + active-buffer flag in sync so queries
+      // like `activeCursor` / `isAlternateBuffer` return the expected value
+      // before the worker's async apply arrives back via flush.
+      if (state.isAlternate !== this.bufferSet.isAlternate) {
+        this.bufferSet.setActive(state.isAlternate);
+      }
+      const mainCursor = this.bufferSet.active.cursor;
+      mainCursor.row = Math.max(0, Math.min(state.cursor.row, state.rows - 1));
+      mainCursor.col = Math.max(0, Math.min(state.cursor.col, state.cols - 1));
+      mainCursor.visible = state.cursor.visible;
+      mainCursor.style = state.cursor.style;
+      mainCursor.wrapPending = false;
+      // Copy cells and wrap flags into detachable buffers the worker can own.
+      const cellsCopy = state.cells.slice().buffer;
+      const wrapCopy = state.wrapFlags.slice().buffer;
+      backend.seed(
+        {
+          row: state.cursor.row,
+          col: state.cursor.col,
+          visible: state.cursor.visible,
+          style: state.cursor.style,
+        },
+        state.isAlternate,
+        state.parserModes,
+        cellsCopy,
+        wrapCopy,
+      );
+    } else {
+      // Non-worker mode: write directly to the main-thread BufferSet.
+      if (!this.applyStateToBufferSet(state)) return;
+      this.setParserModes(state.parserModes);
+    }
+
+    // Clear scrollback viewport state so the hydrated live buffer is what
+    // renders (not a stale scrolled-back view).
+    this.viewportOffset = 0;
+    this.displayGrid = null;
+    this.updateScrollbar();
+
+    // Re-bind the render pipeline to the (possibly newly active) grid so it
+    // picks up the hydrated content.
+    const grid = this.bufferSet.active.grid;
+    const cursor = this.bufferSet.active.cursor;
+    if (this.sharedContext && this.paneId) {
+      this.sharedContext.updateTerminal(this.paneId, grid, cursor);
+    } else if (this.renderBridge) {
+      this.renderBridge.resize(grid.cols, grid.rows, grid.getBuffer() as SharedArrayBuffer);
+    } else {
+      this.renderer.attach(this.canvas, grid, cursor);
+    }
+    this.inputHandler.setGrid(grid);
+    this.accessibilityManager?.setGrid(grid, grid.rows, grid.cols);
+  }
+
+  /**
+   * Check version, dimensions, and structural shape of a snapshot. Emits a
+   * console warning describing which check failed. Used as a gate by both
+   * `hydrate()` and the constructor's `initialState` path before any state
+   * is mutated.
+   */
+  private validateSnapshot(state: TerminalState): boolean {
+    if (state.version !== SNAPSHOT_VERSION) {
+      console.warn(`[WebTerminal] snapshot: unsupported version ${state.version}`);
+      return false;
+    }
+    const cols = this.bufferSet.cols;
+    const rows = this.bufferSet.rows;
+    if (state.cols !== cols || state.rows !== rows) {
+      console.warn(
+        `[WebTerminal] snapshot: ${state.cols}x${state.rows} does not match terminal ${cols}x${rows}`,
+      );
+      return false;
+    }
+    const expectedCellLen = rows * cols * CELL_SIZE;
+    if (state.cells.length !== expectedCellLen || state.wrapFlags.length !== rows) {
+      console.warn(
+        `[WebTerminal] snapshot: malformed cells/wrapFlags (expected ${expectedCellLen} cells + ${rows} wrap flags, got ${state.cells.length}/${state.wrapFlags.length})`,
+      );
+      return false;
+    }
+    const sb = state.scrollback;
+    if (sb.rows.length !== sb.wrap.length || sb.rows.length !== sb.compact.length) {
+      console.warn(
+        `[WebTerminal] snapshot: scrollback arrays out of sync (rows=${sb.rows.length}, wrap=${sb.wrap.length}, compact=${sb.compact.length})`,
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Apply the main-thread-visible scrollback portion of a snapshot. The
+   * caller is responsible for having validated the snapshot already.
+   */
+  private applyScrollbackSnapshot(state: TerminalState): void {
+    this.bufferSet.scrollback.length = 0;
+    this.bufferSet.scrollbackWrap.length = 0;
+    this.bufferSet.scrollbackCompact.length = 0;
+    const sb = state.scrollback;
+    const maxSb = this.bufferSet.maxScrollback;
+    const sbAvail = sb.rows.length;
+    const sbLen = Math.min(sbAvail, maxSb);
+    const startIdx = sbAvail - sbLen;
+    for (let i = 0; i < sbLen; i++) {
+      this.bufferSet.scrollback.push(sb.rows[startIdx + i]);
+      this.bufferSet.scrollbackWrap.push(sb.wrap[startIdx + i]);
+      this.bufferSet.scrollbackCompact.push(sb.compact[startIdx + i]);
+    }
+  }
+
+  /**
+   * Internal: apply the full buffer-side portion of a snapshot (grid,
+   * cursor, scrollback, active-buffer flag) on the main thread. Used by the
+   * constructor's `initialState` option — where the worker hasn't started
+   * yet and no race is possible — and by non-worker-mode `hydrate()`.
+   * Worker-mode `hydrate()` routes cells through the worker instead.
+   */
+  private applyStateToBufferSet(state: TerminalState): boolean {
+    if (!this.validateSnapshot(state)) return false;
+
+    if (state.isAlternate !== this.bufferSet.isAlternate) {
+      this.bufferSet.setActive(state.isAlternate);
+    }
+
+    const grid = this.bufferSet.active.grid;
+    // Normalize the circular-buffer offset so physical rows equal logical rows
+    // for the paste that follows.
+    grid.rowOffsetData[0] = 0;
+    const cols = grid.cols;
+    const rows = grid.rows;
+    const rowLen = cols * CELL_SIZE;
+    for (let r = 0; r < rows; r++) {
+      const rowSlice = state.cells.subarray(r * rowLen, (r + 1) * rowLen);
+      grid.pasteRow(r, rowSlice, state.wrapFlags[r] !== 0);
+    }
+
+    const cursor = this.bufferSet.active.cursor;
+    cursor.row = Math.max(0, Math.min(state.cursor.row, rows - 1));
+    cursor.col = Math.max(0, Math.min(state.cursor.col, cols - 1));
+    cursor.visible = state.cursor.visible;
+    cursor.style = state.cursor.style;
+    cursor.wrapPending = false;
+    grid.setCursor(cursor.row, cursor.col, cursor.visible, cursor.style);
+
+    this.applyScrollbackSnapshot(state);
+    // pasteRow() marked each row dirty above — no need to mark again here.
+    return true;
   }
 
   onData(callback: (data: Uint8Array) => void): void {

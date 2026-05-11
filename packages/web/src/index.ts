@@ -1,5 +1,12 @@
 // Re-export types from core so consumers don't need to depend on core directly
-export type { CursorState, SelectionRange, TerminalOptions, Theme } from "@next_term/core";
+export type {
+  CursorState,
+  ParserModeState,
+  SelectionRange,
+  TerminalOptions,
+  TerminalState,
+  Theme,
+} from "@next_term/core";
 export {
   CELL_SIZE,
   CellGrid,

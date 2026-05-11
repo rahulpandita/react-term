@@ -28,7 +28,7 @@
  *     reuse) are dropped without polluting flow control.
  */
 
-import type { CursorState } from "@next_term/core";
+import type { CursorState, ParserModeState } from "@next_term/core";
 import { CELL_SIZE, type CellGrid, modPositive } from "@next_term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 import { HIGH_WATERMARK, LOW_WATERMARK, SAB_AVAILABLE } from "./worker-bridge.js";
@@ -56,6 +56,13 @@ export class ParserChannel {
   private poolPaused = false;
   private writeQueue: Uint8Array[] = [];
   private queuedBytes = 0;
+  /**
+   * Seed posted while this channel's writes are still queued locally. Held
+   * until the write queue drains so the worker sees writes before the seed.
+   * A later seed replaces an earlier pending one (both are complete
+   * snapshots, latest intent wins).
+   */
+  private pendingSeed: { msg: Record<string, unknown>; transferables: ArrayBuffer[] } | null = null;
   private skipFlushCellDataCount = 0;
 
   private disposed = false;
@@ -162,6 +169,45 @@ export class ParserChannel {
     this.poolPost(msg, transferables);
   }
 
+  /**
+   * Seed the channel's worker-side cursor, parser modes, and active buffer
+   * from a snapshot. Supply `cellData`/`wrapFlags` to route grid writes
+   * through the worker's message queue (post-construction hydrate); omit
+   * them when cells have already been written to SAB on the main thread
+   * before the worker started. See `WorkerBridge.seed` for rationale.
+   */
+  seed(
+    cursor: { row: number; col: number; visible: boolean; style: string },
+    isAlternate: boolean,
+    modes: ParserModeState,
+    cellData?: ArrayBuffer,
+    wrapFlags?: ArrayBuffer,
+  ): void {
+    if (this.disposed) return;
+    const msg: Record<string, unknown> = {
+      type: "seed",
+      channelId: this.channelId,
+      cursor,
+      isAlternate,
+      modes,
+    };
+    const transferables: ArrayBuffer[] = [];
+    if (cellData) {
+      msg.cellData = cellData;
+      transferables.push(cellData);
+    }
+    if (wrapFlags) {
+      msg.wrapFlags = wrapFlags;
+      transferables.push(wrapFlags);
+    }
+    // Preserve FIFO against locally-queued writes for this channel.
+    if (this.writeQueue.length > 0) {
+      this.pendingSeed = { msg, transferables };
+      return;
+    }
+    this.poolPost(msg, transferables);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -171,6 +217,7 @@ export class ParserChannel {
     this.poolOnChannelDispose(this.channelId);
     this.writeQueue.length = 0;
     this.queuedBytes = 0;
+    this.pendingSeed = null;
   }
 
   get isPaused(): boolean {
@@ -199,6 +246,12 @@ export class ParserChannel {
       if (!next) break;
       this.queuedBytes -= next.byteLength;
       this.sendWrite(next);
+    }
+    // Post any seed deferred under backpressure, now that the queue is drained.
+    if (this.pendingSeed && this.writeQueue.length === 0 && !this.poolPaused) {
+      const { msg, transferables } = this.pendingSeed;
+      this.pendingSeed = null;
+      this.poolPost(msg, transferables);
     }
   }
 

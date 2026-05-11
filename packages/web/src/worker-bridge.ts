@@ -10,7 +10,7 @@
  * when the PTY produces data faster than the worker can parse it.
  */
 
-import type { CursorState } from "@next_term/core";
+import type { CursorState, ParserModeState } from "@next_term/core";
 import { CELL_SIZE, type CellGrid, modPositive } from "@next_term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
 
@@ -43,6 +43,13 @@ export class WorkerBridge {
   private paused = false;
   /** Buffered writes waiting to be sent while paused. */
   private writeQueue: Uint8Array[] = [];
+  /**
+   * Seed posted while writes are still queued locally. Held until the write
+   * queue drains so the worker sees writes before the seed (FIFO). A later
+   * seed replaces an earlier pending one — both represent complete snapshots,
+   * so the latest intent wins.
+   */
+  private pendingSeed: { msg: Record<string, unknown>; transferables: ArrayBuffer[] } | null = null;
   /** Skip cell data in pending non-SAB flushes (main thread already has reflowed data). */
   private skipFlushCellDataCount = 0;
 
@@ -158,6 +165,41 @@ export class WorkerBridge {
   }
 
   /**
+   * Seed the worker's cursor, parser modes, and active buffer from a snapshot.
+   * Does not produce a flush. When called after writes are in flight, supply
+   * `cellData`/`wrapFlags` so the grid update is serialized behind pending
+   * writes in the worker's message queue (avoiding SAB races). Omit them
+   * when the main thread has already applied cells directly to the SAB
+   * before the worker started.
+   */
+  seed(
+    cursor: { row: number; col: number; visible: boolean; style: string },
+    isAlternate: boolean,
+    modes: ParserModeState,
+    cellData?: ArrayBuffer,
+    wrapFlags?: ArrayBuffer,
+  ): void {
+    if (this.disposed || !this.worker) return;
+    const msg: Record<string, unknown> = { type: "seed", cursor, isAlternate, modes };
+    const transferables: ArrayBuffer[] = [];
+    if (cellData) {
+      msg.cellData = cellData;
+      transferables.push(cellData);
+    }
+    if (wrapFlags) {
+      msg.wrapFlags = wrapFlags;
+      transferables.push(wrapFlags);
+    }
+    // Preserve FIFO against locally-queued writes (writeQueue is only non-empty
+    // while paused). A later seed supersedes an earlier pending one.
+    if (this.writeQueue.length > 0) {
+      this.pendingSeed = { msg, transferables };
+      return;
+    }
+    this.worker.postMessage(msg, transferables);
+  }
+
+  /**
    * Tear down the worker.
    */
   dispose(): void {
@@ -173,6 +215,7 @@ export class WorkerBridge {
     }
 
     this.writeQueue.length = 0;
+    this.pendingSeed = null;
   }
 
   // ---- Getters for flow-control state (useful for testing) -----------------
@@ -238,6 +281,14 @@ export class WorkerBridge {
       const next = this.writeQueue.shift();
       if (!next) break;
       this.sendWrite(next);
+    }
+    // Post any seed that was deferred while the queue was backed up. Only
+    // once the queue is fully drained AND the worker isn't paused again
+    // (sendWrite can re-trip pause mid-drain).
+    if (this.pendingSeed && this.writeQueue.length === 0 && !this.paused && this.worker) {
+      const { msg, transferables } = this.pendingSeed;
+      this.pendingSeed = null;
+      this.worker.postMessage(msg, transferables);
     }
   };
 

@@ -143,6 +143,53 @@ describe("WorkerBridge", () => {
     expect(writeCalls[0][0].type).toBe("write");
   });
 
+  // ---- seed ---------------------------------------------------------------
+
+  it("sends a seed message without cellData for pre-write hydrate", () => {
+    bridge.start(80, 24, 1000);
+    const modes = {
+      applicationCursorKeys: true,
+      bracketedPasteMode: false,
+      mouseProtocol: "none" as const,
+      mouseEncoding: "default" as const,
+      sendFocusEvents: false,
+    };
+    bridge.seed({ row: 5, col: 3, visible: true, style: "block" }, false, modes);
+    const seedCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+      (c) => c[0]?.type === "seed",
+    );
+    expect(seedCalls.length).toBe(1);
+    expect(seedCalls[0][0]).toEqual({
+      type: "seed",
+      cursor: { row: 5, col: 3, visible: true, style: "block" },
+      isAlternate: false,
+      modes,
+    });
+    // No transferables when cellData/wrapFlags are omitted.
+    expect(seedCalls[0][1]).toEqual([]);
+  });
+
+  it("sends a seed message WITH cellData+wrapFlags as transferables for post-write hydrate", () => {
+    bridge.start(80, 24, 1000);
+    const cells = new ArrayBuffer(80 * 24 * CELL_SIZE * 4);
+    const wrap = new ArrayBuffer(24 * 4);
+    const modes = {
+      applicationCursorKeys: false,
+      bracketedPasteMode: false,
+      mouseProtocol: "none" as const,
+      mouseEncoding: "default" as const,
+      sendFocusEvents: false,
+    };
+    bridge.seed({ row: 0, col: 0, visible: true, style: "block" }, true, modes, cells, wrap);
+    const seedCalls = mockWorkerInstance.postMessage.mock.calls.filter(
+      (c) => c[0]?.type === "seed",
+    );
+    expect(seedCalls.length).toBe(1);
+    expect(seedCalls[0][0].cellData).toBe(cells);
+    expect(seedCalls[0][0].wrapFlags).toBe(wrap);
+    expect(seedCalls[0][1]).toEqual([cells, wrap]);
+  });
+
   // ---- resize -------------------------------------------------------------
 
   it("sends a resize message to the worker", () => {
@@ -303,6 +350,42 @@ describe("WorkerBridge", () => {
       bridge.resize(120, 40, 2000);
       expect(bridge.isPaused).toBe(false);
       expect(bridge.pendingByteCount).toBe(0);
+    });
+
+    it("defers seed() behind queued writes and posts it after drain", () => {
+      bridge.start(80, 24, 1000);
+
+      // Fill past HIGH_WATERMARK to trigger pause, then queue a small write.
+      bridge.write(new Uint8Array(2 * 1024 * 1024));
+      bridge.write(new Uint8Array([65, 66, 67]));
+      expect(bridge.isPaused).toBe(true);
+
+      // Seed while queued — should NOT be posted yet.
+      const modes = {
+        applicationCursorKeys: false,
+        bracketedPasteMode: false,
+        mouseProtocol: "none" as const,
+        mouseEncoding: "default" as const,
+        sendFocusEvents: false,
+      };
+      bridge.seed({ row: 3, col: 2, visible: true, style: "block" }, false, modes);
+      expect(
+        mockWorkerInstance.postMessage.mock.calls.filter((c) => c[0]?.type === "seed").length,
+      ).toBe(0);
+
+      // Flush enough to drop below LOW_WATERMARK → queue drains, then seed posts.
+      mockWorkerInstance.simulateMessage({
+        type: "flush",
+        cursor: { row: 0, col: 0, visible: true, style: "block" },
+        isAlternate: false,
+        bytesProcessed: 2 * 1024 * 1024,
+        modes: DEFAULT_MODES,
+      });
+
+      const types = mockWorkerInstance.postMessage.mock.calls.map((c) => c[0]?.type);
+      const lastWriteIdx = types.lastIndexOf("write");
+      const seedIdx = types.indexOf("seed");
+      expect(seedIdx).toBeGreaterThan(lastWriteIdx);
     });
   });
 
