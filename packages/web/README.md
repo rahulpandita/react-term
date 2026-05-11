@@ -173,6 +173,50 @@ Controls where **rendering** happens (independent of `useWorker` which controls 
 | `false` | VT parser runs on main thread |
 | `undefined` (default) | Auto: uses worker when SharedArrayBuffer is available |
 
+## Save and restore
+
+`WebTerminal` can snapshot the active buffer, cursor, scrollback, and parser
+modes for restoration onto a fresh terminal. Useful for remount-without-flash
+(layout reparenting, tab switching) and session persistence.
+
+### API
+
+```ts
+import type { TerminalState } from "@next_term/web";
+
+const state: TerminalState = terminal.serialize();
+// pass into the constructor (preferred — applies before the first paint)
+new WebTerminal(container, { cols, rows, initialState: state });
+// or onto an already-mounted instance
+terminal.hydrate(state);
+```
+
+| Path | Where it applies | Notes |
+|---|---|---|
+| `initialState` option | First mount, before render worker / parser worker start | No flash. Recommended. |
+| `terminal.hydrate(state)` | Live terminal | Worker-mode routes through the parser worker's FIFO so in-flight `write()`s are preserved. |
+| `terminal.serialize()` | Anywhere except after `dispose()` | Throws after dispose. Returns a versioned `TerminalState`. |
+
+### Worker-mode scrollback
+
+In worker mode the parser worker owns scrollback. `serialize()` returns it
+empty (`scrollback.rows.length === 0`); the active grid + cursor + modes still
+round-trip. Drive scrollback replay through `write()` after hydrate if needed.
+
+### Validation
+
+`hydrate()` and the constructor's `initialState` both validate the snapshot
+shape (version, dimensions, cell-data length, scrollback array parity) and
+no-op with a `console.warn` on mismatch. The terminal remains in its
+fresh / pre-hydrate state.
+
+### Persistence
+
+`TerminalState` contains `Uint32Array`/`Int32Array` which don't `JSON.stringify`
+directly. For localStorage / IndexedDB, convert via `Array.from(...)` on save
+and rebuild the typed arrays on load — see `packages/demo/src/main.tsx` for
+a working example. Base64 is more compact for large terminals.
+
 ## Best Practices
 
 ### SharedWebGLContext Viewport Coordinates
@@ -245,7 +289,13 @@ export { calculateFit, InputHandler, WorkerBridge, RenderBridge } from "@next_te
 export { AccessibilityManager, GlyphAtlas, hexToFloat4 } from "@next_term/web";
 
 // Re-exported from @next_term/core
-export type { Theme, CursorState, TerminalOptions } from "@next_term/web";
+export type {
+  Theme,
+  CursorState,
+  TerminalOptions,
+  TerminalState,
+  ParserModeState,
+} from "@next_term/web";
 export { DEFAULT_THEME, CellGrid } from "@next_term/web";
 ```
 

@@ -1,4 +1,4 @@
-import type { MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
+import type { ParserModeState, TerminalState, Theme } from "@next_term/core";
 import type { ParserPool, SharedContext } from "@next_term/web";
 import { calculateFit, WebTerminal } from "@next_term/web";
 import type React from "react";
@@ -34,6 +34,12 @@ export interface TerminalProps {
   paneId?: string;
   /** Shared parser worker pool for multi-pane parsing. */
   parserPool?: ParserPool;
+  /**
+   * Snapshot captured from a previous terminal via `serialize()`. Restored
+   * before the first frame is painted — useful for fast remount without a
+   * blank flash (e.g. when reparenting panes in a tab/split layout).
+   */
+  initialState?: TerminalState;
 }
 
 export interface TerminalHandle {
@@ -49,15 +55,15 @@ export interface TerminalHandle {
   /** Whether the alternate buffer is active (vim, htop, etc.). */
   readonly isAlternateBuffer?: boolean;
   /** Get current parser/input mode state for save/restore. */
-  getParserModes?(): {
-    applicationCursorKeys: boolean;
-    bracketedPasteMode: boolean;
-    mouseProtocol: MouseProtocol;
-    mouseEncoding: MouseEncoding;
-    sendFocusEvents: boolean;
-  };
+  getParserModes?(): ParserModeState;
   /** Current scroll offset (0 = live/bottom, positive = lines scrolled back). */
   readonly scrollOffset?: number;
+  /** Apply parser/input modes. See `WebTerminal.setParserModes` for caveats. */
+  setParserModes?(modes: ParserModeState): void;
+  /** Capture a snapshot of the active buffer + cursor + scrollback + parser modes. */
+  serialize?(): TerminalState;
+  /** Apply a snapshot produced by `serialize()`. Dimensions must match. */
+  hydrate?(state: TerminalState): void;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(props, ref) {
@@ -82,6 +88,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     sharedContext,
     paneId,
     parserPool,
+    initialState,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -156,11 +163,34 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           };
         return terminal.getParserModes();
       },
+      setParserModes(modes) {
+        termRef.current?.setParserModes(modes);
+      },
+      serialize() {
+        const terminal = termRef.current;
+        if (!terminal) {
+          throw new Error("[Terminal] serialize() called before terminal is mounted");
+        }
+        return terminal.serialize();
+      },
+      hydrate(state) {
+        const terminal = termRef.current;
+        if (!terminal) {
+          throw new Error("[Terminal] hydrate() called before terminal is mounted");
+        }
+        terminal.hydrate(state);
+      },
     }),
     [],
   );
 
-  // Initialize WebTerminal on mount (handles StrictMode double-mount)
+  // Initialize WebTerminal on mount (handles StrictMode double-mount).
+  // `initialState` is intentionally NOT in the deps array — it's an
+  // apply-once-on-mount snapshot; reapplying it on every snapshot identity
+  // change would defeat its purpose (a stable "restore the previous session"
+  // input, not a controlled value). Callers needing dynamic restore can call
+  // the imperative `hydrate()` method instead.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: initialState is apply-once on mount
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
@@ -183,6 +213,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       sharedContext,
       paneId,
       parserPool,
+      initialState,
       onData: (data: Uint8Array) => onDataRef.current?.(data),
       onResize: (size: { cols: number; rows: number }) => onResizeRef.current?.(size),
       onTitleChange: (title: string) => onTitleChangeRef.current?.(title),

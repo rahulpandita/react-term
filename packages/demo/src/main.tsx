@@ -1,8 +1,67 @@
-import type { Theme } from "@next_term/core";
+import type { TerminalState, Theme } from "@next_term/core";
 import type { PaneLayout, TerminalHandle, TerminalPaneHandle } from "@next_term/react";
 import { Terminal, TerminalPane } from "@next_term/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+
+// ---------------------------------------------------------------------------
+// Snapshot persistence helpers — JSON-safe encoding for localStorage demo use.
+// (TerminalState's typed arrays don't JSON-serialize natively.)
+// ---------------------------------------------------------------------------
+
+const STORAGE_KEY = "next_term_demo_snapshot_v1";
+
+interface StoredSnapshot {
+  version: 1;
+  cols: number;
+  rows: number;
+  cells: number[];
+  wrapFlags: number[];
+  cursor: TerminalState["cursor"];
+  scrollback: {
+    rows: number[][];
+    wrap: boolean[];
+    compact: boolean[];
+  };
+  parserModes: TerminalState["parserModes"];
+  isAlternate: boolean;
+}
+
+function snapshotToStorage(s: TerminalState): StoredSnapshot {
+  return {
+    version: 1,
+    cols: s.cols,
+    rows: s.rows,
+    cells: Array.from(s.cells),
+    wrapFlags: Array.from(s.wrapFlags),
+    cursor: s.cursor,
+    scrollback: {
+      rows: s.scrollback.rows.map((r) => Array.from(r)),
+      wrap: [...s.scrollback.wrap],
+      compact: [...s.scrollback.compact],
+    },
+    parserModes: s.parserModes,
+    isAlternate: s.isAlternate,
+  };
+}
+
+function storageToSnapshot(s: StoredSnapshot): TerminalState {
+  return {
+    version: 1,
+    cols: s.cols,
+    rows: s.rows,
+    cells: new Uint32Array(s.cells),
+    wrapFlags: new Int32Array(s.wrapFlags),
+    cursor: s.cursor,
+    scrollback: {
+      rows: s.scrollback.rows.map((r) => new Uint32Array(r)),
+      wrap: s.scrollback.wrap,
+      compact: s.scrollback.compact,
+    },
+    parserModes: s.parserModes,
+    isAlternate: s.isAlternate,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Themes
@@ -218,14 +277,30 @@ function useFps() {
 function HUD({
   isDark,
   onToggleTheme,
+  onSave,
+  onRestore,
+  hasSnapshot,
   fps,
   status,
 }: {
   isDark: boolean;
   onToggleTheme: () => void;
+  onSave: () => void;
+  onRestore: () => void;
+  hasSnapshot: boolean;
   fps: number;
   status: ConnectionStatus;
 }) {
+  const btnStyle = {
+    background: isDark ? "#333" : "#ddd",
+    color: isDark ? "#eee" : "#222",
+    border: "none",
+    borderRadius: 4,
+    padding: "2px 8px",
+    cursor: "pointer",
+    fontSize: 11,
+    fontFamily: "inherit",
+  };
   return (
     <div
       style={{
@@ -257,18 +332,26 @@ function HUD({
         </span>
         <button
           type="button"
-          onClick={onToggleTheme}
-          style={{
-            background: isDark ? "#333" : "#ddd",
-            color: isDark ? "#eee" : "#222",
-            border: "none",
-            borderRadius: 4,
-            padding: "2px 8px",
-            cursor: "pointer",
-            fontSize: 11,
-            fontFamily: "inherit",
-          }}
+          onClick={onSave}
+          style={btnStyle}
+          title="Snapshot terminal to localStorage"
         >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={onRestore}
+          disabled={!hasSnapshot}
+          style={{
+            ...btnStyle,
+            opacity: hasSnapshot ? 1 : 0.4,
+            cursor: hasSnapshot ? "pointer" : "not-allowed",
+          }}
+          title={hasSnapshot ? "Hydrate terminal from saved snapshot" : "No snapshot saved yet"}
+        >
+          Restore
+        </button>
+        <button type="button" onClick={onToggleTheme} style={btnStyle}>
           {isDark ? "Light" : "Dark"}
         </button>
       </div>
@@ -290,6 +373,42 @@ function App() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const _themeCallbackRef = useRef<((dark: boolean) => void) | null>(null);
   const fps = useFps();
+  const [hasSnapshot, setHasSnapshot] = useState(() => localStorage.getItem(STORAGE_KEY) !== null);
+
+  // Save: snapshot the terminal and persist to localStorage.
+  const handleSave = useCallback(() => {
+    const term = termRef.current;
+    if (!term?.serialize) return;
+    try {
+      const state = term.serialize();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshotToStorage(state)));
+      setHasSnapshot(true);
+      term.write("\r\n\x1b[1;32m[demo]\x1b[0m terminal state saved to localStorage\r\n");
+      term.write(PROMPT);
+      lineBufferRef.current = "";
+    } catch (err) {
+      console.error("save failed:", err);
+      term.write(`\r\n\x1b[1;31m[demo]\x1b[0m save failed: ${err}\r\n${PROMPT}`);
+    }
+  }, []);
+
+  // Restore: hydrate the live terminal from the saved snapshot. Dimensions
+  // must match — if the window was resized between save and restore, this
+  // will console.warn and bail (which is the intended hydrate() behavior).
+  const handleRestore = useCallback(() => {
+    const term = termRef.current;
+    if (!term?.hydrate) return;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const stored = JSON.parse(raw) as StoredSnapshot;
+      term.hydrate(storageToSnapshot(stored));
+      lineBufferRef.current = "";
+    } catch (err) {
+      console.error("restore failed:", err);
+      term.write(`\r\n\x1b[1;31m[demo]\x1b[0m restore failed: ${err}\r\n${PROMPT}`);
+    }
+  }, []);
 
   const theme = useMemo(() => (isDark ? DARK_THEME : LIGHT_THEME), [isDark]);
 
@@ -496,7 +615,15 @@ function App() {
         overflow: "hidden",
       }}
     >
-      <HUD isDark={isDark} onToggleTheme={toggleTheme} fps={fps} status={connStatus} />
+      <HUD
+        isDark={isDark}
+        onToggleTheme={toggleTheme}
+        onSave={handleSave}
+        onRestore={handleRestore}
+        hasSnapshot={hasSnapshot}
+        fps={fps}
+        status={connStatus}
+      />
       <Terminal
         ref={termRef}
         autoFit

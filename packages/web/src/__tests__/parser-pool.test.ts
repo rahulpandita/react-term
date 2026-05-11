@@ -1,5 +1,5 @@
-import type { CursorState } from "@next_term/core";
-import { CellGrid } from "@next_term/core";
+import type { CursorState, ParserModeState } from "@next_term/core";
+import { CELL_SIZE, CellGrid } from "@next_term/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ParserPool } from "../parser-pool.js";
 import type { FlushMessage } from "../parser-worker.js";
@@ -565,6 +565,120 @@ describe("ParserChannel", () => {
       const fresh = pool.acquireChannel("c1", grid, altGrid, makeCursor(), () => {});
       fresh.start(80, 24, 100);
     }).not.toThrow();
+
+    pool.dispose();
+  });
+
+  // ---- seed --------------------------------------------------------------
+
+  it("seed() without cellData posts a tagged seed message and zero transferables", () => {
+    // Pre-write seed path: cursor + modes + active-buffer only. This is the
+    // shape used by the `initialState` constructor option in SAB mode, where
+    // the main thread has already written cells to the shared buffer.
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const channel = pool.acquireChannel("c1", grid, altGrid, makeCursor(), () => {});
+    channel.start(80, 24, 100);
+
+    const modes: ParserModeState = {
+      applicationCursorKeys: true,
+      bracketedPasteMode: false,
+      mouseProtocol: "none",
+      mouseEncoding: "default",
+      sendFocusEvents: false,
+    };
+    channel.seed({ row: 5, col: 3, visible: true, style: "block" }, false, modes);
+
+    const seedCalls = createdWorkers[0].postMessage.mock.calls.filter((c) => c[0]?.type === "seed");
+    expect(seedCalls).toHaveLength(1);
+    expect(seedCalls[0][0]).toMatchObject({
+      type: "seed",
+      channelId: "c1",
+      cursor: { row: 5, col: 3, visible: true, style: "block" },
+      isAlternate: false,
+      modes,
+    });
+    expect(seedCalls[0][0].cellData).toBeUndefined();
+    expect(seedCalls[0][0].wrapFlags).toBeUndefined();
+    expect(seedCalls[0][1] ?? []).toEqual([]);
+
+    pool.dispose();
+  });
+
+  it("seed() with cellData + wrapFlags ships both as transferables", () => {
+    // Post-construction hydrate path: main thread needs cells to reach the
+    // worker via postMessage so the write FIFO is respected (no SAB race).
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const channel = pool.acquireChannel("c1", grid, altGrid, makeCursor(), () => {});
+    channel.start(80, 24, 100);
+
+    const cells = new ArrayBuffer(80 * 24 * CELL_SIZE * 4);
+    const wrap = new ArrayBuffer(24 * 4);
+    const modes: ParserModeState = {
+      applicationCursorKeys: false,
+      bracketedPasteMode: false,
+      mouseProtocol: "none",
+      mouseEncoding: "default",
+      sendFocusEvents: false,
+    };
+    channel.seed({ row: 0, col: 0, visible: true, style: "block" }, true, modes, cells, wrap);
+
+    const seedCalls = createdWorkers[0].postMessage.mock.calls.filter((c) => c[0]?.type === "seed");
+    expect(seedCalls).toHaveLength(1);
+    expect(seedCalls[0][0].cellData).toBe(cells);
+    expect(seedCalls[0][0].wrapFlags).toBe(wrap);
+    expect(seedCalls[0][0].isAlternate).toBe(true);
+    expect(seedCalls[0][1]).toEqual([cells, wrap]);
+
+    pool.dispose();
+  });
+
+  it("seed() is deferred behind locally-queued writes and posts after drain (FIFO)", () => {
+    // When the worker is over HIGH_WATERMARK the channel queues writes
+    // locally. A seed arriving during that window must NOT skip the queue —
+    // otherwise the worker would apply hydrated state on top of cells that
+    // hadn't yet streamed through.
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const channel = pool.acquireChannel("c1", grid, altGrid, makeCursor(), () => {});
+    channel.start(80, 24, 100);
+
+    // Cross HIGH_WATERMARK and queue a small follow-up write.
+    channel.write(new Uint8Array(3 * 1024 * 1024));
+    channel.write(new Uint8Array([65, 66, 67]));
+    expect(channel.isPaused).toBe(true);
+
+    const modes: ParserModeState = {
+      applicationCursorKeys: false,
+      bracketedPasteMode: false,
+      mouseProtocol: "none",
+      mouseEncoding: "default",
+      sendFocusEvents: false,
+    };
+    channel.seed({ row: 1, col: 2, visible: true, style: "block" }, false, modes);
+
+    // Seed has NOT been posted yet — it's deferred behind the queued write.
+    let seeds = createdWorkers[0].postMessage.mock.calls.filter((c) => c[0]?.type === "seed");
+    expect(seeds).toHaveLength(0);
+
+    // Drain the worker below LOW_WATERMARK → queued write goes out, then seed.
+    createdWorkers[0].simulateMessage({
+      type: "flush",
+      channelId: "c1",
+      cursor: { row: 0, col: 0, visible: true, style: "block" },
+      isAlternate: false,
+      bytesProcessed: 3 * 1024 * 1024,
+      modes: DEFAULT_MODES,
+    });
+
+    seeds = createdWorkers[0].postMessage.mock.calls.filter((c) => c[0]?.type === "seed");
+    expect(seeds).toHaveLength(1);
+
+    // FIFO check: the deferred write was posted strictly before the seed.
+    const types = createdWorkers[0].postMessage.mock.calls.map((c) => c[0]?.type);
+    expect(types.lastIndexOf("write")).toBeGreaterThan(-1);
+    expect(types.indexOf("seed")).toBeGreaterThan(types.lastIndexOf("write"));
 
     pool.dispose();
   });
