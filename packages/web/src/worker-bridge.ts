@@ -13,6 +13,7 @@
 import type { CursorState, ParserModeState } from "@next_term/core";
 import { CELL_SIZE, type CellGrid, modPositive } from "@next_term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
+import { buildSeedMessage, type SeedCursor, type SeedMessage } from "./seed-message.js";
 
 // ---- Flow-control constants ------------------------------------------------
 
@@ -49,7 +50,7 @@ export class WorkerBridge {
    * seed replaces an earlier pending one — both represent complete snapshots,
    * so the latest intent wins.
    */
-  private pendingSeed: { msg: Record<string, unknown>; transferables: ArrayBuffer[] } | null = null;
+  private pendingSeed: { msg: SeedMessage; transferables: ArrayBuffer[] } | null = null;
   /** Skip cell data in pending non-SAB flushes (main thread already has reflowed data). */
   private skipFlushCellDataCount = 0;
 
@@ -173,30 +174,21 @@ export class WorkerBridge {
    * before the worker started.
    */
   seed(
-    cursor: { row: number; col: number; visible: boolean; style: string },
+    cursor: SeedCursor,
     isAlternate: boolean,
     modes: ParserModeState,
     cellData?: ArrayBuffer,
     wrapFlags?: ArrayBuffer,
   ): void {
     if (this.disposed || !this.worker) return;
-    const msg: Record<string, unknown> = { type: "seed", cursor, isAlternate, modes };
-    const transferables: ArrayBuffer[] = [];
-    if (cellData) {
-      msg.cellData = cellData;
-      transferables.push(cellData);
-    }
-    if (wrapFlags) {
-      msg.wrapFlags = wrapFlags;
-      transferables.push(wrapFlags);
-    }
+    const built = buildSeedMessage(cursor, isAlternate, modes, cellData, wrapFlags);
     // Preserve FIFO against locally-queued writes (writeQueue is only non-empty
     // while paused). A later seed supersedes an earlier pending one.
     if (this.writeQueue.length > 0) {
-      this.pendingSeed = { msg, transferables };
+      this.pendingSeed = built;
       return;
     }
-    this.worker.postMessage(msg, transferables);
+    this.worker.postMessage(built.msg, built.transferables);
   }
 
   /**

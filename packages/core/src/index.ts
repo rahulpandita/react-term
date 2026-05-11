@@ -25,5 +25,5 @@ export type {
   TerminalState,
   Theme,
 } from "./types.js";
-export { DEFAULT_THEME, DirtyState } from "./types.js";
+export { DEFAULT_THEME, DirtyState, SNAPSHOT_VERSION } from "./types.js";
 export { isCombining, wcwidth } from "./wcwidth.js";

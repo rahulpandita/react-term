@@ -5,12 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 // ---------------------------------------------------------------------------
-// Snapshot persistence helpers
-//
-// `TerminalState` contains typed arrays (Uint32Array, Int32Array) that don't
-// JSON-serialize natively. Convert to plain arrays for storage and rebuild
-// the typed arrays on read. Encoded form is verbose but trivially correct;
-// for production use you'd want base64 + ArrayBuffer.
+// Snapshot persistence helpers — JSON-safe encoding for localStorage demo use.
+// (TerminalState's typed arrays don't JSON-serialize natively.)
 // ---------------------------------------------------------------------------
 
 const STORAGE_KEY = "next_term_demo_snapshot_v1";

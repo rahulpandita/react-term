@@ -21,6 +21,7 @@ import {
   DEFAULT_THEME,
   expandCompactRow,
   reflowRows,
+  SNAPSHOT_VERSION,
   VTParser,
 } from "@next_term/core";
 import { AccessibilityManager } from "./accessibility.js";
@@ -194,9 +195,6 @@ const DEFAULT_FONT_SIZE = 14;
 const DEFAULT_FONT_FAMILY = "'Menlo', 'DejaVu Sans Mono', 'Consolas', monospace";
 const DEFAULT_SCROLLBACK = 1000;
 
-/** Bumped when the `TerminalState` schema changes incompatibly. */
-const SNAPSHOT_VERSION = 1;
-
 // ---------------------------------------------------------------------------
 // WebTerminal
 // ---------------------------------------------------------------------------
@@ -318,7 +316,10 @@ export class WebTerminal {
     // accepted; rejected snapshots (bad version/dimensions/shape) leave the
     // fresh BufferSet intact and we skip the downstream steps.
     const initialStateAccepted =
-      options?.initialState !== undefined && this.applyStateToBufferSet(options.initialState);
+      options?.initialState !== undefined && this.validateSnapshot(options.initialState);
+    if (initialStateAccepted && options?.initialState) {
+      this.applyStateToBufferSet(options.initialState);
+    }
 
     // Create canvas element
     this.canvas = document.createElement("canvas");
@@ -1379,7 +1380,8 @@ export class WebTerminal {
       );
     } else {
       // Non-worker mode: write directly to the main-thread BufferSet.
-      if (!this.applyStateToBufferSet(state)) return;
+      // `state` was already validated at the top of `hydrate()`.
+      this.applyStateToBufferSet(state);
       this.setParserModes(state.parserModes);
     }
 
@@ -1466,10 +1468,10 @@ export class WebTerminal {
    * constructor's `initialState` option — where the worker hasn't started
    * yet and no race is possible — and by non-worker-mode `hydrate()`.
    * Worker-mode `hydrate()` routes cells through the worker instead.
+   *
+   * Precondition: caller has already validated `state` via `validateSnapshot`.
    */
-  private applyStateToBufferSet(state: TerminalState): boolean {
-    if (!this.validateSnapshot(state)) return false;
-
+  private applyStateToBufferSet(state: TerminalState): void {
     if (state.isAlternate !== this.bufferSet.isAlternate) {
       this.bufferSet.setActive(state.isAlternate);
     }
@@ -1496,7 +1498,6 @@ export class WebTerminal {
 
     this.applyScrollbackSnapshot(state);
     // pasteRow() marked each row dirty above — no need to mark again here.
-    return true;
   }
 
   onData(callback: (data: Uint8Array) => void): void {

@@ -31,6 +31,7 @@
 import type { CursorState, ParserModeState } from "@next_term/core";
 import { CELL_SIZE, type CellGrid, modPositive } from "@next_term/core";
 import type { FlushMessage, OutboundMessage } from "./parser-worker.js";
+import { buildSeedMessage, type SeedCursor, type SeedMessage } from "./seed-message.js";
 import { HIGH_WATERMARK, LOW_WATERMARK, SAB_AVAILABLE } from "./worker-bridge.js";
 
 /** Hard cap on per-channel writeQueue memory when the worker is stalled.
@@ -62,7 +63,7 @@ export class ParserChannel {
    * A later seed replaces an earlier pending one (both are complete
    * snapshots, latest intent wins).
    */
-  private pendingSeed: { msg: Record<string, unknown>; transferables: ArrayBuffer[] } | null = null;
+  private pendingSeed: { msg: SeedMessage; transferables: ArrayBuffer[] } | null = null;
   private skipFlushCellDataCount = 0;
 
   private disposed = false;
@@ -177,35 +178,20 @@ export class ParserChannel {
    * before the worker started. See `WorkerBridge.seed` for rationale.
    */
   seed(
-    cursor: { row: number; col: number; visible: boolean; style: string },
+    cursor: SeedCursor,
     isAlternate: boolean,
     modes: ParserModeState,
     cellData?: ArrayBuffer,
     wrapFlags?: ArrayBuffer,
   ): void {
     if (this.disposed) return;
-    const msg: Record<string, unknown> = {
-      type: "seed",
-      channelId: this.channelId,
-      cursor,
-      isAlternate,
-      modes,
-    };
-    const transferables: ArrayBuffer[] = [];
-    if (cellData) {
-      msg.cellData = cellData;
-      transferables.push(cellData);
-    }
-    if (wrapFlags) {
-      msg.wrapFlags = wrapFlags;
-      transferables.push(wrapFlags);
-    }
+    const built = buildSeedMessage(cursor, isAlternate, modes, cellData, wrapFlags, this.channelId);
     // Preserve FIFO against locally-queued writes for this channel.
     if (this.writeQueue.length > 0) {
-      this.pendingSeed = { msg, transferables };
+      this.pendingSeed = built;
       return;
     }
-    this.poolPost(msg, transferables);
+    this.poolPost(built.msg, built.transferables);
   }
 
   dispose(): void {

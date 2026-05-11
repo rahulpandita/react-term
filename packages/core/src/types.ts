@@ -27,6 +27,13 @@ export interface ParserModeState {
 }
 
 /**
+ * Schema version for `TerminalState`. Bumped when the shape changes
+ * incompatibly. The literal type on `TerminalState.version` is derived from
+ * this so the runtime check and the compile-time guarantee can't drift.
+ */
+export const SNAPSHOT_VERSION = 1 as const;
+
+/**
  * Serialized terminal state for save/restore scenarios (e.g. remount without
  * losing grid content, cursor, scrollback, or parser modes). Treat the shape
  * as opaque — pass it from `serialize()` back into `hydrate()` or
@@ -42,7 +49,7 @@ export interface ParserModeState {
  */
 export interface TerminalState {
   /** Bumped if the schema changes so callers can detect incompatible snapshots. */
-  readonly version: 1;
+  readonly version: typeof SNAPSHOT_VERSION;
   readonly cols: number;
   readonly rows: number;
   /** Active grid cell data in full format: length === rows * cols * CELL_SIZE. */

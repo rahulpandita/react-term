@@ -13,6 +13,7 @@
  */
 
 import { BufferSet, VTParser } from "@next_term/core";
+import type { SeedMessage } from "./seed-message.js";
 
 // Type declaration for Web Worker global scope (not included in DOM lib)
 declare type DedicatedWorkerGlobalScope = typeof globalThis & {
@@ -67,38 +68,6 @@ interface DisposeMessage {
   type: "dispose";
   channelId?: string;
   generation?: number;
-}
-
-/**
- * Seeds the worker's parser/buffer state from a previously serialized
- * snapshot. Applied WITHOUT a flush so the hydrated cursor/modes/active-buffer
- * aren't clobbered when the next `write` produces the first real flush.
- *
- * Grid `cellData` and `wrapFlags` are OPTIONAL. Omit them when the main
- * thread has already applied cells directly to the SAB (constructor
- * initialState path, where the worker hasn't started yet and can't race).
- * Include them when applying post-construction in worker mode, so the grid
- * write is serialized in the worker's message queue behind any pending
- * `write`s — otherwise concurrent main-thread and worker writes would race
- * against the shared buffer.
- */
-interface SeedMessage {
-  type: "seed";
-  channelId?: string;
-  generation?: number;
-  cursor: { row: number; col: number; visible: boolean; style: string };
-  isAlternate: boolean;
-  modes: {
-    applicationCursorKeys: boolean;
-    bracketedPasteMode: boolean;
-    mouseProtocol: "none" | "x10" | "vt200" | "drag" | "any";
-    mouseEncoding: "default" | "sgr";
-    sendFocusEvents: boolean;
-  };
-  /** Full-format active-grid cell data (Transferable). */
-  cellData?: ArrayBuffer;
-  /** Per-row wrap flags as Int32 (Transferable). */
-  wrapFlags?: ArrayBuffer;
 }
 
 type InboundMessage = InitMessage | WriteMessage | ResizeMessage | DisposeMessage | SeedMessage;
@@ -214,7 +183,7 @@ function applySeed(ch: ChannelState, msg: SeedMessage): void {
   active.cursor.row = Math.max(0, Math.min(msg.cursor.row, ch.bufferSet.rows - 1));
   active.cursor.col = Math.max(0, Math.min(msg.cursor.col, ch.bufferSet.cols - 1));
   active.cursor.visible = msg.cursor.visible;
-  active.cursor.style = msg.cursor.style as "block" | "underline" | "bar";
+  active.cursor.style = msg.cursor.style;
   active.cursor.wrapPending = false;
   active.grid.setCursor(
     active.cursor.row,
