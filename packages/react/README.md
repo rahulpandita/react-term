@@ -151,8 +151,84 @@ interface TerminalHandle {
   focus(): void;
   blur(): void;
   fit(): void;
+  // Save / restore — see "Save and restore" below.
+  serialize?(): TerminalState;
+  hydrate?(state: TerminalState): void;
+  getParserModes?(): ParserModeState;
+  setParserModes?(modes: ParserModeState): void;
 }
 ```
+
+## Save and restore
+
+`<Terminal>` can capture its current state (grid contents, cursor, scrollback,
+active buffer, parser modes) and restore it onto a freshly-mounted instance.
+Use this when you reparent the terminal across a layout change (tabs, splits,
+dialog open/close) and want to avoid a blank flash.
+
+### Quick start
+
+```tsx
+import { Terminal } from "@next_term/react";
+import type { TerminalHandle, TerminalState } from "@next_term/react";
+import { useRef, useState } from "react";
+
+function Saveable() {
+  const ref = useRef<TerminalHandle>(null);
+  const [snapshot, setSnapshot] = useState<TerminalState>();
+
+  return (
+    <>
+      <button onClick={() => setSnapshot(ref.current?.serialize?.())}>Save</button>
+      {snapshot && (
+        // Remount with `initialState`. The first paint shows the restored
+        // grid — no blank-then-fill flash.
+        <Terminal ref={ref} cols={80} rows={24} initialState={snapshot} />
+      )}
+    </>
+  );
+}
+```
+
+### Two ways in
+
+| API | When |
+|---|---|
+| `initialState` prop on `<Terminal>` | First mount. Applied **before** the render loop or parser worker starts — guarantees a blank frame is never shown. |
+| `hydrate(state)` imperative method | Already-mounted terminal. Useful for "undo" / "switch session" / live restore. Routes through the parser worker so in-flight writes are preserved (FIFO). |
+
+### Dimensions must match
+
+`hydrate()` no-ops with a `console.warn` if `state.cols`/`state.rows` differ
+from the live terminal. Either resize the terminal first or capture a fresh
+snapshot at the new size.
+
+### Worker-mode caveat
+
+In worker mode (the default when `crossOriginIsolated` is true) the parser
+worker owns the scrollback. The snapshot's `scrollback` field will be empty;
+restoring still recovers the active grid and cursor. If you need server-side
+replay of scrollback, drive it through `write()` after hydrate.
+
+### Snapshot shape
+
+```ts
+interface TerminalState {
+  version: 1;                       // bumped on schema break
+  cols: number;
+  rows: number;
+  cells: Uint32Array;               // active grid, 4 × u32 per cell
+  wrapFlags: Int32Array;            // 1 per row (soft-wrap flag)
+  cursor: { row, col, visible, style };
+  scrollback: { rows, wrap, compact };
+  parserModes: ParserModeState;     // app-cursor, bracketed paste, mouse, etc.
+  isAlternate: boolean;             // alt buffer flag (vim/htop etc.)
+}
+```
+
+Treat as opaque: pass it from `serialize()` to `hydrate()` / `initialState`
+without inspecting it. To persist across reloads, convert the typed arrays to
+plain arrays before `JSON.stringify` (see the demo for a reference helper).
 
 ## Best Practices
 
