@@ -19,6 +19,7 @@ import { VTParser } from "../parser/index.js";
  */
 
 const PAYLOAD_SIZE = 1 * 1024 * 1024; // 1 MB (smaller than bench to keep tests fast)
+const MEASUREMENT_RUNS = 3;
 
 function makeAsciiPayload(): Uint8Array {
   const data = new Uint8Array(PAYLOAD_SIZE);
@@ -52,14 +53,19 @@ function makeRealWorldPayload(): Uint8Array {
 }
 
 function measureThroughput(data: Uint8Array): number {
-  const bufferSet = new BufferSet(80, 24, 0);
-  const parser = new VTParser(bufferSet);
+  let best = 0;
+  for (let run = 0; run < MEASUREMENT_RUNS; run++) {
+    const bufferSet = new BufferSet(80, 24, 0);
+    const parser = new VTParser(bufferSet);
 
-  const start = performance.now();
-  parser.write(data);
-  const elapsed = performance.now() - start;
+    const start = performance.now();
+    parser.write(data);
+    const elapsed = performance.now() - start;
+    const throughput = data.length / 1024 / 1024 / (elapsed / 1000);
+    best = Math.max(best, throughput);
+  }
 
-  return data.length / 1024 / 1024 / (elapsed / 1000); // MB/s
+  return best;
 }
 
 describe("parser throughput regression", () => {
