@@ -157,7 +157,8 @@ export class BufferSet {
   }
 
   set scrollback(lines: Uint32Array[]) {
-    this.scrollbackRows = this.physicalOrder(lines);
+    this.normalizeScrollbackStorage();
+    this.scrollbackRows = lines.slice();
   }
 
   /** Per-line wrap flags in logical oldest-to-newest order. */
@@ -166,7 +167,8 @@ export class BufferSet {
   }
 
   set scrollbackWrap(flags: boolean[]) {
-    this.scrollbackWrapFlags = this.physicalOrder(flags);
+    this.normalizeScrollbackStorage();
+    this.scrollbackWrapFlags = flags.slice();
   }
 
   /** Per-line compact-format flags in logical oldest-to-newest order. */
@@ -175,7 +177,8 @@ export class BufferSet {
   }
 
   set scrollbackCompact(flags: boolean[]) {
-    this.scrollbackCompactFlags = this.physicalOrder(flags);
+    this.normalizeScrollbackStorage();
+    this.scrollbackCompactFlags = flags.slice();
   }
 
   get isAlternate(): boolean {
@@ -345,15 +348,6 @@ export class BufferSet {
       return null;
     }
     return Number(property);
-  }
-
-  private physicalOrder<T>(values: T[]): T[] {
-    if (this.scrollbackHead === 0 || values.length === 0) return values.slice();
-    const physical = new Array<T>(values.length);
-    for (let index = 0; index < values.length; index++) {
-      physical[(this.scrollbackHead + index) % values.length] = values[index];
-    }
-    return physical;
   }
 
   private normalizeScrollbackStorage(): void {

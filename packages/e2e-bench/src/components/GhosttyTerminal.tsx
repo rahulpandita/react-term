@@ -14,7 +14,7 @@ interface GhosttyModule {
     rows: number;
   }) => {
     open(el: HTMLElement): void;
-    write(data: string | Uint8Array): void;
+    write(data: string | Uint8Array, callback?: () => void): void;
     resize(cols: number, rows: number): void;
     dispose(): void;
   };
@@ -58,8 +58,9 @@ export const GhosttyTerminal = forwardRef<TerminalApi, Props>(function GhosttyTe
         if (!terminal) return;
         const bytesProcessed =
           typeof data === "string" ? new TextEncoder().encode(data).byteLength : data.byteLength;
-        terminal.write(data);
-        onWriteProcessedRef.current?.({ bytesProcessed, parseDurationMs: null });
+        terminal.write(data, () => {
+          onWriteProcessedRef.current?.({ bytesProcessed, parseDurationMs: null });
+        });
       },
       resize(c: number, r: number) {
         termRef.current?.resize(c, r);

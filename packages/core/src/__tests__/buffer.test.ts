@@ -322,6 +322,23 @@ describe("BufferSet scrollback", () => {
     expect(rows.map((row) => row?.[0])).toEqual([undefined, 4]);
   });
 
+  it("resets circular ordering when scrollback arrays are replaced", () => {
+    const bs = new BufferSet(2, 1, 2);
+    bs.pushScrollback(new Uint32Array([1]), true, false);
+    bs.pushScrollback(new Uint32Array([2]), false, true);
+    bs.pushScrollback(new Uint32Array([3]), true, false);
+
+    bs.scrollback = [];
+    bs.scrollbackWrap = [];
+    bs.scrollbackCompact = [];
+    bs.pushScrollback(new Uint32Array([4]), false, true);
+    bs.pushScrollback(new Uint32Array([5]), true, false);
+
+    expect(bs.scrollback.map((row) => row[0])).toEqual([4, 5]);
+    expect(bs.scrollbackWrap).toEqual([false, true]);
+    expect(bs.scrollbackCompact).toEqual([true, false]);
+  });
+
   it("normalizes invalid scrollback capacities", () => {
     expect(new BufferSet(2, 1, 1.9).maxScrollback).toBe(1);
     expect(new BufferSet(2, 1, Number.NaN).maxScrollback).toBe(0);
