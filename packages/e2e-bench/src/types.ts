@@ -9,6 +9,10 @@ export interface BenchmarkConfig {
 }
 
 export interface BenchmarkMetrics {
+  /** First received byte through final WebSocket data/control message. */
+  receiveTimeMs: number;
+  /** First received byte through final terminal processing callback. */
+  processingTimeMs: number;
   totalTimeMs: number;
   /** Median frame-to-frame interval in ms (lower = smoother) */
   frameTimeP50: number;
@@ -18,11 +22,24 @@ export interface BenchmarkMetrics {
   frameTimeP99: number;
   /** Time from last data byte to render idle (ms). Includes idle detection overhead (~100-150ms) — fair for comparison since both terminals get the same delay. */
   timeToIdleMs: number;
+  /** Time from processing completion to idle detection. */
+  processingToIdleMs: number;
+  /** Delay from the final received byte until all writes are processed. */
+  postReceiveProcessingMs: number;
+  /** Delay from processing completion to the next main-thread animation frame. */
+  mainThreadFrameAfterProcessingMs: number;
   longTaskCount: number;
   longTaskDurationMs: number;
   memoryBeforeBytes: number | null;
   memoryAfterBytes: number | null;
+  /** Terminal processing throughput. This is the primary MB/s metric. */
   throughputMBps: number;
+  /** WebSocket receive throughput, including time spent handling writes. */
+  receiveThroughputMBps: number;
+  /** End-to-end throughput through idle detection, retained for comparison with old reports. */
+  endToEndThroughputMBps: number;
+  /** Sum of VTParser.write CPU durations when the implementation exposes it. */
+  parserCpuDurationMs: number | null;
   serverSendMs: number;
   totalBytes: number;
 }
@@ -59,6 +76,12 @@ export interface MultiPaneResult {
 }
 
 export type TerminalApi = Pick<TerminalHandle, "write" | "resize">;
+
+export interface WriteProcessedMeasurement {
+  bytesProcessed: number;
+  /** Null when the terminal does not expose parser-only CPU duration. */
+  parseDurationMs: number | null;
+}
 
 // Port is overridable via VITE_BENCH_WS_PORT so a running bench can avoid
 // colliding with another service on 8081.

@@ -35,7 +35,8 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
   const wsRefs = useRef<WebSocket[]>([]);
   const runningRef = useRef(false);
   const cancelledRef = useRef(false);
-  const { startTracking, recordWrite, recordDone, waitForIdle, stopTracking } = useMetrics();
+  const { startTracking, recordWrite, recordProcessed, recordDone, waitForIdle, stopTracking } =
+    useMetrics();
 
   const cleanupWebSockets = useCallback(() => {
     for (const ws of wsRefs.current) {
@@ -100,12 +101,12 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
               const buf = event.data as ArrayBuffer;
               const data = new Uint8Array(buf);
               const len = data.byteLength; // capture before write() may transfer the buffer
+              recordWrite(len);
               if (terminal === "react-term") {
                 paneRef.current?.getTerminal(`pane-${i}`)?.write(data);
               } else {
                 xtermRefs.current.get(i)?.write(data);
               }
-              recordWrite(len);
             } else {
               let msg: { type?: string; serverElapsedMs?: number; totalBytes?: number };
               try {
@@ -227,6 +228,9 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
           ref={paneRef}
           layout={layout}
           parserWorkers={parserWorkers}
+          onWriteProcessed={(_paneId, measurement) =>
+            recordProcessed(measurement.bytesProcessed, measurement.parseDurationMs)
+          }
           style={{ width: "100%", height: "100%" }}
         />
       </div>
@@ -263,6 +267,9 @@ export function MultiPaneBenchmarkRunner({ config, onResult, onProgress, onCompl
                 }}
                 cols={Math.floor(120 / gridCols)}
                 rows={Math.floor(36 / gridRows)}
+                onWriteProcessed={(measurement) =>
+                  recordProcessed(measurement.bytesProcessed, measurement.parseDurationMs)
+                }
               />
             </div>
           );

@@ -18,6 +18,11 @@ interface MetricsState {
   resolveIdle: ((metrics: BenchmarkMetrics) => void) | null;
   frameTimes: number[];
   dataEndTime: number;
+  processedBytes: number;
+  processingEndTime: number;
+  parserCpuDurationMs: number;
+  parserCpuSamples: number;
+  mainThreadFrameAfterProcessingMs: number;
   /** Captured at idle detection, before async memory measurement */
   idleDetectedTime: number;
 }
@@ -58,6 +63,11 @@ export function useMetrics() {
     resolveIdle: null,
     frameTimes: [],
     dataEndTime: 0,
+    processedBytes: 0,
+    processingEndTime: 0,
+    parserCpuDurationMs: 0,
+    parserCpuSamples: 0,
+    mainThreadFrameAfterProcessingMs: 0,
     idleDetectedTime: 0,
   });
 
@@ -76,6 +86,11 @@ export function useMetrics() {
     s.resolveIdle = null;
     s.frameTimes = [];
     s.dataEndTime = 0;
+    s.processedBytes = 0;
+    s.processingEndTime = 0;
+    s.parserCpuDurationMs = 0;
+    s.parserCpuSamples = 0;
+    s.mainThreadFrameAfterProcessingMs = 0;
     s.idleDetectedTime = 0;
 
     try {
@@ -101,8 +116,17 @@ export function useMetrics() {
         s.frameTimes.push(timestamp);
 
         const now = performance.now();
+        if (
+          s.serverSendMs > 0 &&
+          s.processingEndTime > 0 &&
+          s.processedBytes >= s.totalBytes &&
+          s.mainThreadFrameAfterProcessingMs === 0
+        ) {
+          s.mainThreadFrameAfterProcessingMs = now - s.processingEndTime;
+        }
         const timeSinceWrite = now - s.lastWriteTime;
-        if (s.serverSendMs > 0 && timeSinceWrite > IDLE_WRITE_GAP_MS) {
+        const allWritesProcessed = s.totalBytes > 0 && s.processedBytes >= s.totalBytes;
+        if (s.serverSendMs > 0 && allWritesProcessed && timeSinceWrite > IDLE_WRITE_GAP_MS) {
           s.idleFrameCount++;
           if (s.idleFrameCount >= IDLE_FRAME_THRESHOLD && s.resolveIdle) {
             s.idleDetectedTime = now;
@@ -128,6 +152,17 @@ export function useMetrics() {
     s.dataEndTime = performance.now();
   }, []);
 
+  const recordProcessed = useCallback((byteLength: number, parseDurationMs: number | null) => {
+    const s = stateRef.current;
+    if (!s.active) return;
+    s.processedBytes += byteLength;
+    s.processingEndTime = performance.now();
+    if (parseDurationMs !== null) {
+      s.parserCpuDurationMs += parseDurationMs;
+      s.parserCpuSamples++;
+    }
+  }, []);
+
   const waitForIdle = useCallback((): Promise<BenchmarkMetrics> => {
     const s = stateRef.current;
     if (!s.active) {
@@ -151,7 +186,14 @@ export function useMetrics() {
     }
   }, []);
 
-  return { startTracking, recordWrite, recordDone, waitForIdle, stopTracking };
+  return {
+    startTracking,
+    recordWrite,
+    recordProcessed,
+    recordDone,
+    waitForIdle,
+    stopTracking,
+  };
 }
 
 /** Idempotent — safe to call from both the rAF path and waitForIdle. */
@@ -205,20 +247,37 @@ function computeFrameTimeStats(frameTimes: number[]): {
 function buildMetrics(s: MetricsState, memoryAfter: number | null): BenchmarkMetrics {
   const idleTime = s.idleDetectedTime || performance.now();
   const totalTimeMs = idleTime - s.startTime;
+  const receiveTimeMs = s.dataEndTime > 0 ? s.dataEndTime - s.startTime : 0;
+  const processingTimeMs =
+    s.processingEndTime > 0 ? s.processingEndTime - s.startTime : receiveTimeMs;
   const frameStats = computeFrameTimeStats(s.frameTimes);
   const timeToIdleMs = s.dataEndTime > 0 ? idleTime - s.dataEndTime : 0;
+  const processingToIdleMs =
+    s.processingEndTime > 0 ? idleTime - s.processingEndTime : timeToIdleMs;
+  const postReceiveProcessingMs =
+    s.dataEndTime > 0 && s.processingEndTime > 0
+      ? Math.max(0, s.processingEndTime - s.dataEndTime)
+      : 0;
 
   return {
+    receiveTimeMs,
+    processingTimeMs,
     totalTimeMs,
     frameTimeP50: frameStats.p50,
     frameTimeP90: frameStats.p90,
     frameTimeP99: frameStats.p99,
     timeToIdleMs,
+    processingToIdleMs,
+    postReceiveProcessingMs,
+    mainThreadFrameAfterProcessingMs: s.mainThreadFrameAfterProcessingMs,
     longTaskCount: s.longTaskCount,
     longTaskDurationMs: s.longTaskDurationMs,
     memoryBeforeBytes: s.memoryBefore,
     memoryAfterBytes: memoryAfter,
-    throughputMBps: totalTimeMs > 0 ? ((s.totalBytes / totalTimeMs) * 1000) / 1e6 : 0,
+    throughputMBps: processingTimeMs > 0 ? ((s.totalBytes / processingTimeMs) * 1000) / 1e6 : 0,
+    receiveThroughputMBps: receiveTimeMs > 0 ? ((s.totalBytes / receiveTimeMs) * 1000) / 1e6 : 0,
+    endToEndThroughputMBps: totalTimeMs > 0 ? ((s.totalBytes / totalTimeMs) * 1000) / 1e6 : 0,
+    parserCpuDurationMs: s.parserCpuSamples > 0 ? s.parserCpuDurationMs : null,
     serverSendMs: s.serverSendMs,
     totalBytes: s.totalBytes,
   };

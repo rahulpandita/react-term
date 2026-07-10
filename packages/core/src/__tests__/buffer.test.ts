@@ -270,6 +270,64 @@ describe("BufferSet scrollback", () => {
     expect(bs.scrollback[2][0]).toBe(4);
   });
 
+  it("reuses and overwrites the oldest physical row without changing logical order", () => {
+    const bs = new BufferSet(2, 1, 2);
+    const first = new Uint32Array([1, 0, 0, 0]);
+    const second = new Uint32Array([2, 0, 0, 0]);
+    bs.pushScrollback(first);
+    bs.pushScrollback(second);
+
+    const reused = bs.borrowRowBuffer(first.length);
+    expect(reused).toBe(first);
+    reused[0] = 3;
+    bs.pushScrollback(reused);
+
+    expect(bs.scrollback.map((row) => row[0])).toEqual([2, 3]);
+  });
+
+  it("keeps retained views live and metadata aligned after wrapping", () => {
+    const bs = new BufferSet(2, 1, 2);
+    const rows = bs.scrollback;
+    bs.pushScrollback(new Uint32Array([1]), true, false);
+    bs.pushScrollback(new Uint32Array([2]), false, true);
+    bs.pushScrollback(new Uint32Array([3]), true, false);
+
+    expect(rows.map((row) => row[0])).toEqual([2, 3]);
+    bs.scrollbackWrap = [false, true];
+    expect(bs.scrollback.map((row) => row[0])).toEqual([2, 3]);
+    expect(bs.scrollbackWrap).toEqual([false, true]);
+    expect(bs.scrollbackCompact).toEqual([true, false]);
+
+    rows[0] = new Uint32Array([4]);
+    expect(bs.scrollback.map((row) => row[0])).toEqual([4, 3]);
+  });
+
+  it("preserves structural array mutations on retained views", () => {
+    const bs = new BufferSet(2, 1, 2);
+    const rows = bs.scrollback;
+    bs.pushScrollback(new Uint32Array([1]));
+    bs.pushScrollback(new Uint32Array([2]));
+    bs.pushScrollback(new Uint32Array([3]));
+
+    expect(rows.shift()?.[0]).toBe(2);
+    expect(rows.map((row) => row[0])).toEqual([3]);
+    rows.push(new Uint32Array([4]));
+    expect(rows.map((row) => row[0])).toEqual([3, 4]);
+    rows.splice(0, 1, new Uint32Array([5]));
+    expect(rows.map((row) => row[0])).toEqual([5, 4]);
+
+    delete rows[0];
+    expect(0 in rows).toBe(false);
+    expect(Object.keys(rows)).toEqual(["1"]);
+    expect(rows.map((row) => row?.[0])).toEqual([undefined, 4]);
+  });
+
+  it("normalizes invalid scrollback capacities", () => {
+    expect(new BufferSet(2, 1, 1.9).maxScrollback).toBe(1);
+    expect(new BufferSet(2, 1, Number.NaN).maxScrollback).toBe(0);
+    expect(new BufferSet(2, 1, -1).maxScrollback).toBe(0);
+  });
+
   it("scrollUpWithHistory pushes normal-buffer top row into scrollback", () => {
     const bs = new BufferSet(80, 24);
     bs.normal.grid.setCell(0, 0, 0x5a, 7, 0, 0); // 'Z' at row 0, col 0

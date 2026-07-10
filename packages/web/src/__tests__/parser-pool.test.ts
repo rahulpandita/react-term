@@ -184,6 +184,35 @@ describe("ParserPool", () => {
     pool.dispose();
   });
 
+  it("reports a write as processed after routing its flush", () => {
+    const pool = new ParserPool(1);
+    const { grid, altGrid } = makeGrids();
+    const onWriteProcessed = vi.fn();
+
+    pool
+      .acquireChannel("c1", grid, altGrid, makeCursor(), () => {}, undefined, onWriteProcessed)
+      .start(80, 24, 100);
+
+    createdWorkers[0].simulateMessage({
+      type: "flush",
+      channelId: "c1",
+      generation: 1,
+      cursor: { row: 0, col: 4, visible: true, style: "block" },
+      isAlternate: false,
+      bytesProcessed: 4,
+      parseDurationMs: 1.25,
+      modes: DEFAULT_MODES,
+    });
+
+    expect(onWriteProcessed).toHaveBeenCalledOnce();
+    expect(onWriteProcessed).toHaveBeenCalledWith({
+      bytesProcessed: 4,
+      parseDurationMs: 1.25,
+    });
+
+    pool.dispose();
+  });
+
   it("drops stale flushes from the previous worker after channelId reuse", () => {
     // Scenario: channel "a" acquired on worker 0, released, re-acquired on
     // worker 1. A late flush from worker 0 must not be applied to the new

@@ -1,9 +1,10 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { TerminalApi } from "../types.js";
+import type { TerminalApi, WriteProcessedMeasurement } from "../types.js";
 
 interface Props {
   cols: number;
   rows: number;
+  onWriteProcessed?: (measurement: WriteProcessedMeasurement) => void;
 }
 
 interface GhosttyModule {
@@ -39,19 +40,26 @@ async function loadGhostty(): Promise<GhosttyModule | null> {
 }
 
 export const GhosttyTerminal = forwardRef<TerminalApi, Props>(function GhosttyTerminal(
-  { cols, rows },
+  { cols, rows, onWriteProcessed },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<InstanceType<GhosttyModule["Terminal"]> | null>(null);
   const initialized = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const onWriteProcessedRef = useRef(onWriteProcessed);
+  onWriteProcessedRef.current = onWriteProcessed;
 
   useImperativeHandle(
     ref,
     () => ({
       write(data: string | Uint8Array) {
-        termRef.current?.write(data);
+        const terminal = termRef.current;
+        if (!terminal) return;
+        const bytesProcessed =
+          typeof data === "string" ? new TextEncoder().encode(data).byteLength : data.byteLength;
+        terminal.write(data);
+        onWriteProcessedRef.current?.({ bytesProcessed, parseDurationMs: null });
       },
       resize(c: number, r: number) {
         termRef.current?.resize(c, r);

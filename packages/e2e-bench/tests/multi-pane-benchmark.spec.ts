@@ -63,8 +63,8 @@ test('multi-pane benchmark matrix', async ({ page }) => {
 
   // --- Comparison table (using median from computeStats) ---
   const compCols = [
-    'Terminal', 'Panes', 'MB/s', 'Frame p50 (ms)', 'Frame p90 (ms)', 'Frame p99 (ms)',
-    'Idle (ms)', 'setTimeout Avg', 'setTimeout Max',
+    'Terminal', 'Panes', 'Process MB/s', 'Receive MB/s', 'Post-receive (ms)',
+    'rAF p50 (ms)', 'rAF p90 (ms)', 'rAF p99 (ms)', 'setTimeout Avg', 'setTimeout Max',
   ];
   const compRows: string[][] = [];
   for (const [key, runs] of grouped) {
@@ -73,10 +73,11 @@ test('multi-pane benchmark matrix', async ({ page }) => {
       term,
       panes,
       computeStats(runs.map(r => r.metrics.throughputMBps)).median.toFixed(2),
+      computeStats(runs.map(r => r.metrics.receiveThroughputMBps)).median.toFixed(2),
+      computeStats(runs.map(r => r.metrics.postReceiveProcessingMs)).median.toFixed(1),
       computeStats(runs.map(r => r.metrics.frameTimeP50)).median.toFixed(1),
       computeStats(runs.map(r => r.metrics.frameTimeP90)).median.toFixed(1),
       computeStats(runs.map(r => r.metrics.frameTimeP99)).median.toFixed(1),
-      computeStats(runs.map(r => r.metrics.timeToIdleMs)).median.toFixed(1),
       computeStats(runs.map(r => r.responsiveness.avgSetTimeoutDelay)).median.toFixed(2),
       computeStats(runs.map(r => r.responsiveness.maxSetTimeoutDelay)).median.toFixed(2),
     ]);
@@ -86,8 +87,8 @@ test('multi-pane benchmark matrix', async ({ page }) => {
 
   // --- Detailed per-run table ---
   const detailCols = [
-    'Terminal', 'Panes', 'Run', 'Time (ms)', 'MB/s',
-    'Frame p50', 'Frame p90', 'Frame p99', 'Idle (ms)', 'setTimeout Avg', 'setTimeout Max',
+    'Terminal', 'Panes', 'Run', 'Process (ms)', 'E2E (ms)', 'Process MB/s', 'Receive MB/s',
+    'Post-receive', 'rAF p50', 'rAF p90', 'rAF p99', 'setTimeout Avg', 'setTimeout Max',
   ];
   const detailRows: string[][] = [];
   for (const r of allResults) {
@@ -95,12 +96,14 @@ test('multi-pane benchmark matrix', async ({ page }) => {
       r.terminal,
       String(r.paneCount),
       String(r.run),
+      r.metrics.processingTimeMs.toFixed(1),
       r.metrics.totalTimeMs.toFixed(1),
       r.metrics.throughputMBps.toFixed(2),
+      r.metrics.receiveThroughputMBps.toFixed(2),
+      r.metrics.postReceiveProcessingMs.toFixed(1),
       r.metrics.frameTimeP50.toFixed(1),
       r.metrics.frameTimeP90.toFixed(1),
       r.metrics.frameTimeP99.toFixed(1),
-      r.metrics.timeToIdleMs.toFixed(1),
       r.responsiveness.avgSetTimeoutDelay.toFixed(2),
       r.responsiveness.maxSetTimeoutDelay.toFixed(2),
     ]);

@@ -26,7 +26,7 @@ export { build256Palette, Canvas2DRenderer } from "./renderer.js";
 export type { SharedContext, TerminalEntry } from "./shared-context.js";
 export { SharedWebGLContext } from "./shared-context.js";
 export { SharedCanvas2DContext } from "./shared-context-canvas2d.js";
-export type { WebTerminalOptions } from "./web-terminal.js";
+export type { WebTerminalOptions, WriteProcessingMeasurement } from "./web-terminal.js";
 export { WebTerminal } from "./web-terminal.js";
 export type { GlyphInfo } from "./webgl-renderer.js";
 export { createRenderer, GlyphAtlas, hexToFloat4, WebGLRenderer } from "./webgl-renderer.js";

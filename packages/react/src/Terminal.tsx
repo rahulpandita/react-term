@@ -1,5 +1,5 @@
 import type { MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
-import type { ParserPool, SharedContext } from "@next_term/web";
+import type { ParserPool, SharedContext, WriteProcessingMeasurement } from "@next_term/web";
 import { calculateFit, WebTerminal } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -18,6 +18,8 @@ export interface TerminalProps {
   onData?: (data: Uint8Array) => void;
   onResize?: (size: { cols: number; rows: number }) => void;
   onTitleChange?: (title: string) => void;
+  /** Called when a write has been parsed and applied to the terminal grid. */
+  onWriteProcessed?: (measurement: WriteProcessingMeasurement) => void;
   autoFit?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -73,6 +75,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     onData,
     onResize,
     onTitleChange,
+    onWriteProcessed,
     autoFit = false,
     className,
     style,
@@ -92,6 +95,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const onDataRef = useRef(onData);
   const onResizeRef = useRef(onResize);
   const onTitleChangeRef = useRef(onTitleChange);
+  const onWriteProcessedRef = useRef(onWriteProcessed);
 
   useEffect(() => {
     onDataRef.current = onData;
@@ -102,6 +106,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   useEffect(() => {
     onTitleChangeRef.current = onTitleChange;
   }, [onTitleChange]);
+  useEffect(() => {
+    onWriteProcessedRef.current = onWriteProcessed;
+  }, [onWriteProcessed]);
 
   // Expose imperative handle
   useImperativeHandle(
@@ -186,6 +193,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       onData: (data: Uint8Array) => onDataRef.current?.(data),
       onResize: (size: { cols: number; rows: number }) => onResizeRef.current?.(size),
       onTitleChange: (title: string) => onTitleChangeRef.current?.(title),
+      onWriteProcessed: (measurement) => onWriteProcessedRef.current?.(measurement),
     });
 
     termRef.current = terminal;

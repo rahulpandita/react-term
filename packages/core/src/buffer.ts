@@ -1,6 +1,18 @@
 import { CELL_SIZE, CellGrid } from "./cell-grid.js";
 import type { CursorState } from "./types.js";
 
+const MUTATING_ARRAY_METHODS = new Set([
+  "copyWithin",
+  "fill",
+  "pop",
+  "push",
+  "reverse",
+  "shift",
+  "sort",
+  "splice",
+  "unshift",
+]);
+
 export class Buffer {
   readonly grid: CellGrid;
   cursor: CursorState;
@@ -108,12 +120,13 @@ export class BufferSet {
   alternate: Buffer;
   active: Buffer;
 
-  /** Scrollback lines for the normal buffer (array of Uint32Array). */
-  scrollback: Uint32Array[];
-  /** Per-line wrap flag for scrollback (parallel to scrollback[]). */
-  scrollbackWrap: boolean[];
-  /** True if the corresponding scrollback row uses compact (2 word/cell) format. */
-  scrollbackCompact: boolean[];
+  private scrollbackRows: Uint32Array[] = [];
+  private scrollbackWrapFlags: boolean[] = [];
+  private scrollbackCompactFlags: boolean[] = [];
+  private scrollbackHead = 0;
+  private readonly scrollbackRowsView: Uint32Array[];
+  private readonly scrollbackWrapView: boolean[];
+  private readonly scrollbackCompactView: boolean[];
   readonly maxScrollback: number;
 
   constructor(
@@ -123,6 +136,9 @@ export class BufferSet {
     sharedBuffer?: SharedArrayBuffer,
     sharedAltBuffer?: SharedArrayBuffer,
   ) {
+    this.maxScrollback = Number.isFinite(maxScrollback)
+      ? Math.max(0, Math.floor(maxScrollback))
+      : 0;
     this.normal = sharedBuffer
       ? new Buffer(cols, rows, new CellGrid(cols, rows, sharedBuffer))
       : new Buffer(cols, rows);
@@ -130,10 +146,36 @@ export class BufferSet {
       ? new Buffer(cols, rows, new CellGrid(cols, rows, sharedAltBuffer))
       : new Buffer(cols, rows);
     this.active = this.normal;
-    this.scrollback = [];
-    this.scrollbackWrap = [];
-    this.scrollbackCompact = [];
-    this.maxScrollback = maxScrollback;
+    this.scrollbackRowsView = this.createLogicalView(() => this.scrollbackRows);
+    this.scrollbackWrapView = this.createLogicalView(() => this.scrollbackWrapFlags);
+    this.scrollbackCompactView = this.createLogicalView(() => this.scrollbackCompactFlags);
+  }
+
+  /** Scrollback lines in logical oldest-to-newest order. */
+  get scrollback(): Uint32Array[] {
+    return this.scrollbackRowsView;
+  }
+
+  set scrollback(lines: Uint32Array[]) {
+    this.scrollbackRows = this.physicalOrder(lines);
+  }
+
+  /** Per-line wrap flags in logical oldest-to-newest order. */
+  get scrollbackWrap(): boolean[] {
+    return this.scrollbackWrapView;
+  }
+
+  set scrollbackWrap(flags: boolean[]) {
+    this.scrollbackWrapFlags = this.physicalOrder(flags);
+  }
+
+  /** Per-line compact-format flags in logical oldest-to-newest order. */
+  get scrollbackCompact(): boolean[] {
+    return this.scrollbackCompactView;
+  }
+
+  set scrollbackCompact(flags: boolean[]) {
+    this.scrollbackCompactFlags = this.physicalOrder(flags);
   }
 
   get isAlternate(): boolean {
@@ -165,21 +207,19 @@ export class BufferSet {
     this.active = isAlternate ? this.alternate : this.normal;
   }
 
-  /**
-   * Push a line into scrollback (for the normal buffer).
-   *
-   * IMPORTANT: push() must happen before shift() — borrowRowBuffer()
-   * returns scrollback[0] which the caller fills before calling this.
-   * Reversing the order would evict the buffer before it's appended.
-   */
+  /** Push a line into scrollback (for the normal buffer). */
   pushScrollback(line: Uint32Array, wrapped = false, compact = false): void {
-    this.scrollback.push(line);
-    this.scrollbackWrap.push(wrapped);
-    this.scrollbackCompact.push(compact);
-    if (this.scrollback.length > this.maxScrollback) {
-      this.scrollback.shift();
-      this.scrollbackWrap.shift();
-      this.scrollbackCompact.shift();
+    if (this.maxScrollback <= 0) return;
+
+    if (this.scrollbackRows.length < this.maxScrollback) {
+      this.scrollbackRows.push(line);
+      this.scrollbackWrapFlags.push(wrapped);
+      this.scrollbackCompactFlags.push(compact);
+    } else {
+      this.scrollbackRows[this.scrollbackHead] = line;
+      this.scrollbackWrapFlags[this.scrollbackHead] = wrapped;
+      this.scrollbackCompactFlags[this.scrollbackHead] = compact;
+      this.scrollbackHead = (this.scrollbackHead + 1) % this.maxScrollback;
     }
   }
 
@@ -188,8 +228,8 @@ export class BufferSet {
    * Reuses the buffer that's about to be evicted from scrollback.
    */
   borrowRowBuffer(size: number): Uint32Array {
-    if (this.scrollback.length >= this.maxScrollback && this.maxScrollback > 0) {
-      const existing = this.scrollback[0];
+    if (this.scrollbackRows.length >= this.maxScrollback && this.maxScrollback > 0) {
+      const existing = this.scrollbackRows[this.scrollbackHead];
       if (existing && existing.length === size) {
         return existing;
       }
@@ -218,5 +258,111 @@ export class BufferSet {
       this.pushScrollback(dest, wasWrapped, !hasRgb);
     }
     this.active.scrollUp();
+  }
+
+  private createLogicalView<T>(getValues: () => T[]): T[] {
+    const owner = this;
+    return new Proxy([] as T[], {
+      get: (_target, property, receiver) => {
+        const values = getValues();
+        if (property === "length") return values.length;
+        if (property === Symbol.iterator) {
+          return function* () {
+            for (let index = 0; index < values.length; index++) {
+              yield values[(owner.scrollbackHead + index) % values.length];
+            }
+          };
+        }
+        if (typeof property === "string" && MUTATING_ARRAY_METHODS.has(property)) {
+          return (...args: unknown[]) => {
+            this.normalizeScrollbackStorage();
+            const method = Reflect.get(Array.prototype, property) as (
+              ...args: unknown[]
+            ) => unknown;
+            return Reflect.apply(method, getValues(), args);
+          };
+        }
+        const index = this.arrayIndex(property);
+        if (index !== null) {
+          return index < values.length
+            ? values[(this.scrollbackHead + index) % values.length]
+            : undefined;
+        }
+        return Reflect.get(_target, property, receiver);
+      },
+      has: (_target, property) => {
+        const values = getValues();
+        const index = this.arrayIndex(property);
+        if (index === null) return Reflect.has(_target, property);
+        if (index >= values.length) return false;
+        return (this.scrollbackHead + index) % values.length in values;
+      },
+      ownKeys: () => {
+        const values = getValues();
+        const keys = Array.from({ length: values.length }, (_, index) => index)
+          .filter((index) => (this.scrollbackHead + index) % values.length in values)
+          .map(String);
+        return [...keys, "length"];
+      },
+      getOwnPropertyDescriptor: (_target, property) => {
+        const values = getValues();
+        const index = this.arrayIndex(property);
+        const physicalIndex =
+          index !== null && index < values.length
+            ? (this.scrollbackHead + index) % values.length
+            : null;
+        if (physicalIndex !== null && physicalIndex in values) {
+          return {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: values[physicalIndex],
+          };
+        }
+        return Reflect.getOwnPropertyDescriptor(_target, property);
+      },
+      set: (_target, property, value, receiver) => {
+        const index = this.arrayIndex(property);
+        if (index !== null || property === "length") {
+          this.normalizeScrollbackStorage();
+          return Reflect.set(getValues(), property, value);
+        }
+        return Reflect.set(_target, property, value, receiver);
+      },
+      deleteProperty: (_target, property) => {
+        const index = this.arrayIndex(property);
+        if (index !== null) {
+          this.normalizeScrollbackStorage();
+          return Reflect.deleteProperty(getValues(), property);
+        }
+        return Reflect.deleteProperty(_target, property);
+      },
+    });
+  }
+
+  private arrayIndex(property: string | symbol): number | null {
+    if (typeof property !== "string" || !/^(0|[1-9]\d*)$/.test(property)) {
+      return null;
+    }
+    return Number(property);
+  }
+
+  private physicalOrder<T>(values: T[]): T[] {
+    if (this.scrollbackHead === 0 || values.length === 0) return values.slice();
+    const physical = new Array<T>(values.length);
+    for (let index = 0; index < values.length; index++) {
+      physical[(this.scrollbackHead + index) % values.length] = values[index];
+    }
+    return physical;
+  }
+
+  private normalizeScrollbackStorage(): void {
+    if (this.scrollbackHead === 0) return;
+    const head = this.scrollbackHead;
+    const toLogical = <T>(values: T[]): T[] => values.slice(head).concat(values.slice(0, head));
+    this.scrollbackRows = toLogical(this.scrollbackRows);
+    this.scrollbackWrapFlags = toLogical(this.scrollbackWrapFlags);
+    this.scrollbackCompactFlags = toLogical(this.scrollbackCompactFlags);
+    this.scrollbackHead = 0;
   }
 }

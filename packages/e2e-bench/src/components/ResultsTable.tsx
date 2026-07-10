@@ -65,6 +65,8 @@ export const ResultsTable = memo(function ResultsTable({ results }: Props) {
   );
 
   const fmt = (n: number, decimals = 1) => n.toFixed(decimals);
+  const fmtOptional = (n: number | null, decimals = 1) =>
+    n === null ? "\u2014" : n.toFixed(decimals);
   const fmtMB = (n: number) => (n / 1e6).toFixed(2);
 
   return (
@@ -75,14 +77,21 @@ export const ResultsTable = memo(function ResultsTable({ results }: Props) {
             {th("Terminal", "terminal")}
             {th("Scenario", "scenario")}
             {th("Run", "run")}
-            {th("Time (ms)", "totalTimeMs")}
-            {th("Frame p50", "frameTimeP50")}
-            {th("Frame p90", "frameTimeP90")}
-            {th("Frame p99", "frameTimeP99")}
-            {th("Idle (ms)", "timeToIdleMs")}
+            {th("Receive (ms)", "receiveTimeMs")}
+            {th("Process (ms)", "processingTimeMs")}
+            {th("E2E (ms)", "totalTimeMs")}
+            {th("Process MB/s", "throughputMBps")}
+            {th("Receive MB/s", "receiveThroughputMBps")}
+            {th("E2E MB/s", "endToEndThroughputMBps")}
+            {th("Post-receive (ms)", "postReceiveProcessingMs")}
+            {th("Process-to-idle", "processingToIdleMs")}
+            {th("Next main rAF", "mainThreadFrameAfterProcessingMs")}
+            {th("rAF p50", "frameTimeP50")}
+            {th("rAF p90", "frameTimeP90")}
+            {th("rAF p99", "frameTimeP99")}
+            {th("Parser CPU", "parserCpuDurationMs")}
             {th("Long Tasks", "longTaskCount")}
             {th("LT Duration", "longTaskDurationMs")}
-            {th("MB/s", "throughputMBps")}
             {th("Server (ms)", "serverSendMs")}
             {th("Bytes", "totalBytes")}
           </tr>
@@ -96,14 +105,21 @@ export const ResultsTable = memo(function ResultsTable({ results }: Props) {
               <td style={tdStyle}>{r.terminal}</td>
               <td style={tdStyle}>{r.scenario}</td>
               <td style={tdStyle}>{r.run}</td>
+              <td style={tdStyle}>{fmt(r.metrics.receiveTimeMs)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.processingTimeMs)}</td>
               <td style={tdStyle}>{fmt(r.metrics.totalTimeMs)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.throughputMBps, 2)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.receiveThroughputMBps, 2)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.endToEndThroughputMBps, 2)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.postReceiveProcessingMs)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.processingToIdleMs)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.mainThreadFrameAfterProcessingMs)}</td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP50)}</td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP90)}</td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP99)}</td>
-              <td style={tdStyle}>{fmt(r.metrics.timeToIdleMs)}</td>
+              <td style={tdStyle}>{fmtOptional(r.metrics.parserCpuDurationMs)}</td>
               <td style={tdStyle}>{r.metrics.longTaskCount}</td>
               <td style={tdStyle}>{fmt(r.metrics.longTaskDurationMs)}</td>
-              <td style={tdStyle}>{fmt(r.metrics.throughputMBps, 2)}</td>
               <td style={tdStyle}>{fmt(r.metrics.serverSendMs)}</td>
               <td style={tdStyle}>{fmtMB(r.metrics.totalBytes)} MB</td>
             </tr>

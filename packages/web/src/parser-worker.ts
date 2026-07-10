@@ -83,6 +83,8 @@ export interface FlushMessage {
   isAlternate: boolean;
   /** Number of bytes that were processed in the write that triggered this flush. */
   bytesProcessed: number;
+  /** Time spent in VTParser.write for this chunk inside the parser worker. */
+  parseDurationMs: number;
   /** Parser mode state — synced to main thread so getParserModes() works. */
   modes: {
     applicationCursorKeys: boolean;
@@ -152,7 +154,12 @@ function createBufferAndParser(
   };
 }
 
-function buildFlush(ch: ChannelState, bytesProcessed: number, channelId?: string): FlushMessage {
+function buildFlush(
+  ch: ChannelState,
+  bytesProcessed: number,
+  channelId?: string,
+  parseDurationMs = 0,
+): FlushMessage {
   const cursor = ch.parser.cursor;
 
   const msg: FlushMessage = {
@@ -167,6 +174,7 @@ function buildFlush(ch: ChannelState, bytesProcessed: number, channelId?: string
     },
     isAlternate: ch.bufferSet.isAlternate,
     bytesProcessed,
+    parseDurationMs,
     modes: {
       applicationCursorKeys: ch.parser.applicationCursorKeys,
       bracketedPasteMode: ch.parser.bracketedPasteMode,
@@ -241,10 +249,14 @@ function handleMessage(msg: InboundMessage): void {
         return;
       }
       const bytes = new Uint8Array(msg.data);
+      const parseStart = performance.now();
       parser.write(bytes);
+      const parseDurationMs = performance.now() - parseStart;
       const flush = buildFlush(
         { bufferSet, parser, usingSAB, generation: undefined },
         bytes.length,
+        undefined,
+        parseDurationMs,
       );
       postFlush(flush, usingSAB);
       break;
@@ -321,8 +333,10 @@ function handleChannelMessage(msg: InboundMessage, channelId: string): void {
       // lifecycle — these are from a prior acquire that was disposed.
       if (msg.generation !== undefined && msg.generation !== ch.generation) return;
       const bytes = new Uint8Array(msg.data);
+      const parseStart = performance.now();
       ch.parser.write(bytes);
-      const flush = buildFlush(ch, bytes.length, channelId);
+      const parseDurationMs = performance.now() - parseStart;
+      const flush = buildFlush(ch, bytes.length, channelId, parseDurationMs);
       postFlush(flush, ch.usingSAB);
       break;
     }
