@@ -121,6 +121,11 @@ describe("write message", () => {
     expect(lastFlush().bytesProcessed).toBe(5);
   });
 
+  it("reports parser CPU duration for writes", () => {
+    dispatch({ type: "write", data: enc("Hello") });
+    expect(lastFlush().parseDurationMs).toBeGreaterThanOrEqual(0);
+  });
+
   it("flush cursor reflects actual position after two printable chars", () => {
     dispatch({ type: "write", data: enc("Hi") });
     const { cursor } = lastFlush();

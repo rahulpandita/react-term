@@ -176,6 +176,14 @@ export interface WebTerminalOptions {
   onData?: (data: Uint8Array) => void;
   onResize?: (size: { cols: number; rows: number }) => void;
   onTitleChange?: (title: string) => void;
+  /** Called after a write has been parsed and its grid changes are visible to the renderer. */
+  onWriteProcessed?: (measurement: WriteProcessingMeasurement) => void;
+}
+
+export interface WriteProcessingMeasurement {
+  bytesProcessed: number;
+  /** Parser CPU time only. Queueing, worker messaging, and grid application are excluded. */
+  parseDurationMs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +273,7 @@ export class WebTerminal {
   private onDataCallback: ((data: Uint8Array) => void) | null;
   private onResizeCallback: ((size: { cols: number; rows: number }) => void) | null;
   private onTitleChangeCallback: ((title: string) => void) | null;
+  private onWriteProcessedCallback: ((measurement: WriteProcessingMeasurement) => void) | null;
 
   constructor(container: HTMLElement, options?: WebTerminalOptions) {
     this.container = container;
@@ -281,6 +290,7 @@ export class WebTerminal {
     this.onDataCallback = options?.onData ?? null;
     this.onResizeCallback = options?.onResize ?? null;
     this.onTitleChangeCallback = options?.onTitleChange ?? null;
+    this.onWriteProcessedCallback = options?.onWriteProcessed ?? null;
 
     // Determine whether to use the worker.
     this.useWorkerMode = options?.useWorker ?? SAB_AVAILABLE;
@@ -552,6 +562,7 @@ export class WebTerminal {
           this.bufferSet.active.cursor,
           onFlush,
           onError,
+          (measurement) => this.onWriteProcessedCallback?.(measurement),
         );
         this.parserChannel.start(cols, rows, scrollback);
         return;
@@ -564,6 +575,7 @@ export class WebTerminal {
         this.bufferSet.active.cursor,
         onFlush,
         onError,
+        (measurement) => this.onWriteProcessedCallback?.(measurement),
       );
       this.workerBridge.start(cols, rows, scrollback);
     } catch {
@@ -734,7 +746,12 @@ export class WebTerminal {
     } else if (this.workerBridge) {
       this.workerBridge.write(bytes);
     } else if (this.parser) {
+      const parseStart = performance.now();
       this.parser.write(bytes);
+      this.onWriteProcessedCallback?.({
+        bytesProcessed: bytes.byteLength,
+        parseDurationMs: performance.now() - parseStart,
+      });
       // Sync mode flags from parser to input handler
       this.syncParserModes();
     }

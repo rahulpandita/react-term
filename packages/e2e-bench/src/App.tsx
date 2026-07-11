@@ -435,12 +435,16 @@ function MultiPaneResultsTable({ results }: { results: MultiPaneResult[] }) {
               "Scenario",
               "Panes",
               "Run",
-              "Time (ms)",
-              "MB/s",
-              "Frame p50",
-              "Frame p90",
-              "Frame p99",
-              "Idle (ms)",
+              "Receive (ms)",
+              "Process (ms)",
+              "E2E (ms)",
+              "Process MB/s",
+              "Receive MB/s",
+              "Post-receive",
+              "Parser CPU",
+              "rAF p50",
+              "rAF p90",
+              "rAF p99",
               "setTimeout Avg",
               "setTimeout Max",
             ].map((h) => (
@@ -463,12 +467,20 @@ function MultiPaneResultsTable({ results }: { results: MultiPaneResult[] }) {
               <td style={tdStyle}>{r.scenario}</td>
               <td style={tdStyle}>{r.paneCount}</td>
               <td style={tdStyle}>{r.run}</td>
+              <td style={tdStyle}>{fmt(r.metrics.receiveTimeMs)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.processingTimeMs)}</td>
               <td style={tdStyle}>{fmt(r.metrics.totalTimeMs)}</td>
               <td style={tdStyle}>{fmt(r.metrics.throughputMBps, 2)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.receiveThroughputMBps, 2)}</td>
+              <td style={tdStyle}>{fmt(r.metrics.postReceiveProcessingMs)}</td>
+              <td style={tdStyle}>
+                {r.metrics.parserCpuDurationMs === null
+                  ? "\u2014"
+                  : fmt(r.metrics.parserCpuDurationMs)}
+              </td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP50)}</td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP90)}</td>
               <td style={tdStyle}>{fmt(r.metrics.frameTimeP99)}</td>
-              <td style={tdStyle}>{fmt(r.metrics.timeToIdleMs)}</td>
               <td style={tdStyle}>{fmt(r.responsiveness.avgSetTimeoutDelay, 2)}</td>
               <td style={tdStyle}>{fmt(r.responsiveness.maxSetTimeoutDelay, 2)}</td>
             </tr>

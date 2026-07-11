@@ -15,7 +15,14 @@ import { GhosttyTerminal } from "./GhosttyTerminal.js";
 import { XtermTerminal } from "./XtermTerminal.js";
 
 type TerminalComponent = ForwardRefExoticComponent<
-  { cols: number; rows: number } & RefAttributes<TerminalApi>
+  {
+    cols: number;
+    rows: number;
+    onWriteProcessed?: (measurement: {
+      bytesProcessed: number;
+      parseDurationMs: number | null;
+    }) => void;
+  } & RefAttributes<TerminalApi>
 >;
 
 const TERMINAL_COMPONENTS: Record<
@@ -41,7 +48,8 @@ export function BenchmarkRunner({ config, onResult, onProgress, onComplete }: Pr
   const wsRef = useRef<WebSocket | null>(null);
   const runningRef = useRef(false);
   const cancelledRef = useRef(false);
-  const { startTracking, recordWrite, recordDone, waitForIdle, stopTracking } = useMetrics();
+  const { startTracking, recordWrite, recordProcessed, recordDone, waitForIdle, stopTracking } =
+    useMetrics();
 
   const runSingle = useCallback(
     async (terminal: TerminalType, scenario: string, run: number): Promise<BenchmarkResult> => {
@@ -176,6 +184,9 @@ export function BenchmarkRunner({ config, onResult, onProgress, onComplete }: Pr
           ref={termRef}
           cols={120}
           rows={36}
+          onWriteProcessed={(measurement) =>
+            recordProcessed(measurement.bytesProcessed, measurement.parseDurationMs)
+          }
           {...(activeTerminal === "react-term"
             ? {
                 useWorker: true,

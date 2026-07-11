@@ -52,6 +52,9 @@ export class ParserChannel {
   private cursor: CursorState;
   private onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void;
   private onError: ((message: string) => void) | null;
+  private onWriteProcessed:
+    | ((measurement: { bytesProcessed: number; parseDurationMs: number }) => void)
+    | null;
 
   private poolPaused = false;
   private writeQueue: Uint8Array[] = [];
@@ -77,12 +80,14 @@ export class ParserChannel {
     cursor: CursorState,
     onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void,
     onError?: (message: string) => void,
+    onWriteProcessed?: (measurement: { bytesProcessed: number; parseDurationMs: number }) => void,
   ) {
     this.grid = grid;
     this.altGrid = altGrid;
     this.cursor = cursor;
     this.onFlush = onFlush;
     this.onError = onError ?? null;
+    this.onWriteProcessed = onWriteProcessed ?? null;
   }
 
   // ---- Public API (mirrors WorkerBridge) ------------------------------------
@@ -215,9 +220,13 @@ export class ParserChannel {
 
     if (this.skipFlushCellDataCount > 0 && msg.cellData) {
       this.skipFlushCellDataCount--;
+      this.notifyWriteProcessed(msg);
       return;
     }
-    if (!msg.cellData || !msg.dirtyRows) return;
+    if (!msg.cellData || !msg.dirtyRows) {
+      this.notifyWriteProcessed(msg);
+      return;
+    }
 
     const targetGrid = msg.isAlternate ? this.altGrid : this.grid;
     const cellView = new Uint32Array(msg.cellData);
@@ -229,6 +238,7 @@ export class ParserChannel {
     if (cellView.length !== expectedCells || dirtyView.length !== rows) {
       // Stale flush for a different grid size — flow control is already
       // reconciled by the pool before this is called.
+      this.notifyWriteProcessed(msg);
       return;
     }
 
@@ -252,12 +262,21 @@ export class ParserChannel {
         targetGrid.wrapFlags.set(wrapView);
       }
     }
+    this.notifyWriteProcessed(msg);
   }
 
   /** @internal */
   handleError(message: string): void {
     if (this.disposed) return;
     this.onError?.(message);
+  }
+
+  private notifyWriteProcessed(msg: FlushMessage): void {
+    if (msg.bytesProcessed <= 0) return;
+    this.onWriteProcessed?.({
+      bytesProcessed: msg.bytesProcessed,
+      parseDurationMs: msg.parseDurationMs,
+    });
   }
 
   // ---- Internals ------------------------------------------------------------
@@ -361,6 +380,7 @@ export class ParserPool {
     cursor: CursorState,
     onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void,
     onError?: (message: string) => void,
+    onWriteProcessed?: (measurement: { bytesProcessed: number; parseDurationMs: number }) => void,
   ): ParserChannel {
     if (this.disposed) {
       throw new Error("ParserPool is disposed");
@@ -393,6 +413,7 @@ export class ParserPool {
       cursor,
       onFlush,
       onError,
+      onWriteProcessed,
     );
 
     this.channels.set(channelId, { workerIndex, generation, channel });

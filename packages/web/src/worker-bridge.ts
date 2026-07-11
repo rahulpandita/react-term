@@ -37,6 +37,9 @@ export class WorkerBridge {
   private cursor: CursorState;
   private onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void;
   private onError: ((message: string) => void) | null;
+  private onWriteProcessed:
+    | ((measurement: { bytesProcessed: number; parseDurationMs: number }) => void)
+    | null;
 
   // Flow control
   private pendingBytes = 0;
@@ -54,12 +57,14 @@ export class WorkerBridge {
     cursor: CursorState,
     onFlush: (isAlternate: boolean, modes: FlushMessage["modes"]) => void,
     onError?: (message: string) => void,
+    onWriteProcessed?: (measurement: { bytesProcessed: number; parseDurationMs: number }) => void,
   ) {
     this.grid = grid;
     this.altGrid = altGrid;
     this.cursor = cursor;
     this.onFlush = onFlush;
     this.onError = onError ?? null;
+    this.onWriteProcessed = onWriteProcessed ?? null;
   }
 
   // ---- Public API ----------------------------------------------------------
@@ -294,6 +299,7 @@ export class WorkerBridge {
       // flush would be read with the wrong row stride, causing garbled output.
       const expectedCells = cols * rows * CELL_SIZE;
       if (cellView.length !== expectedCells || dirtyView.length !== rows) {
+        this.finishWrite(msg);
         return; // stale flush for a different grid size — discard
       }
 
@@ -325,11 +331,20 @@ export class WorkerBridge {
       }
     }
 
-    // Update flow control.
+    this.finishWrite(msg);
+  }
+
+  private finishWrite(msg: FlushMessage): void {
     this.pendingBytes = Math.max(0, this.pendingBytes - msg.bytesProcessed);
     if (this.paused && this.pendingBytes < LOW_WATERMARK) {
       this.paused = false;
       this.drainQueue();
+    }
+    if (msg.bytesProcessed > 0) {
+      this.onWriteProcessed?.({
+        bytesProcessed: msg.bytesProcessed,
+        parseDurationMs: msg.parseDurationMs,
+      });
     }
   }
 }

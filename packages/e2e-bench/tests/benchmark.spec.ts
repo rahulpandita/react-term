@@ -15,13 +15,32 @@ const TERMINALS = TERMINAL_FILTER
   ? ALL_TERMINALS.filter(t => t === TERMINAL_FILTER)
   : ALL_TERMINALS;
 
-const SCENARIOS = [
+const ALL_SCENARIOS = [
   'ascii', 'real-world', 'sgr-color', 'scrolling', 'cursor-motion', 'unicode',
   'vte-dense-cells', 'vte-light-cells', 'vte-medium-cells', 'vte-cursor-motion',
   'vte-scrolling', 'vte-scrolling-fullscreen', 'vte-unicode',
 ] as const;
-const WARMUP_RUNS = 2;
-const MEASURED_RUNS = 15;
+const SCENARIO_FILTER = process.env.BENCH_SCENARIOS?.split(',').map(value => value.trim());
+const SCENARIOS = SCENARIO_FILTER
+  ? ALL_SCENARIOS.filter(scenario => SCENARIO_FILTER.includes(scenario))
+  : ALL_SCENARIOS;
+
+function readRunCount(name: string, fallback: number, minimum: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const count = Number(raw);
+  if (!Number.isInteger(count) || count < minimum) {
+    throw new Error(`${name} must be an integer >= ${minimum}, received "${raw}"`);
+  }
+  return count;
+}
+
+const WARMUP_RUNS = readRunCount('BENCH_WARMUP_RUNS', 2, 0);
+const MEASURED_RUNS = readRunCount('BENCH_MEASURED_RUNS', 15, 1);
+
+if (SCENARIOS.length === 0) {
+  throw new Error(`BENCH_SCENARIOS did not match a known scenario: ${SCENARIO_FILTER?.join(',')}`);
+}
 
 test('e2e benchmark matrix', async ({ page }) => {
   const allResults: BenchmarkResult[] = [];
@@ -81,15 +100,24 @@ test('e2e benchmark matrix', async ({ page }) => {
   }
 
   // --- Detailed results table ---
-  const detailCols = ['Terminal', 'Scenario', 'Median (ms)', 'Mean (ms)', 'Stddev', 'CV%', 'MB/s (med)', 'Stable', 'Runs'];
+  const detailCols = [
+    'Terminal', 'Scenario', 'Process med (ms)', 'E2E med (ms)', 'Stddev', 'CV%',
+    'Process MB/s', 'Receive MB/s', 'Post-receive (ms)', 'Parser CPU (ms)', 'Stable', 'Runs',
+  ];
   const detailRows: string[][] = [];
   let stableCount = 0;
   let totalConfigs = 0;
 
   for (const [key, runs] of grouped) {
     const [term, scen] = key.split('|');
-    const timeStats = computeStats(runs.map(r => r.metrics.totalTimeMs));
+    const timeStats = computeStats(runs.map(r => r.metrics.processingTimeMs));
+    const e2eStats = computeStats(runs.map(r => r.metrics.totalTimeMs));
     const throughputStats = computeStats(runs.map(r => r.metrics.throughputMBps));
+    const receiveStats = computeStats(runs.map(r => r.metrics.receiveThroughputMBps));
+    const postReceiveStats = computeStats(runs.map(r => r.metrics.postReceiveProcessingMs));
+    const parserCpuValues = runs.flatMap(r =>
+      r.metrics.parserCpuDurationMs === null ? [] : [r.metrics.parserCpuDurationMs]
+    );
     totalConfigs++;
     if (timeStats.stable) stableCount++;
 
@@ -97,10 +125,13 @@ test('e2e benchmark matrix', async ({ page }) => {
       term,
       scen,
       timeStats.median.toFixed(1),
-      timeStats.mean.toFixed(1),
+      e2eStats.median.toFixed(1),
       timeStats.stddev.toFixed(1),
       (timeStats.cv * 100).toFixed(1) + '%',
       throughputStats.median.toFixed(2),
+      receiveStats.median.toFixed(2),
+      postReceiveStats.median.toFixed(1),
+      parserCpuValues.length > 0 ? computeStats(parserCpuValues).median.toFixed(1) : '-',
       timeStats.stable ? '✓' : '✗',
       `${timeStats.filtered.length}/${runs.length}`,
     ]);
@@ -111,7 +142,7 @@ test('e2e benchmark matrix', async ({ page }) => {
   for (const [key, runs] of grouped) {
     const [terminal, scenario] = key.split('|');
     const throughputStats = computeStats(runs.map(r => r.metrics.throughputMBps));
-    const timeStats = computeStats(runs.map(r => r.metrics.totalTimeMs));
+    const timeStats = computeStats(runs.map(r => r.metrics.processingTimeMs));
     const medianMbps = throughputStats.median;
     if (!byScenario.has(scenario)) byScenario.set(scenario, { rt: 0, xt: 0, rtStable: false, xtStable: false });
     const entry = byScenario.get(scenario)!;

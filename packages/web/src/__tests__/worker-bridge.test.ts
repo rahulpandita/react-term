@@ -206,6 +206,34 @@ describe("WorkerBridge", () => {
     expect(flushSpy).toHaveBeenCalledWith(true, DEFAULT_MODES);
   });
 
+  it("reports write processing after applying a flush", () => {
+    const onWriteProcessed = vi.fn();
+    const measuredBridge = new WorkerBridge(
+      grid,
+      makeGrid(),
+      cursor,
+      flushSpy,
+      errorSpy,
+      onWriteProcessed,
+    );
+    measuredBridge.start(80, 24, 1000);
+
+    mockWorkerInstance.simulateMessage({
+      type: "flush",
+      cursor: { row: 0, col: 1, visible: true, style: "block" },
+      isAlternate: false,
+      bytesProcessed: 5,
+      parseDurationMs: 1.25,
+      modes: DEFAULT_MODES,
+    });
+
+    expect(onWriteProcessed).toHaveBeenCalledWith({
+      bytesProcessed: 5,
+      parseDurationMs: 1.25,
+    });
+    measuredBridge.dispose();
+  });
+
   // ---- error handling -----------------------------------------------------
 
   it("invokes onError when the worker posts an error message", () => {

@@ -16,6 +16,7 @@ import {
   SharedCanvas2DContext,
   type SharedContext,
   SharedWebGLContext,
+  type WriteProcessingMeasurement,
 } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
@@ -32,6 +33,7 @@ export type { PaneLayout } from "./pane-layout.js";
 export interface TerminalPaneProps {
   layout: PaneLayout;
   onData?: (paneId: string, data: Uint8Array) => void;
+  onWriteProcessed?: (paneId: string, measurement: WriteProcessingMeasurement) => void;
   theme?: Partial<Theme>;
   fontSize?: number;
   fontFamily?: string;
@@ -79,6 +81,7 @@ export interface TerminalPaneHandle {
 interface PaneLeafProps {
   id: string;
   onData?: (paneId: string, data: Uint8Array) => void;
+  onWriteProcessed?: (paneId: string, measurement: WriteProcessingMeasurement) => void;
   theme?: Partial<Theme>;
   fontSize?: number;
   fontFamily?: string;
@@ -93,6 +96,7 @@ interface PaneLeafProps {
 function PaneLeaf({
   id,
   onData,
+  onWriteProcessed,
   theme,
   fontSize,
   fontFamily,
@@ -157,6 +161,7 @@ function PaneLeaf({
         useWorker={useWorker}
         parserPool={parserPool ?? undefined}
         onData={handleData}
+        onWriteProcessed={(measurement) => onWriteProcessed?.(id, measurement)}
         sharedContext={sharedContext ?? undefined}
         paneId={sharedContext || parserPool ? id : undefined}
         style={{ width: "100%", height: "100%" }}
@@ -172,6 +177,7 @@ function PaneLeaf({
 interface PaneNodeProps {
   layout: PaneLayout;
   onData?: (paneId: string, data: Uint8Array) => void;
+  onWriteProcessed?: (paneId: string, measurement: WriteProcessingMeasurement) => void;
   theme?: Partial<Theme>;
   fontSize?: number;
   fontFamily?: string;
@@ -186,6 +192,7 @@ interface PaneNodeProps {
 function PaneNode({
   layout,
   onData,
+  onWriteProcessed,
   theme,
   fontSize,
   fontFamily,
@@ -201,6 +208,7 @@ function PaneNode({
       <PaneLeaf
         id={layout.id}
         onData={onData}
+        onWriteProcessed={onWriteProcessed}
         theme={theme}
         fontSize={fontSize}
         fontFamily={fontFamily}
@@ -249,6 +257,7 @@ function PaneNode({
             <PaneNode
               layout={child}
               onData={onData}
+              onWriteProcessed={onWriteProcessed}
               theme={theme}
               fontSize={fontSize}
               fontFamily={fontFamily}
@@ -275,6 +284,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     const {
       layout,
       onData,
+      onWriteProcessed,
       theme,
       fontSize,
       fontFamily,
@@ -488,6 +498,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           <PaneNode
             layout={layout}
             onData={onData}
+            onWriteProcessed={onWriteProcessed}
             theme={theme}
             fontSize={fontSize}
             fontFamily={fontFamily}
