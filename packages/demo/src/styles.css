@@ -242,6 +242,11 @@ h1 {
   overflow: hidden;
 }
 
+.terminal-surface [role="terminal"] {
+  height: 100% !important;
+  margin-top: 0 !important;
+}
+
 .pane-switch {
   position: absolute;
   right: 10px;

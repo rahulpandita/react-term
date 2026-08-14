@@ -656,7 +656,7 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
           paneRef.current?.getTerminal(id)?.write(paneDemoLine(id, tick));
         }
         tick++;
-      }, 180);
+      }, 75);
     });
 
     return () => {

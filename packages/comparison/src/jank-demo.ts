@@ -191,6 +191,11 @@ const statDropped = $("stat-dropped");
 const statLong = $("stat-long");
 const statThroughput = $("stat-throughput");
 const latencyValue = $("latency-value");
+const backShowcase = $("back-showcase") as HTMLAnchorElement;
+
+if (location.port === "5180") {
+  backShowcase.href = `${location.protocol}//${location.hostname}:5173/`;
+}
 
 // ---- Ball animation ----
 let ballX = 0;
