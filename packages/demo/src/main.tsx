@@ -3,6 +3,7 @@ import type { PaneLayout, TerminalHandle, TerminalPaneHandle } from "@next_term/
 import { Terminal, TerminalPane } from "@next_term/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import "./styles.css";
 
 // ---------------------------------------------------------------------------
 // Themes
@@ -139,6 +140,7 @@ function runBenchmark(write: WriteFunc) {
 }
 
 const PROMPT = "\x1b[1;33m$ \x1b[0m";
+const INSTALL_COMMAND = "npm install @next_term/react@next";
 
 // ---------------------------------------------------------------------------
 // Connection status
@@ -153,7 +155,7 @@ function StatusIndicator({ status }: { status: ConnectionStatus }) {
     connected: "#0dbc79",
   };
   const labels: Record<ConnectionStatus, string> = {
-    disconnected: "Local echo",
+    disconnected: "Interactive local shell",
     connecting: "Connecting...",
     connected: "PTY connected",
   };
@@ -280,7 +282,7 @@ function HUD({
 // App
 // ---------------------------------------------------------------------------
 
-function App() {
+function App({ onShowSplit }: { onShowSplit: () => void }) {
   const termRef = useRef<TerminalHandle>(null);
   const [isDark, setIsDark] = useState(true);
   const [connStatus, setConnStatus] = useState<ConnectionStatus>("disconnected");
@@ -353,8 +355,10 @@ function App() {
     term.write(WELCOME_BANNER);
     term.write(PROMPT);
 
-    // Try WebSocket connection
-    connectWs();
+    // GitHub Pages is static, so only probe for the optional PTY server in local development.
+    if (import.meta.env.DEV) {
+      connectWs();
+    }
 
     return () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
@@ -487,15 +491,7 @@ function App() {
   );
 
   return (
-    <div
-      style={{
-        width: "100vw",
-        height: "100dvh",
-        position: "relative",
-        background: theme.background,
-        overflow: "hidden",
-      }}
-    >
+    <div className="terminal-surface" style={{ background: theme.background }}>
       <HUD isDark={isDark} onToggleTheme={toggleTheme} fps={fps} status={connStatus} />
       <Terminal
         ref={termRef}
@@ -510,6 +506,9 @@ function App() {
         useWorker={false}
         style={{ width: "100%", height: "100%" }}
       />
+      <button type="button" className="pane-switch" onClick={onShowSplit}>
+        Open 4 panes
+      </button>
     </div>
   );
 }
@@ -524,22 +523,70 @@ const SPLIT_LAYOUT: PaneLayout = {
     {
       type: "horizontal",
       children: [
-        { type: "single", id: "tl" },
-        { type: "single", id: "tr" },
+        { type: "single", id: "hex-dump" },
+        { type: "single", id: "log-stream" },
       ],
       sizes: [0.5, 0.5],
     },
     {
       type: "horizontal",
       children: [
-        { type: "single", id: "bl" },
-        { type: "single", id: "br" },
+        { type: "single", id: "color-ls" },
+        { type: "single", id: "color-grid" },
       ],
       sizes: [0.5, 0.5],
     },
   ],
   sizes: [0.5, 0.5],
 };
+
+const PANE_TITLES: Record<string, string> = {
+  "hex-dump": "binary inspection",
+  "log-stream": "service logs",
+  "color-ls": "workspace files",
+  "color-grid": "ANSI palette",
+};
+
+function paneDemoLine(paneId: string, tick: number) {
+  switch (paneId) {
+    case "hex-dump": {
+      const address = (tick * 16).toString(16).padStart(8, "0");
+      const bytes = Array.from({ length: 16 }, (_, index) =>
+        ((tick * 29 + index * 17) % 256).toString(16).padStart(2, "0"),
+      );
+      return `\x1b[33m${address}\x1b[0m  ${bytes.slice(0, 8).join(" ")}  ${bytes.slice(8).join(" ")}\r\n`;
+    }
+    case "log-stream": {
+      const levels = [
+        ["\x1b[32m", "INFO "],
+        ["\x1b[36m", "DEBUG"],
+        ["\x1b[33m", "WARN "],
+      ];
+      const messages = [
+        "worker flush completed rows=24",
+        "shared context frame committed",
+        "parser queue drained in 1.8ms",
+        "viewport resize cols=92 rows=28",
+      ];
+      const [color, level] = levels[tick % levels.length];
+      return `\x1b[90m21:${String(tick % 60).padStart(2, "0")}:${String((tick * 7) % 60).padStart(2, "0")}\x1b[0m ${color}${level}\x1b[0m ${messages[tick % messages.length]}\r\n`;
+    }
+    case "color-ls": {
+      const files = ["src/", "package.json", "renderer.ts", "worker-bridge.ts", "README.md"];
+      const colors = ["\x1b[1;34m", "\x1b[0m", "\x1b[1;32m", "\x1b[1;36m"];
+      const file = files[tick % files.length];
+      return `${tick % 3 === 0 ? "drwxr-xr-x" : "-rw-r--r--"}  1 dev  staff  ${String(1024 + tick * 137).padStart(6)} ${colors[tick % colors.length]}${file}\x1b[0m\r\n`;
+    }
+    default: {
+      let line = "";
+      for (let column = 0; column < 28; column++) {
+        const color = 16 + ((tick * 11 + column * 7) % 216);
+        line += `\x1b[48;5;${color}m  \x1b[0m`;
+      }
+      return `${line}\r\n`;
+    }
+  }
+}
 
 function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () => void }) {
   const paneRef = useRef<TerminalPaneHandle>(null);
@@ -595,52 +642,34 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
   }, []);
 
   useEffect(() => {
-    // Write welcome text to each pane
-    const ids = paneRef.current?.getPaneIds() ?? [];
-    for (const id of ids) {
-      const term = paneRef.current?.getTerminal(id);
-      if (term) {
-        term.write(`\x1b[1;36m[${id}]\x1b[0m 2x2 Split Pane Demo\r\n`);
-        term.write(`\x1b[1;36m[${id}]\x1b[0m ${PROMPT}`);
+    let tick = 0;
+    let streamTimer: ReturnType<typeof setInterval> | null = null;
+    const frame = requestAnimationFrame(() => {
+      const ids = paneRef.current?.getPaneIds() ?? [];
+      for (const id of ids) {
+        const term = paneRef.current?.getTerminal(id);
+        term?.write(`\x1b[1;36m${id}\x1b[0m \x1b[90m— ${PANE_TITLES[id]}\x1b[0m\r\n\r\n`);
       }
-    }
+
+      streamTimer = setInterval(() => {
+        for (const id of ids) {
+          paneRef.current?.getTerminal(id)?.write(paneDemoLine(id, tick));
+        }
+        tick++;
+      }, 75);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      if (streamTimer) clearInterval(streamTimer);
+    };
   }, []);
 
   return (
-    <div
-      style={{
-        width: "100vw",
-        height: "100vh",
-        position: "relative",
-        background: theme.background,
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          top: 8,
-          right: 8,
-          zIndex: 10,
-          fontFamily: "'JetBrains Mono', monospace",
-        }}
-      >
-        <button
-          type="button"
-          onClick={onBack}
-          style={{
-            background: "#333",
-            color: "#eee",
-            border: "none",
-            borderRadius: 4,
-            padding: "4px 12px",
-            cursor: "pointer",
-            fontSize: 12,
-            fontFamily: "inherit",
-          }}
-        >
-          Back to Single
-        </button>
-      </div>
+    <div className="terminal-surface" style={{ background: theme.background }}>
+      <button type="button" className="pane-switch" onClick={onBack}>
+        Back to single
+      </button>
       <TerminalPane
         ref={paneRef}
         layout={SPLIT_LAYOUT}
@@ -661,7 +690,17 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
 function Root() {
   const [view, setView] = useState<"single" | "split">("single");
   const [isDark, _setIsDark] = useState(true);
+  const [copied, setCopied] = useState(false);
   const theme = useMemo(() => (isDark ? DARK_THEME : LIGHT_THEME), [isDark]);
+  const comparisonUrl = import.meta.env.DEV
+    ? `${location.protocol}//${location.hostname}:5180/jank-demo.html`
+    : `${import.meta.env.BASE_URL}comparison/jank-demo.html`;
+
+  const copyInstallCommand = useCallback(async () => {
+    await navigator.clipboard.writeText(INSTALL_COMMAND);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }, []);
 
   // Keyboard shortcut: Ctrl+Shift+D toggles split view
   useEffect(() => {
@@ -675,11 +714,106 @@ function Root() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  if (view === "split") {
-    return <SplitPaneDemo theme={theme} onBack={() => setView("single")} />;
-  }
+  return (
+    <div className="showcase">
+      <header className="site-header">
+        <a className="wordmark" href="./" aria-label="react-term home">
+          react-term<span aria-hidden="true">_</span>
+        </a>
+        <nav aria-label="Primary navigation">
+          <a href="#features">Features</a>
+          <a href="https://github.com/rahulpandita/react-term/wiki">Docs</a>
+          <a className="github-link" href="https://github.com/rahulpandita/react-term">
+            GitHub <span aria-hidden="true">↗</span>
+          </a>
+        </nav>
+      </header>
 
-  return <App />;
+      <main>
+        <section className="hero" aria-labelledby="hero-title">
+          <div className="hero-copy">
+            <h1 id="hero-title">The terminal belongs off the main thread.</h1>
+            <p>
+              A modern terminal emulator for React and React Native, built around shared memory,
+              worker-native parsing, and renderers that scale from one pane to thirty-two.
+            </p>
+            <div className="hero-actions">
+              <a className="primary-action" href="https://github.com/rahulpandita/react-term">
+                Explore the source <span aria-hidden="true">↗</span>
+              </a>
+              <button type="button" onClick={() => setView(view === "single" ? "split" : "single")}>
+                {view === "single" ? "Try 4 panes" : "Try single pane"}
+              </button>
+              <a className="comparison-action" href={comparisonUrl}>
+                Compare with xterm.js <span aria-hidden="true">→</span>
+              </a>
+            </div>
+            <div className="runtime-note">
+              <span className="live-dot" aria-hidden="true" />
+              Live in your browser. Type <code>help</code> to begin.
+            </div>
+          </div>
+
+          <div className="terminal-frame">
+            <div className="terminal-chrome" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <strong>
+                {view === "single" ? "react-term — local shell" : "react-term — 4 panes"}
+              </strong>
+            </div>
+            {view === "split" ? (
+              <SplitPaneDemo theme={theme} onBack={() => setView("single")} />
+            ) : (
+              <App onShowSplit={() => setView("split")} />
+            )}
+          </div>
+        </section>
+
+        <section className="install-band" aria-labelledby="install-title">
+          <div>
+            <h2 id="install-title">Install the React package</h2>
+            <a href="https://www.npmjs.com/package/@next_term/react">
+              View <code>@next_term/react</code> on npm <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+          <div className="install-command">
+            <code>{INSTALL_COMMAND}</code>
+            <button type="button" onClick={copyInstallCommand} aria-live="polite">
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </section>
+
+        <section className="feature-band" id="features" aria-label="Project capabilities">
+          <article>
+            <strong>Zero-copy cells</strong>
+            <span>SharedArrayBuffer + Atomics</span>
+          </article>
+          <article>
+            <strong>2 draw calls</strong>
+            <span>WebGL2 instanced rendering</span>
+          </article>
+          <article>
+            <strong>32 panes</strong>
+            <span>One shared graphics context</span>
+          </article>
+          <article>
+            <strong>Universal fallback</strong>
+            <span>Canvas 2D when needed</span>
+          </article>
+        </section>
+      </main>
+
+      <footer>
+        <span>MIT licensed. Built for the terminal workloads React apps deserve.</span>
+        <a href="https://github.com/rahulpandita/react-term/wiki/Getting-Started">
+          Read the getting started guide <span aria-hidden="true">→</span>
+        </a>
+      </footer>
+    </div>
+  );
 }
 
 const rootEl = document.getElementById("root");

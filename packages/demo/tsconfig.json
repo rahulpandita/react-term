@@ -4,7 +4,8 @@
     "outDir": "dist",
     "rootDir": "src",
     "jsx": "react-jsx",
-    "noEmit": true
+    "noEmit": true,
+    "types": ["vite/client"]
   },
   "include": ["src"],
   "references": [

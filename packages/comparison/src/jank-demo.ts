@@ -10,7 +10,12 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as XTerminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { SharedWebGLContext, WebTerminal } from "@next_term/web";
+import {
+  SharedCanvas2DContext,
+  type SharedContext,
+  SharedWebGLContext,
+  WebTerminal,
+} from "@next_term/web";
 import { $ } from "./dom.js";
 import { CATPPUCCIN_MOCHA, XTERM_THEME } from "./theme.js";
 import "./jank-demo.css";
@@ -150,7 +155,7 @@ const paneOffsets = [0, 0, 0, 0];
 // ---- State ----
 type Engine = "react-term" | "xterm";
 let currentEngine: Engine = "react-term";
-let sharedCtx: SharedWebGLContext | null = null;
+let sharedCtx: SharedContext | null = null;
 let rtTerminals: WebTerminal[] = [];
 let rtContainers: HTMLElement[] = [];
 let xtTerminals: XTerminal[] = [];
@@ -186,6 +191,11 @@ const statDropped = $("stat-dropped");
 const statLong = $("stat-long");
 const statThroughput = $("stat-throughput");
 const latencyValue = $("latency-value");
+const backShowcase = $("back-showcase") as HTMLAnchorElement;
+
+if (location.port === "5180") {
+  backShowcase.href = `${location.protocol}//${location.hostname}:5173/`;
+}
 
 // ---- Ball animation ----
 let ballX = 0;
@@ -325,11 +335,15 @@ function createReactTerm() {
   const grid = buildGrid();
   container.appendChild(grid);
 
-  sharedCtx = new SharedWebGLContext({
+  const sharedOptions = {
     fontSize: 13,
     fontFamily: "monospace",
     theme: CATPPUCCIN_MOCHA,
-  });
+  };
+  sharedCtx =
+    typeof crossOriginIsolated !== "undefined" && crossOriginIsolated
+      ? new SharedWebGLContext(sharedOptions)
+      : new SharedCanvas2DContext(sharedOptions);
   const sc = sharedCtx.getCanvas();
   sc.style.cssText =
     "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1";
@@ -377,6 +391,10 @@ function createReactTerm() {
     }
   });
   sharedCtx.startRenderLoop();
+  statEngine.textContent =
+    sharedCtx instanceof SharedWebGLContext
+      ? "react-term · SharedWebGL"
+      : "react-term · Canvas 2D + workers";
 }
 
 function syncRtViewports() {
