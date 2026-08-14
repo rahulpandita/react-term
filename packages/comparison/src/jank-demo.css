@@ -26,6 +26,18 @@ body {
   color: #cba6f7;
 }
 
+.back-link {
+  color: #89b4fa;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .jank-toggle, .jank-controls {
   display: flex;
   gap: 4px;
@@ -193,3 +205,24 @@ body {
 .jank-stats .stat-value.good { color: #a6e3a1; }
 .jank-stats .stat-value.warn { color: #fab387; }
 .jank-stats .stat-value.bad { color: #f38ba8; }
+
+@media (max-width: 720px) {
+  .jank-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .jank-header h1 {
+    flex: 1;
+  }
+
+  .jank-label {
+    display: none;
+  }
+
+  .jank-stats {
+    justify-content: flex-start;
+    gap: 14px;
+    overflow-x: auto;
+  }
+}

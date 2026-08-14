@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import path from "path";
 
 export default defineConfig({
+  base: process.env.GITHUB_PAGES === "true" ? "/react-term/comparison/" : "/",
   resolve: {
     alias: {
       "@next_term/core": path.resolve(__dirname, "../core/src/index.ts"),

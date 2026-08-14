@@ -10,7 +10,12 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as XTerminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { SharedWebGLContext, WebTerminal } from "@next_term/web";
+import {
+  SharedCanvas2DContext,
+  type SharedContext,
+  SharedWebGLContext,
+  WebTerminal,
+} from "@next_term/web";
 import { $ } from "./dom.js";
 import { CATPPUCCIN_MOCHA, XTERM_THEME } from "./theme.js";
 import "./jank-demo.css";
@@ -150,7 +155,7 @@ const paneOffsets = [0, 0, 0, 0];
 // ---- State ----
 type Engine = "react-term" | "xterm";
 let currentEngine: Engine = "react-term";
-let sharedCtx: SharedWebGLContext | null = null;
+let sharedCtx: SharedContext | null = null;
 let rtTerminals: WebTerminal[] = [];
 let rtContainers: HTMLElement[] = [];
 let xtTerminals: XTerminal[] = [];
@@ -325,11 +330,15 @@ function createReactTerm() {
   const grid = buildGrid();
   container.appendChild(grid);
 
-  sharedCtx = new SharedWebGLContext({
+  const sharedOptions = {
     fontSize: 13,
     fontFamily: "monospace",
     theme: CATPPUCCIN_MOCHA,
-  });
+  };
+  sharedCtx =
+    typeof crossOriginIsolated !== "undefined" && crossOriginIsolated
+      ? new SharedWebGLContext(sharedOptions)
+      : new SharedCanvas2DContext(sharedOptions);
   const sc = sharedCtx.getCanvas();
   sc.style.cssText =
     "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1";
@@ -361,7 +370,7 @@ function createReactTerm() {
         fontFamily: "monospace",
         theme: CATPPUCCIN_MOCHA,
         scrollback: 500,
-        useWorker: true,
+        useWorker: typeof crossOriginIsolated !== "undefined" && crossOriginIsolated,
         sharedContext: sharedCtx,
         paneId: `pane-${i}`,
       }),
@@ -377,6 +386,8 @@ function createReactTerm() {
     }
   });
   sharedCtx.startRenderLoop();
+  statEngine.textContent =
+    sharedCtx instanceof SharedWebGLContext ? "react-term · SharedWebGL" : "react-term · Canvas 2D";
 }
 
 function syncRtViewports() {
