@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terminal Comparison — react-term vs xterm.js</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a0f;
+      color: #cdd6f4;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      gap: 32px;
+    }
+    h1 { font-size: 28px; color: #cba6f7; }
+    p { color: #a6adc8; font-size: 14px; max-width: 500px; text-align: center; line-height: 1.6; }
+    .cards { display: flex; gap: 24px; }
+    a.card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 32px 48px;
+      background: #1e1e2e;
+      border: 1px solid #313244;
+      border-radius: 12px;
+      text-decoration: none;
+      color: #cdd6f4;
+      transition: all 0.2s;
+    }
+    a.card:hover { border-color: #cba6f7; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .card-title { font-size: 20px; font-weight: 600; }
+    .card-desc { font-size: 12px; color: #6c7086; }
+    .both { margin-top: 8px; font-size: 12px; color: #6c7086; }
+    .both a { color: #89b4fa; text-decoration: none; }
+    .both a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Terminal Comparison</h1>
+  <p>8 multiplexed PTY panes (top, ping, log stream, hex dump, recursive ls, date loop, color test, find) with live performance metrics.</p>
+  <div class="cards">
+    <a class="card" href="jank-demo.html">
+      <div class="card-title">Jank Demo</div>
+      <div class="card-desc">A/B toggle with jank meter — the main comparison</div>
+    </a>
+    <a class="card" href="react-term.html">
+      <div class="card-title">react-term</div>
+      <div class="card-desc">WebGL2 + glyph atlas + Web Workers</div>
+    </a>
+    <a class="card" href="xterm.html">
+      <div class="card-title">xterm.js</div>
+      <div class="card-desc">Canvas renderer + addon-fit</div>
+    </a>
+  </div>
+  <div class="both">
+    Tip: Open both in separate browser windows for a true side-by-side.
+    <br>Make sure the PTY server is running: <code>pnpm --filter @next_term/comparison dev</code>
+  </div>
+</body>
+</html>
