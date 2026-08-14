@@ -370,7 +370,7 @@ function createReactTerm() {
         fontFamily: "monospace",
         theme: CATPPUCCIN_MOCHA,
         scrollback: 500,
-        useWorker: typeof crossOriginIsolated !== "undefined" && crossOriginIsolated,
+        useWorker: true,
         sharedContext: sharedCtx,
         paneId: `pane-${i}`,
       }),
@@ -387,7 +387,9 @@ function createReactTerm() {
   });
   sharedCtx.startRenderLoop();
   statEngine.textContent =
-    sharedCtx instanceof SharedWebGLContext ? "react-term · SharedWebGL" : "react-term · Canvas 2D";
+    sharedCtx instanceof SharedWebGLContext
+      ? "react-term · SharedWebGL"
+      : "react-term · Canvas 2D + workers";
 }
 
 function syncRtViewports() {

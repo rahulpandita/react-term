@@ -356,10 +356,7 @@ function App({ onShowSplit }: { onShowSplit: () => void }) {
     term.write(PROMPT);
 
     // GitHub Pages is static, so only probe for the optional PTY server in local development.
-    if (
-      import.meta.env.DEV &&
-      (location.hostname === "localhost" || location.hostname === "127.0.0.1")
-    ) {
+    if (import.meta.env.DEV) {
       connectWs();
     }
 
@@ -695,6 +692,9 @@ function Root() {
   const [isDark, _setIsDark] = useState(true);
   const [copied, setCopied] = useState(false);
   const theme = useMemo(() => (isDark ? DARK_THEME : LIGHT_THEME), [isDark]);
+  const comparisonUrl = import.meta.env.DEV
+    ? `${location.protocol}//${location.hostname}:5180/jank-demo.html`
+    : `${import.meta.env.BASE_URL}comparison/jank-demo.html`;
 
   const copyInstallCommand = useCallback(async () => {
     await navigator.clipboard.writeText(INSTALL_COMMAND);
@@ -744,10 +744,7 @@ function Root() {
               <button type="button" onClick={() => setView(view === "single" ? "split" : "single")}>
                 {view === "single" ? "Try 4 panes" : "Try single pane"}
               </button>
-              <a
-                className="comparison-action"
-                href={`${import.meta.env.BASE_URL}comparison/jank-demo.html`}
-              >
+              <a className="comparison-action" href={comparisonUrl}>
                 Compare with xterm.js <span aria-hidden="true">→</span>
               </a>
             </div>
