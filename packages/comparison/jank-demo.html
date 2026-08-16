@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Rendering Stress Test — react-term vs xterm.js</title>
+  <script>
+    // Set before first paint so embedded chrome never flashes.
+    if (window.self !== window.top) document.documentElement.classList.add("is-embedded");
+  </script>
 </head>
 <body>
   <div class="jank-header">

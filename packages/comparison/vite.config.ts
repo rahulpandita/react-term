@@ -24,6 +24,9 @@ export default defineConfig({
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "credentialless",
+      // Allows the showcase (port 5173) to embed this page as the benchmark
+      // chapter in dev. In production both are served same-origin.
+      "Cross-Origin-Resource-Policy": "cross-origin",
     },
     proxy: {
       "/ws": {

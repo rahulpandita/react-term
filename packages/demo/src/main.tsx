@@ -1,7 +1,7 @@
 import type { Theme } from "@next_term/core";
 import type { PaneLayout, TerminalHandle, TerminalPaneHandle } from "@next_term/react";
 import { Terminal, TerminalPane } from "@next_term/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -289,33 +289,121 @@ function useChapterProgress(root: { current: HTMLElement | null }) {
 const ids = (prefix: string, count: number) =>
   Array.from({ length: count }, (_, i) => `${prefix}-${i}`);
 
-const LANE_BLOCKS = ids("block", 9);
-const CELL_IDS = ids("cell", 96);
-const DRAW_IDS = ids("draw", 24);
-const PANE_IDS = Array.from({ length: 8 }, (_, i) => String(i + 1).padStart(2, "0"));
-const RAIL_LINE_IDS = ids("line", 7);
+/** A slab of real build output, so the "flood" reads as an actual terminal. */
+const FLOOD_LINES = [
+  { esc: "\\e[32m", text: "✓ core/cell-grid.ts", meta: "12ms" },
+  { esc: "\\e[32m", text: "✓ core/vt-parser.ts", meta: "31ms" },
+  { esc: "\\e[2m", text: "· web/renderer/webgl2.ts", meta: "" },
+  { esc: "\\e[32m", text: "✓ web/worker/parser.ts", meta: "18ms" },
+  { esc: "\\e[33m", text: "! react/terminal.tsx", meta: "unused import" },
+  { esc: "\\e[32m", text: "✓ native/skia-renderer.ts", meta: "44ms" },
+  { esc: "\\e[2m", text: "· web/addons/search.ts", meta: "" },
+  { esc: "\\e[32m", text: "✓ core/buffer-set.ts", meta: "9ms" },
+  { esc: "\\e[32m", text: "✓ web/atlas/glyph.ts", meta: "27ms" },
+  { esc: "\\e[2m", text: "· demo/main.tsx", meta: "" },
+];
+
+const THREAD_CHIPS = [
+  { id: "main", name: "main thread", state: "idle", load: 4 },
+  { id: "parser-a", name: "parser worker", state: "busy", load: 91 },
+  { id: "parser-b", name: "parser worker", state: "busy", load: 87 },
+  { id: "renderer", name: "render worker", state: "busy", load: 78 },
+];
+
+/** The two 32-bit words each cell packs into. */
+const CELL_WORDS = [
+  { id: "w0", label: "word 0", bits: "0000 0000 0110 0001", note: "codepoint" },
+  { id: "w1", label: "word 1", bits: "0000 0111 0000 0001", note: "fg · bg · flags" },
+];
+
+const GRID_GLYPHS = "npm run build ▍react-term ✓ 2 draw calls SharedArrayBuffer atomics";
+const CELL_IDS = ids("cell", 130);
+const ATLAS_GLYPHS =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789{}[]()<>/\\|=+-*&^%$#@!?;:,.~`'\"→←↑↓█▓▒░▍✓✗";
+const PANE_IDS = Array.from({ length: 7 }, (_, i) => String(i + 1).padStart(2, "0"));
+
+const PANE_CONTENT = [
+  {
+    cmd: "pnpm dev",
+    lines: ["VITE v6.4.1  ready", "➜  localhost:5173", "", "watching for changes"],
+  },
+  {
+    cmd: "pnpm test",
+    lines: [
+      "✓ cell-grid  38 passed",
+      "✓ vt-parser  91 passed",
+      "✓ buffer     24 passed",
+      "",
+      "153 passed (1.9s)",
+    ],
+  },
+  {
+    cmd: "git log --oneline",
+    lines: [
+      "8f750d4 scroll chapters",
+      "030aa6b pages showcase",
+      "1c4e9a2 webgl2 atlas",
+      "b77f001 sab cell grid",
+    ],
+  },
+  {
+    cmd: "htop",
+    lines: [
+      "cpu ▓▓▓▓▓░░░░░  48%",
+      "mem ▓▓▓▓▓▓▓░░░  71%",
+      "",
+      "node       412MB",
+      "vite       188MB",
+    ],
+  },
+  {
+    cmd: "tail -f server.log",
+    lines: [
+      "GET  /api/session  200",
+      "POST /api/pty      201",
+      "GET  /assets/*     304",
+      "GET  /api/health   200",
+    ],
+  },
+  {
+    cmd: "tsc --watch",
+    lines: ["Starting compilation…", "", "Found 0 errors.", "Watching for changes."],
+  },
+  { cmd: "ssh build-01", lines: ["Linux build-01 6.8.0", "load average: 2.14", "", "$ make -j16"] },
+];
 
 function ThreadLanesVisual() {
   return (
     <div className="stage-art stage-threads" aria-hidden="true">
-      <div className="lane lane-main">
-        <span className="lane-name">main thread</span>
-        <div className="lane-track">
-          <i className="lane-block lane-block-calm" />
-          <i className="lane-block lane-block-calm" />
-          <i className="lane-block lane-block-calm" />
+      <div className="slab slab-flood" data-depth="back">
+        <div className="slab-bar">
+          <i />
+          <i />
+          <i />
+          <strong>npm run build</strong>
         </div>
+        <div className="flood">
+          {FLOOD_LINES.map((line) => (
+            <p className="flood-line" key={line.text}>
+              <span className="flood-esc">{line.esc}</span>
+              <span className="flood-text">{line.text}</span>
+              {line.meta ? <span className="flood-meta">{line.meta}</span> : null}
+            </p>
+          ))}
+        </div>
+        <div className="flood-fade" />
       </div>
-      {["parser-a", "parser-b", "renderer"].map((name) => (
-        <div className="lane lane-worker" key={name}>
-          <span className="lane-name">{name.split("-")[0]}</span>
-          <div className="lane-track">
-            {LANE_BLOCKS.map((block) => (
-              <i className="lane-block lane-block-busy" key={`${name}-${block}`} />
-            ))}
+
+      <div className="thread-chips" data-depth="front">
+        {THREAD_CHIPS.map((chip) => (
+          <div className={`thread-chip thread-chip-${chip.state}`} key={chip.id}>
+            <span className="chip-dot" />
+            <span className="chip-name">{chip.name}</span>
+            <span className="chip-load">{chip.load}%</span>
+            <span className="chip-meter" style={{ "--load": `${chip.load}%` } as CSSProperties} />
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -323,9 +411,36 @@ function ThreadLanesVisual() {
 function CellGridVisual() {
   return (
     <div className="stage-art stage-cells" aria-hidden="true">
-      {CELL_IDS.map((id, index) => (
-        <i className={index % 7 === 0 ? "cell cell-hot" : "cell"} key={id} />
-      ))}
+      <div className="slab slab-grid" data-depth="back">
+        <div className="slab-bar">
+          <i />
+          <i />
+          <i />
+          <strong>SharedArrayBuffer · 130 cells</strong>
+        </div>
+        <div className="cell-grid">
+          {CELL_IDS.map((id, index) => {
+            const glyph = GRID_GLYPHS[index % GRID_GLYPHS.length];
+            const hot = index % 9 === 3;
+            return (
+              <span className={hot ? "cell cell-hot" : "cell"} key={id}>
+                {glyph === " " ? "" : glyph}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="cell-words" data-depth="front">
+        <span className="words-caption">1 cell = 8 bytes</span>
+        {CELL_WORDS.map((word) => (
+          <div className="word" key={word.id}>
+            <span className="word-label">{word.label}</span>
+            <code className="word-bits">{word.bits}</code>
+            <span className="word-note">{word.note}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -333,23 +448,35 @@ function CellGridVisual() {
 function DrawCallVisual() {
   return (
     <div className="stage-art stage-draw" aria-hidden="true">
-      <div className="draw-column draw-column-before">
-        <span className="draw-count">1,920</span>
-        <div className="draw-stack">
-          {DRAW_IDS.map((id) => (
-            <i key={id} />
+      <div className="slab slab-atlas" data-depth="back">
+        <div className="slab-bar">
+          <i />
+          <i />
+          <i />
+          <strong>glyph atlas · GPU texture</strong>
+        </div>
+        <div className="atlas">
+          {[...ATLAS_GLYPHS].map((glyph, index) => (
+            <span
+              className={index % 11 === 0 ? "atlas-cell atlas-cell-hot" : "atlas-cell"}
+              key={`${glyph}-${index === 0 ? "a" : glyph.charCodeAt(0) + index}`}
+            >
+              {glyph}
+            </span>
           ))}
         </div>
-        <span className="draw-label">per-glyph draws</span>
       </div>
-      <span className="draw-arrow">→</span>
-      <div className="draw-column draw-column-after">
-        <span className="draw-count">2</span>
-        <div className="draw-stack draw-stack-tight">
-          <i />
-          <i />
+
+      <div className="draw-readout" data-depth="front">
+        <div className="draw-figure draw-figure-before">
+          <span className="draw-count">1,920</span>
+          <span className="draw-label">draws · one per glyph</span>
         </div>
-        <span className="draw-label">instanced draws</span>
+        <span className="draw-rule" />
+        <div className="draw-figure draw-figure-after">
+          <span className="draw-count">2</span>
+          <span className="draw-label">draws · instanced</span>
+        </div>
       </div>
     </div>
   );
@@ -359,25 +486,98 @@ function PaneRailVisual() {
   return (
     <div className="stage-rail" aria-hidden="true">
       <div className="rail">
-        {PANE_IDS.map((paneId, index) => (
-          <article className="rail-pane" key={paneId}>
-            <header>
-              <i />
-              <i />
-              <i />
-              <strong>pane {paneId}</strong>
-            </header>
-            <div className="rail-lines">
-              {RAIL_LINE_IDS.map((line, lineIndex) => (
-                <i
-                  key={`${paneId}-${line}`}
-                  style={{ width: `${34 + ((index * 13 + lineIndex * 21) % 58)}%` }}
-                />
-              ))}
-            </div>
-          </article>
-        ))}
+        {PANE_IDS.map((paneId, index) => {
+          const content = PANE_CONTENT[index % PANE_CONTENT.length];
+          return (
+            <article className="rail-pane" key={paneId}>
+              <header className="slab-bar">
+                <i />
+                <i />
+                <i />
+                <strong>pane {paneId}</strong>
+              </header>
+              <div className="rail-body">
+                <p className="rail-cmd">
+                  <span className="rail-prompt">$</span> {content.cmd}
+                </p>
+                {content.lines.map((line, lineIndex) => (
+                  <p
+                    className={line.startsWith("✓") ? "rail-line rail-line-ok" : "rail-line"}
+                    key={`${paneId}-${lineIndex === 0 ? "first" : line || `blank${lineIndex}`}`}
+                  >
+                    {line || "\u00a0"}
+                  </p>
+                ))}
+                <p className="rail-line rail-caret">
+                  <span className="rail-prompt">$</span> <i className="caret" />
+                </p>
+              </div>
+            </article>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The live xterm.js comparison, embedded as its own chapter. The stress test
+ * is a real page, so it is only mounted once the chapter is near the viewport
+ * — otherwise it would sit offscreen burning the main thread it exists to
+ * measure.
+ */
+function BenchmarkVisual({ src }: { src: string }) {
+  const holder = useRef<HTMLDivElement | null>(null);
+  const [live, setLive] = useState(false);
+
+  useEffect(() => {
+    const node = holder.current;
+    if (!node || live) return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      setLive(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setLive(true);
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [live]);
+
+  return (
+    <div className="stage-art stage-bench" ref={holder}>
+      <div className="slab slab-bench" data-depth="back">
+        <div className="slab-bar">
+          <i />
+          <i />
+          <i />
+          <strong>stress test · react-term vs xterm.js</strong>
+        </div>
+        <div className="bench-frame">
+          {live ? (
+            <iframe
+              className="bench-iframe"
+              src={src}
+              title="Rendering stress test"
+              loading="lazy"
+            />
+          ) : (
+            <p className="bench-idle">
+              <span className="rail-prompt">$</span> loading stress test…
+            </p>
+          )}
+        </div>
+      </div>
+
+      <a className="bench-launch" data-depth="front" href={src}>
+        Open full screen <span aria-hidden="true">→</span>
+      </a>
     </div>
   );
 }
@@ -1000,6 +1200,20 @@ function Root() {
                 </p>
               </div>
               <PaneRailVisual />
+            </div>
+          </section>
+
+          <section className="chapter chapter-bench" data-chapter aria-labelledby="chapter-bench">
+            <div className="chapter-stage chapter-stage-bench">
+              <div className="chapter-copy">
+                <p className="chapter-index">Prove</p>
+                <h2 id="chapter-bench">Watch a main thread stop stuttering.</h2>
+                <p>
+                  The same flood of output, rendered by react-term and by xterm.js. Start it and
+                  watch the frame rate, dropped frames, and long tasks diverge in real time.
+                </p>
+              </div>
+              <BenchmarkVisual src={comparisonUrl} />
             </div>
           </section>
         </section>
