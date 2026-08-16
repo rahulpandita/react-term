@@ -19,6 +19,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: #e8f0df;
+  overflow-x: clip;
 }
 
 button,
@@ -37,8 +38,9 @@ a:focus-visible {
 }
 
 .showcase {
+  --scroll-y: 0px;
   min-height: 100vh;
-  overflow: hidden;
+  position: relative;
 }
 
 .site-header,
@@ -97,12 +99,37 @@ footer a:hover {
 }
 
 .hero {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(320px, 0.72fr) minmax(560px, 1.28fr);
   gap: clamp(48px, 7vw, 112px);
   align-items: center;
   min-height: calc(100vh - 222px);
   padding-block: clamp(58px, 9vh, 116px);
+}
+
+.hero-orbit {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid rgba(255, 92, 53, 0.4);
+  border-radius: 50%;
+}
+
+.hero-orbit-back {
+  top: 9%;
+  right: 2%;
+  width: clamp(280px, 32vw, 520px);
+  aspect-ratio: 1;
+  transform: translate3d(0, calc(var(--scroll-y) * -0.08), 0) rotate(-18deg);
+}
+
+.hero-orbit-front {
+  right: 16%;
+  bottom: 8%;
+  width: clamp(90px, 11vw, 170px);
+  aspect-ratio: 1;
+  border-color: rgba(21, 32, 24, 0.28);
+  transform: translate3d(0, calc(var(--scroll-y) * -0.2), 0) rotate(22deg);
 }
 
 .hero-copy {
@@ -201,6 +228,7 @@ h1 {
   border: 1px solid #152018;
   background: #111711;
   box-shadow: 18px 18px 0 rgba(21, 32, 24, 0.16);
+  transform: translate3d(0, calc(var(--scroll-y) * -0.03), 0);
   animation: terminal-arrival 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -264,6 +292,368 @@ h1 {
 .pane-switch:hover {
   color: #ffffff;
   border-color: #ff5c35;
+}
+
+/* ---------------------------------------------------------------------------
+   Scroll chapters: each chapter is a tall scroll track with a pinned stage.
+   `--p` (0..1 scroll progress) and `--vis` (fade weight) are written by JS.
+   --------------------------------------------------------------------------- */
+
+.chapters {
+  --chapter-track: 260vh;
+}
+
+.chapter {
+  --p: 0;
+  --vis: 1;
+  position: relative;
+  height: var(--chapter-track);
+}
+
+.chapter-wide {
+  --chapter-track: 320vh;
+}
+
+.chapter-stage {
+  position: sticky;
+  top: 0;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+  gap: clamp(40px, 6vw, 96px);
+  align-items: center;
+  width: min(1320px, calc(100% - 64px));
+  height: 100vh;
+  margin-inline: auto;
+  overflow: hidden;
+}
+
+.chapter-copy {
+  position: relative;
+  z-index: 1;
+  opacity: var(--vis);
+  transform: translate3d(0, calc((1 - var(--vis)) * 26px), 0);
+}
+
+/*
+  Preferred path: drive the chapter motion natively on the compositor.
+  The scroll timeline is the chapter track; the pinned stage is the subject.
+  The JS fallback above only runs where this is unsupported.
+*/
+@supports (animation-timeline: view()) {
+  .chapter {
+    view-timeline: --chapter block;
+  }
+
+  .chapter-copy,
+  .stage-art,
+  .rail {
+    animation-timeline: --chapter;
+    /* `contain` runs 0..1 exactly while the tall chapter covers the viewport,
+       which is the window in which its stage is pinned. */
+    animation-range: contain 0% contain 100%;
+    animation-duration: auto;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+  }
+
+  .chapter-copy {
+    animation-name: chapter-copy-in;
+    opacity: 1;
+    transform: none;
+  }
+
+  .stage-art {
+    animation-name: stage-drift;
+    opacity: 1;
+    transform: none;
+  }
+
+  .rail {
+    animation-name: rail-travel;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes chapter-copy-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 26px, 0);
+  }
+  18%,
+  86% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -18px, 0);
+  }
+}
+
+@keyframes stage-drift {
+  0% {
+    opacity: 0;
+    transform: translate3d(190px, 0, 0);
+  }
+  18%,
+  86% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-190px, 0, 0);
+  }
+}
+
+@keyframes rail-travel {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  14%,
+  88% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-58%, 0, 0);
+  }
+}
+
+.chapter-index {
+  margin: 0 0 18px;
+  color: #ff5c35;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.chapter-copy h2 {
+  max-width: 15ch;
+  margin: 0;
+  font-size: clamp(2.1rem, 4vw, 3.9rem);
+  font-weight: 760;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.chapter-copy p:last-child {
+  max-width: 46ch;
+  margin: 24px 0 0;
+  color: #435248;
+  font-size: clamp(0.98rem, 1.15vw, 1.12rem);
+  line-height: 1.65;
+}
+
+/* Shared stage artwork: drifts horizontally as the chapter scrolls. */
+.stage-art {
+  opacity: var(--vis);
+  transform: translate3d(calc((0.5 - var(--p)) * 190px), 0, 0);
+}
+
+/* Chapter 01 — thread lanes */
+.stage-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.lane-name {
+  color: #526057;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.7rem;
+  text-align: right;
+}
+
+.lane-main .lane-name {
+  color: #152018;
+  font-weight: 700;
+}
+
+.lane-track {
+  display: flex;
+  gap: 5px;
+  height: 34px;
+  padding: 6px;
+  border: 1px solid rgba(21, 32, 24, 0.3);
+  background: #dce6d4;
+}
+
+.lane-main .lane-track {
+  background: #eef5e8;
+}
+
+.lane-block {
+  height: 100%;
+  border-radius: 1px;
+}
+
+.lane-block-calm {
+  width: 14px;
+  background: rgba(21, 32, 24, 0.22);
+}
+
+.lane-block-busy {
+  flex: 1;
+  background: #ff5c35;
+  opacity: calc(0.35 + var(--p) * 0.65);
+}
+
+/* Chapter 02 — shared cell grid */
+.stage-cells {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 6px;
+  padding: 26px;
+  border: 1px solid #152018;
+  background: #111711;
+}
+
+.cell {
+  aspect-ratio: 1 / 1.6;
+  background: rgba(216, 230, 212, 0.18);
+}
+
+.cell-hot {
+  background: #ff5c35;
+  opacity: calc(0.3 + var(--p) * 0.7);
+}
+
+/* Chapter 03 — draw call collapse */
+.stage-draw {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: clamp(20px, 3vw, 48px);
+  align-items: center;
+}
+
+.draw-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 26px 22px;
+  border: 1px solid rgba(21, 32, 24, 0.35);
+}
+
+.draw-column-after {
+  border-color: #152018;
+  background: #dce6d4;
+}
+
+.draw-count {
+  font-size: clamp(1.7rem, 2.6vw, 2.6rem);
+  font-weight: 760;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.draw-column-after .draw-count {
+  color: #ff5c35;
+}
+
+.draw-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.draw-stack i {
+  width: 9px;
+  height: 9px;
+  background: rgba(21, 32, 24, 0.3);
+}
+
+.draw-stack-tight i {
+  width: 30px;
+  height: 12px;
+  background: #ff5c35;
+}
+
+.draw-label {
+  color: #526057;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.7rem;
+}
+
+.draw-arrow {
+  color: #526057;
+  font-size: 1.4rem;
+}
+
+/* Chapter 04 — horizontal pane rail */
+.stage-rail {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rail {
+  display: flex;
+  gap: 20px;
+  width: max-content;
+  opacity: var(--vis);
+  /* Pull the rail leftwards across the pinned viewport as the chapter scrolls. */
+  transform: translate3d(calc(var(--p) * -58%), 0, 0);
+}
+
+.rail-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: clamp(200px, 20vw, 260px);
+  padding: 14px;
+  border: 1px solid #152018;
+  background: #111711;
+}
+
+.rail-pane header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.rail-pane header i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #566057;
+}
+
+.rail-pane header i:first-child {
+  background: #ff5c35;
+}
+
+.rail-pane strong {
+  margin-left: 6px;
+  color: #a8b4aa;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.rail-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.rail-lines i {
+  height: 6px;
+  background: rgba(216, 230, 212, 0.24);
+}
+
+.rail-lines i:nth-child(3n) {
+  background: rgba(255, 92, 53, 0.55);
 }
 
 .feature-band {
@@ -402,6 +792,21 @@ footer {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .chapter-stage {
+    grid-template-columns: 1fr;
+    gap: 36px;
+    align-content: center;
+  }
+
+  .chapter-copy h2 {
+    max-width: 18ch;
+  }
+
+  .stage-cells {
+    grid-template-columns: repeat(12, 1fr);
+    padding: 18px;
+  }
+
   .feature-band article:nth-child(2) {
     border-right: 0;
   }
@@ -436,6 +841,17 @@ footer {
     padding-block: 48px 56px;
   }
 
+  .hero-orbit-back {
+    top: 42%;
+    right: -24%;
+    width: 320px;
+  }
+
+  .hero-orbit-front {
+    right: 8%;
+    bottom: 4%;
+  }
+
   h1 {
     font-size: clamp(3rem, 15vw, 4.2rem);
   }
@@ -466,6 +882,38 @@ footer {
     gap: 18px;
   }
 
+  .chapters {
+    --chapter-track: 200vh;
+  }
+
+  .chapter-wide {
+    --chapter-track: 240vh;
+  }
+
+  .chapter-stage {
+    width: min(100% - 32px, 1480px);
+    gap: 28px;
+  }
+
+  .stage-art {
+    transform: translate3d(calc((0.5 - var(--p)) * 90px), 0, 0);
+  }
+
+  .lane {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .stage-draw {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    justify-items: start;
+  }
+
+  .draw-arrow {
+    transform: rotate(90deg);
+  }
+
   .feature-band {
     grid-template-columns: 1fr;
   }
@@ -488,6 +936,35 @@ footer {
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .chapters {
+    --chapter-track: auto;
+  }
+
+  .chapter {
+    height: auto;
+  }
+
+  .chapter-stage {
+    position: static;
+    height: auto;
+    padding-block: 72px;
+  }
+
+  .stage-art,
+  .rail,
+  .chapter-copy,
+  .hero-orbit,
+  .terminal-frame {
+    opacity: 1;
+    transform: none;
+    animation-name: none;
+  }
+
+  .rail {
+    flex-wrap: wrap;
+    width: 100%;
   }
 
   *,

@@ -213,6 +213,175 @@ function useFps() {
   return fps;
 }
 
+function useParallax(target: { current: HTMLElement | null }) {
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const element = target.current;
+    if (!element) return;
+
+    const update = () => {
+      element.style.setProperty("--scroll-y", `${window.scrollY}px`);
+    };
+
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", update);
+    };
+  }, [target]);
+}
+
+// ---------------------------------------------------------------------------
+// Scroll-linked chapter progress
+// ---------------------------------------------------------------------------
+
+/**
+ * JS fallback for browsers without CSS scroll-driven animations (Safari, Firefox).
+ * Writes a 0..1 scroll progress (`--p`) and a fade weight (`--vis`) onto every
+ * `[data-chapter]`. Browsers with `animation-timeline` handle this on the
+ * compositor instead and skip this entirely.
+ */
+function useChapterProgress(root: { current: HTMLElement | null }) {
+  useEffect(() => {
+    const host = root.current;
+    if (!host) return;
+    if (CSS.supports("animation-timeline: view()")) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const chapters = Array.from(host.querySelectorAll<HTMLElement>("[data-chapter]"));
+    if (chapters.length === 0) return;
+
+    const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+
+    const update = () => {
+      const viewport = window.innerHeight;
+
+      for (const chapter of chapters) {
+        const rect = chapter.getBoundingClientRect();
+        const travel = rect.height - viewport;
+        const progress = travel > 0 ? clamp01(-rect.top / travel) : 0.5;
+        // Fade in over the first slice, out over the last, so pinned stages
+        // hand off to each other instead of popping.
+        const vis = Math.min(clamp01(progress / 0.18), clamp01((1 - progress) / 0.14));
+
+        chapter.style.setProperty("--p", progress.toFixed(4));
+        chapter.style.setProperty("--vis", vis.toFixed(4));
+      }
+    };
+
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [root]);
+}
+
+// ---------------------------------------------------------------------------
+// Chapter stage visuals
+// ---------------------------------------------------------------------------
+
+const ids = (prefix: string, count: number) =>
+  Array.from({ length: count }, (_, i) => `${prefix}-${i}`);
+
+const LANE_BLOCKS = ids("block", 9);
+const CELL_IDS = ids("cell", 96);
+const DRAW_IDS = ids("draw", 24);
+const PANE_IDS = Array.from({ length: 8 }, (_, i) => String(i + 1).padStart(2, "0"));
+const RAIL_LINE_IDS = ids("line", 7);
+
+function ThreadLanesVisual() {
+  return (
+    <div className="stage-art stage-threads" aria-hidden="true">
+      <div className="lane lane-main">
+        <span className="lane-name">main thread</span>
+        <div className="lane-track">
+          <i className="lane-block lane-block-calm" />
+          <i className="lane-block lane-block-calm" />
+          <i className="lane-block lane-block-calm" />
+        </div>
+      </div>
+      {["parser-a", "parser-b", "renderer"].map((name) => (
+        <div className="lane lane-worker" key={name}>
+          <span className="lane-name">{name.split("-")[0]}</span>
+          <div className="lane-track">
+            {LANE_BLOCKS.map((block) => (
+              <i className="lane-block lane-block-busy" key={`${name}-${block}`} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CellGridVisual() {
+  return (
+    <div className="stage-art stage-cells" aria-hidden="true">
+      {CELL_IDS.map((id, index) => (
+        <i className={index % 7 === 0 ? "cell cell-hot" : "cell"} key={id} />
+      ))}
+    </div>
+  );
+}
+
+function DrawCallVisual() {
+  return (
+    <div className="stage-art stage-draw" aria-hidden="true">
+      <div className="draw-column draw-column-before">
+        <span className="draw-count">1,920</span>
+        <div className="draw-stack">
+          {DRAW_IDS.map((id) => (
+            <i key={id} />
+          ))}
+        </div>
+        <span className="draw-label">per-glyph draws</span>
+      </div>
+      <span className="draw-arrow">→</span>
+      <div className="draw-column draw-column-after">
+        <span className="draw-count">2</span>
+        <div className="draw-stack draw-stack-tight">
+          <i />
+          <i />
+        </div>
+        <span className="draw-label">instanced draws</span>
+      </div>
+    </div>
+  );
+}
+
+function PaneRailVisual() {
+  return (
+    <div className="stage-rail" aria-hidden="true">
+      <div className="rail">
+        {PANE_IDS.map((paneId, index) => (
+          <article className="rail-pane" key={paneId}>
+            <header>
+              <i />
+              <i />
+              <i />
+              <strong>pane {paneId}</strong>
+            </header>
+            <div className="rail-lines">
+              {RAIL_LINE_IDS.map((line, lineIndex) => (
+                <i
+                  key={`${paneId}-${line}`}
+                  style={{ width: `${34 + ((index * 13 + lineIndex * 21) % 58)}%` }}
+                />
+              ))}
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Floating HUD
 // ---------------------------------------------------------------------------
@@ -688,6 +857,7 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
 // ---------------------------------------------------------------------------
 
 function Root() {
+  const showcaseRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<"single" | "split">("single");
   const [isDark, _setIsDark] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -702,6 +872,9 @@ function Root() {
     window.setTimeout(() => setCopied(false), 1600);
   }, []);
 
+  useParallax(showcaseRef);
+  useChapterProgress(showcaseRef);
+
   // Keyboard shortcut: Ctrl+Shift+D toggles split view
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -715,7 +888,7 @@ function Root() {
   }, []);
 
   return (
-    <div className="showcase">
+    <div className="showcase" ref={showcaseRef}>
       <header className="site-header">
         <a className="wordmark" href="./" aria-label="react-term home">
           react-term<span aria-hidden="true">_</span>
@@ -731,6 +904,8 @@ function Root() {
 
       <main>
         <section className="hero" aria-labelledby="hero-title">
+          <div className="hero-orbit hero-orbit-back" aria-hidden="true" />
+          <div className="hero-orbit hero-orbit-front" aria-hidden="true" />
           <div className="hero-copy">
             <h1 id="hero-title">The terminal belongs off the main thread.</h1>
             <p>
@@ -769,6 +944,64 @@ function Root() {
               <App onShowSplit={() => setView("split")} />
             )}
           </div>
+        </section>
+
+        <section className="chapters" aria-label="How react-term works">
+          <section className="chapter" data-chapter aria-labelledby="chapter-threads">
+            <div className="chapter-stage">
+              <div className="chapter-copy">
+                <p className="chapter-index">Parse</p>
+                <h2 id="chapter-threads">Bursty output never touches your UI thread.</h2>
+                <p>
+                  Escape sequences are parsed inside dedicated workers. While a build floods the
+                  screen, React keeps rendering, input keeps landing, and layout never stalls.
+                </p>
+              </div>
+              <ThreadLanesVisual />
+            </div>
+          </section>
+
+          <section className="chapter" data-chapter aria-labelledby="chapter-memory">
+            <div className="chapter-stage">
+              <div className="chapter-copy">
+                <p className="chapter-index">Share</p>
+                <h2 id="chapter-memory">One grid of cells, shared across every thread.</h2>
+                <p>
+                  Each cell packs into two 32-bit words inside a SharedArrayBuffer. Workers publish
+                  dirty regions through Atomics, so no line is ever serialized or copied.
+                </p>
+              </div>
+              <CellGridVisual />
+            </div>
+          </section>
+
+          <section className="chapter" data-chapter aria-labelledby="chapter-render">
+            <div className="chapter-stage">
+              <div className="chapter-copy">
+                <p className="chapter-index">Render</p>
+                <h2 id="chapter-render">A full screen of glyphs in two draw calls.</h2>
+                <p>
+                  The WebGL2 renderer batches every cell into instanced geometry. Canvas 2D covers
+                  browsers without cross-origin isolation, with the same output.
+                </p>
+              </div>
+              <DrawCallVisual />
+            </div>
+          </section>
+
+          <section className="chapter chapter-wide" data-chapter aria-labelledby="chapter-panes">
+            <div className="chapter-stage chapter-stage-rail">
+              <div className="chapter-copy">
+                <p className="chapter-index">Scale</p>
+                <h2 id="chapter-panes">Thirty-two panes on one graphics context.</h2>
+                <p>
+                  Panes share a single context and atlas instead of each claiming their own. Split
+                  the workspace as far as the task needs.
+                </p>
+              </div>
+              <PaneRailVisual />
+            </div>
+          </section>
         </section>
 
         <section className="install-band" aria-labelledby="install-title">
