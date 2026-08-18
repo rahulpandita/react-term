@@ -59,10 +59,10 @@ describe("InputHandler", () => {
   });
 
   describe("mouse wheel scrolling in normal mode", () => {
-    function setupWheel() {
+    function setupWheel(scrollInputMode: "terminal" | "page" = "terminal") {
       const onData = vi.fn();
       const onScroll = vi.fn();
-      const handler = new InputHandler({ onData, onScroll });
+      const handler = new InputHandler({ onData, onScroll, scrollInputMode });
       const container = document.createElement("div");
       container.style.width = "800px";
       container.style.height = "400px";
@@ -77,7 +77,7 @@ describe("InputHandler", () => {
         handler.dispose();
         document.body.removeChild(container);
       };
-      return { onScroll, dispatch, teardown };
+      return { container, onScroll, dispatch, teardown };
     }
 
     it("calls onScroll with positive delta when wheel scrolls up (into history)", () => {
@@ -98,6 +98,19 @@ describe("InputHandler", () => {
       const { onScroll, dispatch, teardown } = setupWheel();
       dispatch(2); // too small to round to 1 line
       expect(onScroll).not.toHaveBeenCalled();
+      teardown();
+    });
+
+    it("leaves wheel events uncanceled for ancestor page scrolling in page mode", () => {
+      const { onScroll, dispatch, teardown } = setupWheel("page");
+      expect(dispatch(48)).toBe(true);
+      expect(onScroll).not.toHaveBeenCalled();
+      teardown();
+    });
+
+    it("uses vertical page touch actions in page mode", () => {
+      const { container, teardown } = setupWheel("page");
+      expect(container.style.touchAction).toBe("pan-y pinch-zoom");
       teardown();
     });
   });

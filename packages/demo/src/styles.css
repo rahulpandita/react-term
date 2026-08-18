@@ -202,30 +202,6 @@ footer a:hover {
   padding-block: clamp(58px, 9vh, 116px);
 }
 
-.hero-orbit {
-  position: absolute;
-  pointer-events: none;
-  border: 1px solid rgba(0, 255, 65, 0.34);
-  border-radius: 50%;
-}
-
-.hero-orbit-back {
-  top: 9%;
-  right: 2%;
-  width: clamp(280px, 32vw, 520px);
-  aspect-ratio: 1;
-  transform: translate3d(0, calc(var(--scroll-y) * -0.08), 0) rotate(-18deg);
-}
-
-.hero-orbit-front {
-  right: 16%;
-  bottom: 8%;
-  width: clamp(90px, 11vw, 170px);
-  aspect-ratio: 1;
-  border-color: var(--line);
-  transform: translate3d(0, calc(var(--scroll-y) * -0.2), 0) rotate(22deg);
-}
-
 .hero-copy {
   position: relative;
   z-index: 1;
@@ -948,6 +924,7 @@ h1 {
 
 .bench-frame {
   position: relative;
+  display: grid;
   flex: 1;
   min-height: 0;
   background: var(--bg);
@@ -960,12 +937,85 @@ h1 {
   border: 0;
 }
 
-.bench-idle {
-  margin: 0;
-  padding: 22px;
+.bench-gate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: clamp(18px, 3vw, 36px);
+  width: 100%;
+  height: 100%;
+  min-height: clamp(280px, 42vh, 480px);
+  padding: clamp(24px, 4vw, 52px);
+  background: radial-gradient(circle at 22% 36%, rgba(0, 255, 65, 0.1), transparent 48%);
+}
+
+.bench-preview {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, max-content 1fr);
+  align-content: center;
+  gap: 10px clamp(18px, 4vw, 54px);
+  min-width: 0;
+  padding-bottom: clamp(24px, 4vh, 44px);
+  border-bottom: 1px solid var(--line);
+}
+
+.bench-preview span {
+  align-self: end;
   color: var(--text-dim);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 0.72rem;
+  font-size: clamp(0.68rem, 0.9vw, 0.82rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bench-preview strong {
+  color: var(--green);
+  font-size: clamp(2rem, 5vw, 4.8rem);
+  line-height: 0.92;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 26px var(--glow);
+}
+
+.bench-gate p {
+  align-self: end;
+  max-width: 62ch;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: clamp(0.9rem, 1.1vw, 1.05rem);
+  line-height: 1.6;
+}
+
+.bench-activate,
+.bench-release {
+  padding: 12px 18px;
+  border: 1px solid var(--green);
+  color: var(--on-green);
+  background: var(--green);
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.bench-activate {
+  align-self: end;
+  justify-self: end;
+}
+
+.bench-activate:hover,
+.bench-release:hover {
+  background: var(--green-soft);
+}
+
+.bench-release {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 3;
+}
+
+.bench-mobile-launch {
+  display: none;
 }
 
 /* Launch link floats over the slab's lower corner. */
@@ -1247,17 +1297,6 @@ footer {
     padding-block: 48px 56px;
   }
 
-  .hero-orbit-back {
-    top: 42%;
-    right: -24%;
-    width: 320px;
-  }
-
-  .hero-orbit-front {
-    right: 8%;
-    bottom: 4%;
-  }
-
   h1 {
     font-size: clamp(3rem, 15vw, 4.2rem);
   }
@@ -1299,6 +1338,55 @@ footer {
   .chapter-stage {
     width: min(100% - 32px, 1480px);
     gap: 28px;
+  }
+
+  .chapter-stage-bench {
+    position: relative;
+    grid-template-rows: auto auto;
+    height: auto;
+    min-height: 100svh;
+    padding-block: 32px;
+    overflow: visible;
+  }
+
+  .chapter-bench {
+    height: auto;
+  }
+
+  .stage-bench,
+  .slab-bench {
+    height: auto;
+  }
+
+  .bench-gate {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto auto auto;
+    min-height: 360px;
+    padding: 22px;
+  }
+
+  .bench-preview {
+    grid-template-columns: max-content 1fr;
+  }
+
+  .bench-preview strong {
+    font-size: clamp(1.8rem, 11vw, 3rem);
+    text-align: right;
+  }
+
+  .bench-activate {
+    justify-self: stretch;
+  }
+
+  .bench-mobile-launch {
+    display: inline-flex;
+    color: var(--green);
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .bench-launch {
+    display: none;
   }
 
   .stage-art {
@@ -1354,6 +1442,26 @@ footer {
   }
 }
 
+@media (max-height: 700px) {
+  .chapter-bench {
+    height: auto;
+  }
+
+  .chapter-stage-bench {
+    position: relative;
+    grid-template-rows: auto auto;
+    height: auto;
+    min-height: 100svh;
+    padding-block: 28px;
+    overflow: visible;
+  }
+
+  .stage-bench,
+  .slab-bench {
+    height: auto;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -1377,7 +1485,6 @@ footer {
   .stage-art [data-depth="front"],
   .rail,
   .chapter-copy,
-  .hero-orbit,
   .terminal-frame {
     opacity: 1;
     transform: none;

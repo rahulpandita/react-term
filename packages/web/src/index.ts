@@ -16,7 +16,11 @@ export { SearchAddon } from "./addons/search.js";
 export type { LinkMatch } from "./addons/web-links.js";
 export { WebLinksAddon } from "./addons/web-links.js";
 export { calculateFit } from "./fit.js";
-export type { InputHandlerOptions, SelectionState } from "./input-handler.js";
+export type {
+  InputHandlerOptions,
+  ScrollInputMode,
+  SelectionState,
+} from "./input-handler.js";
 export { InputHandler } from "./input-handler.js";
 export { DEFAULT_PARSER_WORKER_COUNT, ParserChannel, ParserPool } from "./parser-pool.js";
 export type { RenderBridgeOptions } from "./render-bridge.js";

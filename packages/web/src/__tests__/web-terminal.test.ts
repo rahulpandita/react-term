@@ -605,6 +605,31 @@ describe("WebTerminal", () => {
       term.dispose();
     });
 
+    it("shows an explicit keyboard-operable history scrollbar in page mode", () => {
+      const term = make3({ scrollInputMode: "page" });
+      writeLines(term, 5);
+      const scrollbar = container.querySelector('[role="scrollbar"]') as HTMLElement;
+
+      expect(scrollbar.style.opacity).toBe("1");
+      expect(scrollbar.style.pointerEvents).toBe("auto");
+      expect(scrollbar.tabIndex).toBe(0);
+      scrollbar.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", cancelable: true }));
+      expect(term.scrollOffset).toBeGreaterThan(0);
+
+      term.dispose();
+    });
+
+    it("does not let an invisible page-mode scrollbar intercept terminal input", () => {
+      const term = make3({ scrollInputMode: "page" });
+      const scrollbar = container.querySelector('[role="scrollbar"]') as HTMLElement;
+
+      expect(scrollbar.style.opacity).toBe("0");
+      expect(scrollbar.style.pointerEvents).toBe("none");
+      expect(scrollbar.tabIndex).toBe(-1);
+
+      term.dispose();
+    });
+
     it("buildDisplayGrid is created when scrolled back", () => {
       const term = make3();
       writeLines(term, 5);

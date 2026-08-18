@@ -1,5 +1,10 @@
 import type { MouseEncoding, MouseProtocol, Theme } from "@next_term/core";
-import type { ParserPool, SharedContext, WriteProcessingMeasurement } from "@next_term/web";
+import type {
+  ParserPool,
+  ScrollInputMode,
+  SharedContext,
+  WriteProcessingMeasurement,
+} from "@next_term/web";
 import { calculateFit, WebTerminal } from "@next_term/web";
 import type React from "react";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -15,6 +20,8 @@ export interface TerminalProps {
   fontWeightBold?: number;
   theme?: Partial<Theme>;
   scrollback?: number;
+  /** Whether wheel/touch pans scroll terminal history or an ancestor page. */
+  scrollInputMode?: ScrollInputMode;
   onData?: (data: Uint8Array) => void;
   onResize?: (size: { cols: number; rows: number }) => void;
   onTitleChange?: (title: string) => void;
@@ -72,6 +79,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     fontWeightBold,
     theme,
     scrollback = 1000,
+    scrollInputMode,
     onData,
     onResize,
     onTitleChange,
@@ -184,6 +192,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       fontWeightBold,
       theme,
       scrollback,
+      scrollInputMode,
       renderMode,
       renderer: rendererProp,
       useWorker,
@@ -214,6 +223,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     rendererProp,
     rows,
     scrollback,
+    scrollInputMode,
     sharedContext,
     theme,
     useWorker,

@@ -24,5 +24,30 @@ export const CATPPUCCIN_MOCHA: Partial<Theme> = {
   brightWhite: "#a6adc8",
 };
 
+export const MATRIX_THEME: Partial<Theme> = {
+  background: "#04070a",
+  foreground: "#c9ffd8",
+  cursor: "#00ff41",
+  cursorAccent: "#04070a",
+  selectionBackground: "#0d3a1c",
+  black: "#04070a",
+  red: "#ff6b6b",
+  green: "#00ff41",
+  yellow: "#d7ff5f",
+  blue: "#5fd7ff",
+  magenta: "#d787ff",
+  cyan: "#35d96b",
+  white: "#c9ffd8",
+  brightBlack: "#4e8a63",
+  brightRed: "#ff8f8f",
+  brightGreen: "#78ff99",
+  brightYellow: "#edff9a",
+  brightBlue: "#9ae7ff",
+  brightMagenta: "#e7b5ff",
+  brightCyan: "#7fffa5",
+  brightWhite: "#effff3",
+};
+
 /** xterm.js theme (same colors, plain object for xterm's ITheme) */
 export const XTERM_THEME = { ...CATPPUCCIN_MOCHA } as Record<string, string>;
+export const XTERM_MATRIX_THEME = { ...MATRIX_THEME } as Record<string, string>;

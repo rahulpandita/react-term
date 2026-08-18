@@ -26,7 +26,7 @@ import {
 import { AccessibilityManager } from "./accessibility.js";
 import type { ITerminalAddon } from "./addon.js";
 import { calculateFit } from "./fit.js";
-import { InputHandler } from "./input-handler.js";
+import { InputHandler, type ScrollInputMode } from "./input-handler.js";
 import type { ParserChannel, ParserPool } from "./parser-pool.js";
 import type { FlushMessage } from "./parser-worker.js";
 import { canUseOffscreenCanvas, RenderBridge } from "./render-bridge.js";
@@ -131,6 +131,12 @@ export interface WebTerminalOptions {
   fontWeightBold?: number;
   theme?: Partial<Theme>;
   scrollback?: number;
+  /**
+   * Controls whether wheel and touch-pan gestures scroll terminal history or
+   * an ancestor page. Use `"page"` for embedded terminals with an explicit
+   * scrollbar. Defaults to `"terminal"`.
+   */
+  scrollInputMode?: ScrollInputMode;
   devicePixelRatio?: number;
   /**
    * When true the VT parser runs in a Web Worker.
@@ -263,6 +269,12 @@ export class WebTerminal {
   private scrollbarEl: HTMLElement | null = null;
   /** Scrollbar thumb element. */
   private scrollbarThumb: HTMLElement | null = null;
+  private readonly scrollInputMode: ScrollInputMode;
+  private scrollbarDragging = false;
+  private boundScrollbarPointerDown: ((event: PointerEvent) => void) | null = null;
+  private boundScrollbarPointerMove: ((event: PointerEvent) => void) | null = null;
+  private boundScrollbarPointerUp: ((event: PointerEvent) => void) | null = null;
+  private boundScrollbarKeyDown: ((event: KeyboardEvent) => void) | null = null;
   /** Timer to auto-hide scrollbar. */
   private scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -286,6 +298,7 @@ export class WebTerminal {
     const fontFamily = options?.fontFamily ?? DEFAULT_FONT_FAMILY;
     const theme = mergeTheme(options?.theme);
     const scrollback = options?.scrollback ?? DEFAULT_SCROLLBACK;
+    this.scrollInputMode = options?.scrollInputMode ?? "terminal";
 
     this.onDataCallback = options?.onData ?? null;
     this.onResizeCallback = options?.onResize ?? null;
@@ -441,6 +454,7 @@ export class WebTerminal {
       onFontSizeChange: (newFontSize) => {
         this.setFont(newFontSize, fontFamily);
       },
+      scrollInputMode: this.scrollInputMode,
     });
     this.inputHandler.setGrid(this.bufferSet.active.grid);
     this.inputHandler.setFontSize(fontSize);
@@ -530,7 +544,10 @@ export class WebTerminal {
       // Schedule a11y update after cell data application. The onFlush
       // callback runs before the grid is updated, so defer via microtask
       // so the accessibility tree reads the fresh grid state.
-      queueMicrotask(() => this.accessibilityManager?.update());
+      queueMicrotask(() => {
+        this.accessibilityManager?.update();
+        this.updateScrollbar();
+      });
 
       if (this.viewportOffset > 0 && !altChanged) return;
 
@@ -754,6 +771,7 @@ export class WebTerminal {
       });
       // Sync mode flags from parser to input handler
       this.syncParserModes();
+      this.updateScrollbar();
     }
 
     // Update accessibility tree (throttled internally to 10 Hz)
@@ -1260,32 +1278,90 @@ export class WebTerminal {
 
   private createScrollbar(container: HTMLElement): void {
     const bar = document.createElement("div");
+    const explicit = this.scrollInputMode === "page";
+    bar.setAttribute("role", "scrollbar");
+    bar.setAttribute("aria-label", "Terminal history");
+    bar.setAttribute("aria-orientation", "vertical");
+    bar.setAttribute("aria-hidden", "true");
+    bar.tabIndex = -1;
     Object.assign(bar.style, {
       position: "absolute",
       right: "0",
       top: "0",
       bottom: "0",
-      width: "6px",
+      width: explicit ? "18px" : "6px",
       zIndex: "10",
       opacity: "0",
       transition: "opacity 0.3s",
       pointerEvents: "none",
+      touchAction: "none",
+      cursor: explicit ? "ns-resize" : "default",
     });
 
     const thumb = document.createElement("div");
     Object.assign(thumb.style, {
       position: "absolute",
-      right: "1px",
-      width: "4px",
-      borderRadius: "2px",
-      backgroundColor: "rgba(255, 255, 255, 0.4)",
-      minHeight: "20px",
+      right: explicit ? "4px" : "1px",
+      width: explicit ? "10px" : "4px",
+      borderRadius: explicit ? "5px" : "2px",
+      backgroundColor: explicit ? "rgba(0, 255, 65, 0.72)" : "rgba(255, 255, 255, 0.4)",
+      minHeight: explicit ? "32px" : "20px",
     });
 
     bar.appendChild(thumb);
     container.appendChild(bar);
     this.scrollbarEl = bar;
     this.scrollbarThumb = thumb;
+
+    if (explicit) {
+      this.boundScrollbarPointerDown = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.scrollbarDragging = true;
+        bar.setPointerCapture?.(event.pointerId);
+        this.scrollFromScrollbarPointer(event.clientY);
+      };
+      this.boundScrollbarPointerMove = (event) => {
+        if (!this.scrollbarDragging) return;
+        event.preventDefault();
+        this.scrollFromScrollbarPointer(event.clientY);
+      };
+      this.boundScrollbarPointerUp = (event) => {
+        if (!this.scrollbarDragging) return;
+        this.scrollbarDragging = false;
+        bar.releasePointerCapture?.(event.pointerId);
+      };
+      this.boundScrollbarKeyDown = (event) => {
+        const page = Math.max(1, this.bufferSet.rows - 1);
+        let delta = 0;
+        if (event.key === "ArrowUp") delta = 1;
+        else if (event.key === "ArrowDown") delta = -1;
+        else if (event.key === "PageUp") delta = page;
+        else if (event.key === "PageDown") delta = -page;
+        else if (event.key === "Home") delta = this.bufferSet.scrollback.length;
+        else if (event.key === "End") delta = -this.bufferSet.scrollback.length;
+        else return;
+        event.preventDefault();
+        this.scrollViewport(delta);
+      };
+      bar.addEventListener("pointerdown", this.boundScrollbarPointerDown);
+      bar.addEventListener("pointermove", this.boundScrollbarPointerMove);
+      bar.addEventListener("pointerup", this.boundScrollbarPointerUp);
+      bar.addEventListener("pointercancel", this.boundScrollbarPointerUp);
+      bar.addEventListener("keydown", this.boundScrollbarKeyDown);
+    }
+  }
+
+  private scrollFromScrollbarPointer(clientY: number): void {
+    if (!this.scrollbarEl || !this.scrollbarThumb) return;
+    const maxOffset = this.bufferSet.scrollback.length;
+    if (maxOffset === 0) return;
+    const rect = this.scrollbarEl.getBoundingClientRect();
+    const thumbHeight = this.scrollbarThumb.offsetHeight || 32;
+    const travel = Math.max(1, rect.height - thumbHeight);
+    const top = Math.max(0, Math.min(travel, clientY - rect.top - thumbHeight / 2));
+    const targetOffset = Math.round((1 - top / travel) * maxOffset);
+    this.scrollViewport(targetOffset - this.viewportOffset);
   }
 
   private updateScrollbar(): void {
@@ -1293,31 +1369,47 @@ export class WebTerminal {
     const totalLines = this.bufferSet.scrollback.length + this.bufferSet.rows;
     const visibleRows = this.bufferSet.rows;
 
-    if (totalLines <= visibleRows || this.viewportOffset === 0) {
-      // At bottom or no scrollback — hide
+    const explicit = this.scrollInputMode === "page";
+    if (totalLines <= visibleRows) {
       this.scrollbarEl.style.opacity = "0";
+      this.scrollbarEl.style.pointerEvents = "none";
+      this.scrollbarEl.setAttribute("aria-hidden", "true");
+      this.scrollbarEl.tabIndex = -1;
       return;
     }
 
-    // Show scrollbar
     this.scrollbarEl.style.opacity = "1";
+    if (explicit) {
+      this.scrollbarEl.style.pointerEvents = "auto";
+      this.scrollbarEl.removeAttribute("aria-hidden");
+      this.scrollbarEl.tabIndex = 0;
+    }
 
     // Calculate thumb size and position
     const containerHeight =
       this.scrollbarEl.clientHeight || visibleRows * this.renderer.getCellSize().height;
-    const thumbHeight = Math.max(20, (visibleRows / totalLines) * containerHeight);
+    const minThumbHeight = explicit ? 32 : 20;
+    const thumbHeight = Math.max(minThumbHeight, (visibleRows / totalLines) * containerHeight);
     const maxScroll = this.bufferSet.scrollback.length;
     const scrollFraction = (maxScroll - this.viewportOffset) / maxScroll;
     const thumbTop = scrollFraction * (containerHeight - thumbHeight);
 
     this.scrollbarThumb.style.height = `${thumbHeight}px`;
     this.scrollbarThumb.style.top = `${thumbTop}px`;
+    this.scrollbarEl.setAttribute("aria-valuemin", "0");
+    this.scrollbarEl.setAttribute("aria-valuemax", String(maxScroll));
+    this.scrollbarEl.setAttribute("aria-valuenow", String(maxScroll - this.viewportOffset));
 
-    // Auto-hide after 1.5s
-    if (this.scrollbarHideTimer) clearTimeout(this.scrollbarHideTimer);
-    this.scrollbarHideTimer = setTimeout(() => {
-      if (this.scrollbarEl) this.scrollbarEl.style.opacity = "0";
-    }, 1500);
+    if (!explicit) {
+      if (this.viewportOffset === 0) {
+        this.scrollbarEl.style.opacity = "0";
+        return;
+      }
+      if (this.scrollbarHideTimer) clearTimeout(this.scrollbarHideTimer);
+      this.scrollbarHideTimer = setTimeout(() => {
+        if (this.scrollbarEl) this.scrollbarEl.style.opacity = "0";
+      }, 1500);
+    }
   }
 
   /**
@@ -1490,6 +1582,19 @@ export class WebTerminal {
       this.canvas.parentElement.removeChild(this.canvas);
     }
     if (this.scrollbarEl?.parentElement) {
+      if (this.boundScrollbarPointerDown) {
+        this.scrollbarEl.removeEventListener("pointerdown", this.boundScrollbarPointerDown);
+      }
+      if (this.boundScrollbarPointerMove) {
+        this.scrollbarEl.removeEventListener("pointermove", this.boundScrollbarPointerMove);
+      }
+      if (this.boundScrollbarPointerUp) {
+        this.scrollbarEl.removeEventListener("pointerup", this.boundScrollbarPointerUp);
+        this.scrollbarEl.removeEventListener("pointercancel", this.boundScrollbarPointerUp);
+      }
+      if (this.boundScrollbarKeyDown) {
+        this.scrollbarEl.removeEventListener("keydown", this.boundScrollbarKeyDown);
+      }
       this.scrollbarEl.parentElement.removeChild(this.scrollbarEl);
     }
     this.scrollbarEl = null;

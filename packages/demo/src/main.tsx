@@ -10,27 +10,27 @@ import "./styles.css";
 // ---------------------------------------------------------------------------
 
 const DARK_THEME: Partial<Theme> = {
-  background: "#1e1e1e",
-  foreground: "#d4d4d4",
-  cursor: "#d4d4d4",
-  cursorAccent: "#1e1e1e",
-  selectionBackground: "#264f78",
-  black: "#000000",
-  red: "#cd3131",
-  green: "#0dbc79",
-  yellow: "#e5e510",
-  blue: "#2472c8",
-  magenta: "#bc3fbc",
-  cyan: "#11a8cd",
-  white: "#e5e5e5",
-  brightBlack: "#666666",
-  brightRed: "#f14c4c",
-  brightGreen: "#23d18b",
-  brightYellow: "#f5f543",
-  brightBlue: "#3b8eea",
-  brightMagenta: "#d670d6",
-  brightCyan: "#29b8db",
-  brightWhite: "#e5e5e5",
+  background: "#04070a",
+  foreground: "#c9ffd8",
+  cursor: "#00ff41",
+  cursorAccent: "#04070a",
+  selectionBackground: "#0d3a1c",
+  black: "#04070a",
+  red: "#ff6b6b",
+  green: "#00ff41",
+  yellow: "#d7ff5f",
+  blue: "#5fd7ff",
+  magenta: "#d787ff",
+  cyan: "#35d96b",
+  white: "#c9ffd8",
+  brightBlack: "#4e8a63",
+  brightRed: "#ff8f8f",
+  brightGreen: "#78ff99",
+  brightYellow: "#edff9a",
+  brightBlue: "#9ae7ff",
+  brightMagenta: "#e7b5ff",
+  brightCyan: "#7fffa5",
+  brightWhite: "#effff3",
 };
 
 const LIGHT_THEME: Partial<Theme> = {
@@ -289,18 +289,18 @@ function useChapterProgress(root: { current: HTMLElement | null }) {
 const ids = (prefix: string, count: number) =>
   Array.from({ length: count }, (_, i) => `${prefix}-${i}`);
 
-/** A slab of real build output, so the "flood" reads as an actual terminal. */
+/** Illustrative output using real package and source names from this repository. */
 const FLOOD_LINES = [
-  { esc: "\\e[32m", text: "✓ core/cell-grid.ts", meta: "12ms" },
-  { esc: "\\e[32m", text: "✓ core/vt-parser.ts", meta: "31ms" },
-  { esc: "\\e[2m", text: "· web/renderer/webgl2.ts", meta: "" },
-  { esc: "\\e[32m", text: "✓ web/worker/parser.ts", meta: "18ms" },
-  { esc: "\\e[33m", text: "! react/terminal.tsx", meta: "unused import" },
-  { esc: "\\e[32m", text: "✓ native/skia-renderer.ts", meta: "44ms" },
-  { esc: "\\e[2m", text: "· web/addons/search.ts", meta: "" },
-  { esc: "\\e[32m", text: "✓ core/buffer-set.ts", meta: "9ms" },
-  { esc: "\\e[32m", text: "✓ web/atlas/glyph.ts", meta: "27ms" },
-  { esc: "\\e[2m", text: "· demo/main.tsx", meta: "" },
+  { esc: "\\e[32m", text: "✓ core/src/cell-grid.ts", meta: "shared" },
+  { esc: "\\e[32m", text: "✓ core/src/parser/index.ts", meta: "parsed" },
+  { esc: "\\e[2m", text: "· web/src/webgl-renderer.ts", meta: "batched" },
+  { esc: "\\e[32m", text: "✓ web/src/parser-worker.ts", meta: "worker" },
+  { esc: "\\e[33m", text: "! react/src/Terminal.tsx", meta: "render" },
+  { esc: "\\e[32m", text: "✓ web/src/shared-context.ts", meta: "shared" },
+  { esc: "\\e[2m", text: "· web/src/parser-pool.ts", meta: "pooled" },
+  { esc: "\\e[32m", text: "✓ core/src/buffer.ts", meta: "ready" },
+  { esc: "\\e[32m", text: "✓ web/src/web-terminal.ts", meta: "ready" },
+  { esc: "\\e[2m", text: "· demo/src/main.tsx", meta: "live" },
 ];
 
 const THREAD_CHIPS = [
@@ -310,10 +310,12 @@ const THREAD_CHIPS = [
   { id: "renderer", name: "render worker", state: "busy", load: 78 },
 ];
 
-/** The two 32-bit words each cell packs into. */
+/** The four 32-bit words in the current CellGrid layout. */
 const CELL_WORDS = [
   { id: "w0", label: "word 0", bits: "0000 0000 0110 0001", note: "codepoint" },
   { id: "w1", label: "word 1", bits: "0000 0111 0000 0001", note: "fg · bg · flags" },
+  { id: "w2", label: "word 2", bits: "0000 0000 0000 0000", note: "foreground RGB" },
+  { id: "w3", label: "word 3", bits: "0000 0000 0000 0000", note: "background RGB" },
 ];
 
 const GRID_GLYPHS = "npm run build ▍react-term ✓ 2 draw calls SharedArrayBuffer atomics";
@@ -528,27 +530,48 @@ function PaneRailVisual() {
  */
 function BenchmarkVisual({ src }: { src: string }) {
   const holder = useRef<HTMLDivElement | null>(null);
-  const [live, setLive] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [active, setActive] = useState(false);
 
   useEffect(() => {
     const node = holder.current;
-    if (!node || live) return;
-
-    if (typeof IntersectionObserver === "undefined") {
-      setLive(true);
-      return;
-    }
+    if (!node || !active || typeof IntersectionObserver === "undefined") return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) setLive(true);
+        if (entries.every((entry) => !entry.isIntersecting)) setActive(false);
       },
-      { rootMargin: "200px" },
+      { rootMargin: "-15% 0px" },
     );
     observer.observe(node);
 
     return () => observer.disconnect();
-  }, [live]);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    const benchmarkOrigin = new URL(src, location.href).origin;
+    const handleMessage = (event: MessageEvent<unknown>) => {
+      if (event.origin !== benchmarkOrigin || event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+      const message = event.data;
+      if (
+        typeof message !== "object" ||
+        message === null ||
+        !("type" in message) ||
+        message.type !== "react-term:page-scroll" ||
+        !("deltaY" in message) ||
+        typeof message.deltaY !== "number" ||
+        !Number.isFinite(message.deltaY)
+      ) {
+        return;
+      }
+      window.scrollBy({ top: message.deltaY, behavior: "auto" });
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [active, src]);
 
   return (
     <div className="stage-art stage-bench" ref={holder}>
@@ -560,17 +583,37 @@ function BenchmarkVisual({ src }: { src: string }) {
           <strong>stress test · react-term vs xterm.js</strong>
         </div>
         <div className="bench-frame">
-          {live ? (
-            <iframe
-              className="bench-iframe"
-              src={src}
-              title="Rendering stress test"
-              loading="lazy"
-            />
+          {active ? (
+            <>
+              <iframe
+                ref={iframeRef}
+                className="bench-iframe"
+                src={src}
+                title="Rendering stress test"
+              />
+              <button className="bench-release" type="button" onClick={() => setActive(false)}>
+                Pause benchmark
+              </button>
+            </>
           ) : (
-            <p className="bench-idle">
-              <span className="rail-prompt">$</span> loading stress test…
-            </p>
+            <div className="bench-gate">
+              <div className="bench-preview" aria-hidden="true">
+                <span>react-term</span>
+                <strong>60.0 FPS</strong>
+                <span>long tasks</span>
+                <strong>0</strong>
+              </div>
+              <p>
+                The live test is paused until you activate it, so this chapter never captures
+                scrolling unexpectedly or consumes resources offscreen.
+              </p>
+              <button className="bench-activate" type="button" onClick={() => setActive(true)}>
+                Activate live benchmark
+              </button>
+              <a className="bench-mobile-launch" href={src}>
+                Open benchmark <span aria-hidden="true">→</span>
+              </a>
+            </div>
           )}
         </div>
       </div>
@@ -651,7 +694,7 @@ function HUD({
 // App
 // ---------------------------------------------------------------------------
 
-function App({ onShowSplit }: { onShowSplit: () => void }) {
+function App() {
   const termRef = useRef<TerminalHandle>(null);
   const [isDark, setIsDark] = useState(true);
   const [connStatus, setConnStatus] = useState<ConnectionStatus>("disconnected");
@@ -868,6 +911,7 @@ function App({ onShowSplit }: { onShowSplit: () => void }) {
         fontSize={14}
         fontFamily="'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace"
         theme={theme}
+        scrollInputMode="page"
         onData={handleData}
         onResize={handleResize}
         renderMode="main"
@@ -875,9 +919,6 @@ function App({ onShowSplit }: { onShowSplit: () => void }) {
         useWorker={false}
         style={{ width: "100%", height: "100%" }}
       />
-      <button type="button" className="pane-switch" onClick={onShowSplit}>
-        Open 4 panes
-      </button>
     </div>
   );
 }
@@ -957,7 +998,7 @@ function paneDemoLine(paneId: string, tick: number) {
   }
 }
 
-function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () => void }) {
+function SplitPaneDemo({ theme }: { theme: Partial<Theme> }) {
   const paneRef = useRef<TerminalPaneHandle>(null);
   const lineBuffers = useRef<Record<string, string>>({});
 
@@ -1036,13 +1077,11 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
 
   return (
     <div className="terminal-surface" style={{ background: theme.background }}>
-      <button type="button" className="pane-switch" onClick={onBack}>
-        Back to single
-      </button>
       <TerminalPane
         ref={paneRef}
         layout={SPLIT_LAYOUT}
         theme={theme}
+        scrollInputMode="page"
         fontSize={14}
         fontFamily="'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace"
         onData={handleData}
@@ -1058,10 +1097,7 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
 
 function Root() {
   const showcaseRef = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState<"single" | "split">("single");
-  const [isDark, _setIsDark] = useState(true);
   const [copied, setCopied] = useState(false);
-  const theme = useMemo(() => (isDark ? DARK_THEME : LIGHT_THEME), [isDark]);
   const comparisonUrl = import.meta.env.DEV
     ? `${location.protocol}//${location.hostname}:5180/jank-demo.html`
     : `${import.meta.env.BASE_URL}comparison/jank-demo.html`;
@@ -1074,18 +1110,6 @@ function Root() {
 
   useParallax(showcaseRef);
   useChapterProgress(showcaseRef);
-
-  // Keyboard shortcut: Ctrl+Shift+D toggles split view
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.key === "D") {
-        e.preventDefault();
-        setView((v) => (v === "single" ? "split" : "single"));
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
 
   return (
     <div className="showcase" ref={showcaseRef}>
@@ -1104,8 +1128,6 @@ function Root() {
 
       <main>
         <section className="hero" aria-labelledby="hero-title">
-          <div className="hero-orbit hero-orbit-back" aria-hidden="true" />
-          <div className="hero-orbit hero-orbit-front" aria-hidden="true" />
           <div className="hero-copy">
             <h1 id="hero-title">The terminal belongs off the main thread.</h1>
             <p>
@@ -1115,12 +1137,6 @@ function Root() {
             <div className="hero-actions">
               <a className="primary-action" href="https://github.com/rahulpandita/react-term">
                 Explore the source <span aria-hidden="true">↗</span>
-              </a>
-              <button type="button" onClick={() => setView(view === "single" ? "split" : "single")}>
-                {view === "single" ? "Try 4 panes" : "Try single pane"}
-              </button>
-              <a className="comparison-action" href={comparisonUrl}>
-                Compare with xterm.js <span aria-hidden="true">→</span>
               </a>
             </div>
             <div className="runtime-note">
@@ -1134,15 +1150,9 @@ function Root() {
               <span />
               <span />
               <span />
-              <strong>
-                {view === "single" ? "react-term — local shell" : "react-term — 4 panes"}
-              </strong>
+              <strong>react-term — local shell</strong>
             </div>
-            {view === "split" ? (
-              <SplitPaneDemo theme={theme} onBack={() => setView("single")} />
-            ) : (
-              <App onShowSplit={() => setView("split")} />
-            )}
+            <App />
           </div>
         </section>
 
@@ -1151,10 +1161,10 @@ function Root() {
             <div className="chapter-stage">
               <div className="chapter-copy">
                 <p className="chapter-index">Parse</p>
-                <h2 id="chapter-threads">Bursty output never touches your UI thread.</h2>
+                <h2 id="chapter-threads">Keep bursty output away from your UI thread.</h2>
                 <p>
-                  Escape sequences are parsed inside dedicated workers. While a build floods the
-                  screen, React keeps rendering, input keeps landing, and layout never stalls.
+                  With SharedArrayBuffer available, escape sequences are parsed in workers. React,
+                  input, and layout stay responsive while terminal output is processed off-thread.
                 </p>
               </div>
               <ThreadLanesVisual />
@@ -1165,10 +1175,10 @@ function Root() {
             <div className="chapter-stage">
               <div className="chapter-copy">
                 <p className="chapter-index">Share</p>
-                <h2 id="chapter-memory">One grid of cells, shared across every thread.</h2>
+                <h2 id="chapter-memory">One cell grid shared without per-line copies.</h2>
                 <p>
-                  Each cell packs into two 32-bit words inside a SharedArrayBuffer. Workers publish
-                  dirty regions through Atomics, so no line is ever serialized or copied.
+                  Each cell uses four 32-bit words inside a SharedArrayBuffer. On the isolated fast
+                  path, workers publish dirty rows through Atomics instead of serializing each line.
                 </p>
               </div>
               <CellGridVisual />
@@ -1179,10 +1189,11 @@ function Root() {
             <div className="chapter-stage">
               <div className="chapter-copy">
                 <p className="chapter-index">Render</p>
-                <h2 id="chapter-render">A full screen of glyphs in two draw calls.</h2>
+                <h2 id="chapter-render">The terminal grid in two primary draw calls.</h2>
                 <p>
-                  The WebGL2 renderer batches every cell into instanced geometry. Canvas 2D covers
-                  browsers without cross-origin isolation, with the same output.
+                  WebGL2 batches backgrounds and glyphs into two instanced passes; cursor,
+                  selection, and highlights are separate overlays. Canvas 2D preserves output where
+                  needed.
                 </p>
               </div>
               <DrawCallVisual />
@@ -1203,14 +1214,40 @@ function Root() {
             </div>
           </section>
 
+          <section className="chapter chapter-live" data-chapter aria-labelledby="chapter-live">
+            <div className="chapter-stage">
+              <div className="chapter-copy">
+                <p className="chapter-index">Operate</p>
+                <h2 id="chapter-live">Four real terminals. One shared rendering surface.</h2>
+                <p>
+                  This is the actual <code>TerminalPane</code> component streaming four workloads.
+                  Trackpad and touch scrolling stay with the page; drag a terminal scrollbar to
+                  inspect that pane's history.
+                </p>
+              </div>
+              <section
+                className="live-panes-frame"
+                aria-label="Live four-pane terminal demonstration"
+              >
+                <div className="slab-bar" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                  <strong>TerminalPane · live output</strong>
+                </div>
+                <SplitPaneDemo theme={DARK_THEME} />
+              </section>
+            </div>
+          </section>
+
           <section className="chapter chapter-bench" data-chapter aria-labelledby="chapter-bench">
             <div className="chapter-stage chapter-stage-bench">
               <div className="chapter-copy">
                 <p className="chapter-index">Prove</p>
-                <h2 id="chapter-bench">Watch a main thread stop stuttering.</h2>
+                <h2 id="chapter-bench">Compare responsiveness under the same synthetic flood.</h2>
                 <p>
-                  The same flood of output, rendered by react-term and by xterm.js. Start it and
-                  watch the frame rate, dropped frames, and long tasks diverge in real time.
+                  Toggle between react-term and xterm.js, then inspect frame rate, event-loop
+                  latency, dropped frames, and long tasks. Results depend on your browser and GPU.
                 </p>
               </div>
               <BenchmarkVisual src={comparisonUrl} />

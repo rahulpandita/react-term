@@ -71,8 +71,8 @@ body {
 
 #btn-start { background: #00ff41; color: #070c08; border-color: #00ff41; }
 #btn-start:hover:not(:disabled) { background: #35d96b; }
-#btn-stop { background: #0d3a1c; color: #070c08; border-color: #0d3a1c; }
-#btn-stop:hover:not(:disabled) { background: #00ff41; }
+#btn-stop { background: #ff6b6b; color: #04070a; border-color: #ff6b6b; }
+#btn-stop:hover:not(:disabled) { background: #ff8f8f; }
 
 /* Jank meter: bouncing ball */
 .jank-meter {
@@ -92,7 +92,7 @@ body {
   height: 20px;
   border-radius: 50%;
   background: linear-gradient(135deg, #00ff41, #35d96b);
-  box-shadow: 0 0 8px rgba(203, 166, 247, 0.5);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
   will-change: transform;
 }
 
@@ -168,6 +168,23 @@ body {
   height: 100% !important;
 }
 
+.jank-terminal .pane .xterm-viewport {
+  overflow-y: scroll !important;
+  scrollbar-color: rgba(0, 255, 65, 0.72) transparent;
+  scrollbar-width: auto;
+}
+
+.jank-terminal .pane .xterm-viewport::-webkit-scrollbar {
+  width: 12px;
+}
+
+.jank-terminal .pane .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 65, 0.72);
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+}
+
 /* Stats bar */
 .jank-stats {
   display: flex;
@@ -203,8 +220,8 @@ body {
 }
 
 .jank-stats .stat-value.good { color: #00ff41; }
-.jank-stats .stat-value.warn { color: #35d96b; }
-.jank-stats .stat-value.bad { color: #0d3a1c; }
+.jank-stats .stat-value.warn { color: #d7ff5f; }
+.jank-stats .stat-value.bad { color: #ff6b6b; }
 
 @media (max-width: 720px) {
   .jank-header {
