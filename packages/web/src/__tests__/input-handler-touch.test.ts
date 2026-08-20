@@ -200,6 +200,27 @@ describe("InputHandler (touch events)", () => {
       expect(move.defaultPrevented).toBe(false);
       expect(onScroll).not.toHaveBeenCalled();
     });
+
+    it("preserves horizontal command-line swipes in page mode", () => {
+      handler.dispose();
+      handler = new InputHandler({
+        onData,
+        onScroll,
+        onFontSizeChange,
+        scrollInputMode: "page",
+      });
+      handler.attach(container, CELL_W, CELL_H);
+
+      dispatchTouchStart([touch(0, 0)]);
+      const move = dispatchTouchMove([touch(CELL_W * 3 + 1, 0)]);
+
+      expect(move.defaultPrevented).toBe(true);
+      expect(onData).toHaveBeenCalledTimes(3);
+      expect(onData.mock.calls.every((call: Uint8Array[]) => decode(call[0]) === "\x1b[C")).toBe(
+        true,
+      );
+      expect(onScroll).not.toHaveBeenCalled();
+    });
   });
 
   // -------------------------------------------------------------------------

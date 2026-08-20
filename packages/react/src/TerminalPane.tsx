@@ -40,7 +40,7 @@ export interface TerminalPaneProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
-  /** Whether wheel/touch pans scroll terminal history or an ancestor page. */
+  /** Whether wheel/touch pans belong to the terminal or ancestor page, including mouse reporting. */
   scrollInputMode?: ScrollInputMode;
   /** Control whether each pane uses a Web Worker for parsing. Defaults to auto-detect (SAB available). */
   useWorker?: boolean;

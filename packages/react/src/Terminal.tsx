@@ -20,7 +20,7 @@ export interface TerminalProps {
   fontWeightBold?: number;
   theme?: Partial<Theme>;
   scrollback?: number;
-  /** Whether wheel/touch pans scroll terminal history or an ancestor page. */
+  /** Whether wheel/touch pans belong to the terminal or ancestor page, including mouse reporting. */
   scrollInputMode?: ScrollInputMode;
   onData?: (data: Uint8Array) => void;
   onResize?: (size: { cols: number; rows: number }) => void;

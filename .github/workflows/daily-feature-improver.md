@@ -110,33 +110,33 @@ The following features are tracked. Each has an ID, category, dependencies, and 
 - `sgr-mouse`: SGR mouse reporting (mode 1006) — **DONE**
 
 ### Clipboard & Paste
-- `osc52`: OSC 52 clipboard read/write — **NOT DONE** — size: small — deps: none
-- `bracket-paste-enforce`: Bracketed paste enforcement (nested/malformed filtering) — **PARTIAL** (mode 2004 works, but no enforcement of nested sequences within pasted content) — size: small — deps: none
+- `osc52`: OSC 52 clipboard read/write — **DONE**
+- `bracket-paste-enforce`: Bracketed paste enforcement (nested/malformed filtering) — **DONE**
 
 ### Synchronized Output
-- `sync-output`: Synchronized output mode 2026 (frame buffering) — **PARTIAL** (mode acknowledged, no render gating) — size: medium — deps: none
+- `sync-output`: Synchronized output mode 2026 (frame buffering) — **DONE**
 
 ### OSC Extensions
-- `osc4`: OSC 4 set/query color palette — **NOT DONE** — size: small — deps: none
-- `osc7`: OSC 7 current working directory — **NOT DONE** — size: small — deps: none
-- `osc8`: OSC 8 hyperlinks — **NOT DONE** — size: medium — deps: none
-- `osc10`: OSC 10 foreground color query/set — **NOT DONE** — size: small — deps: osc4
-- `osc11`: OSC 11 background color query/set — **NOT DONE** — size: small — deps: osc4
-- `osc12`: OSC 12 cursor color query/set — **NOT DONE** — size: small — deps: osc4
-- `osc104`: OSC 104 reset color palette — **NOT DONE** — size: small — deps: osc4
-- `osc133`: OSC 133 shell integration / semantic prompts — **NOT DONE** — size: medium — deps: none
+- `osc4`: OSC 4 set/query color palette — **DONE**
+- `osc7`: OSC 7 current working directory — **DONE**
+- `osc8`: OSC 8 hyperlinks — **DONE**
+- `osc10`: OSC 10 foreground color query/set — **DONE**
+- `osc11`: OSC 11 background color query/set — **DONE**
+- `osc12`: OSC 12 cursor color query/set — **DONE**
+- `osc104`: OSC 104 reset color palette — **DONE**
+- `osc133`: OSC 133 shell integration / semantic prompts — **DONE**
 
 ### DCS (Device Control String)
-- `dcs-framework`: DCS handler dispatch framework — **NOT DONE** (currently passthrough/skip only) — size: medium — deps: none
-- `dcs-tmux`: DCS tmux passthrough — **NOT DONE** — size: medium — deps: dcs-framework
+- `dcs-framework`: DCS handler dispatch framework — **DONE**
+- `dcs-tmux`: DCS tmux passthrough — **DONE**
 
 ### Kitty Keyboard Protocol
-- `kitty-flags`: Kitty keyboard flags (CSI > u query/push/pop) — **NOT DONE** — size: medium — deps: none
-- `kitty-disambiguate`: Kitty disambiguate mode (flag 1) — **NOT DONE** — size: medium — deps: kitty-flags
-- `kitty-events`: Kitty report event types (flag 2) — **NOT DONE** — size: medium — deps: kitty-disambiguate
-- `kitty-alternates`: Kitty report alternate keys (flag 4) — **NOT DONE** — size: small — deps: kitty-events
-- `kitty-allkeys`: Kitty report all keys as escape codes (flag 8) — **NOT DONE** — size: medium — deps: kitty-disambiguate
-- `kitty-assoctext`: Kitty report associated text (flag 16) — **NOT DONE** — size: small — deps: kitty-allkeys
+- `kitty-flags`: Kitty keyboard flags (CSI > u query/push/pop) — **DONE**
+- `kitty-disambiguate`: Kitty disambiguate mode (flag 1) — **DONE**
+- `kitty-events`: Kitty report event types (flag 2) — **DONE**
+- `kitty-alternates`: Kitty report alternate keys (flag 4) — **DONE**
+- `kitty-allkeys`: Kitty report all keys as escape codes (flag 8) — **DONE**
+- `kitty-assoctext`: Kitty report associated text (flag 16) — **DONE**
 
 ## Dependency Graph
 
@@ -174,25 +174,25 @@ Always do Task 5 (Update Tracking Issue + Memory) every run. In all comments and
    | VT Core | VT220 core | vt220-core | ✅ Done | — | Baseline |
    | VT Core | True color (SGR 38/48;2) | true-color | ✅ Done | — | Baseline |
    | VT Core | SGR mouse (mode 1006) | sgr-mouse | ✅ Done | — | Baseline |
-   | Clipboard | OSC 52 clipboard | osc52 | ⬜ Not Done | — | — |
-   | Paste | Bracketed paste enforcement | bracket-paste-enforce | 🔶 Partial | — | Mode 2004 works, no nested filtering |
-   | Sync | Synchronized output (2026) | sync-output | 🔶 Partial | — | Mode ack'd, no render gating |
-   | OSC | OSC 4 color palette | osc4 | ⬜ Not Done | — | — |
-   | OSC | OSC 7 CWD | osc7 | ⬜ Not Done | — | — |
-   | OSC | OSC 8 hyperlinks | osc8 | ⬜ Not Done | — | — |
-   | OSC | OSC 10 foreground color | osc10 | ⬜ Not Done | — | Requires osc4 |
-   | OSC | OSC 11 background color | osc11 | ⬜ Not Done | — | Requires osc4 |
-   | OSC | OSC 12 cursor color | osc12 | ⬜ Not Done | — | Requires osc4 |
-   | OSC | OSC 104 reset palette | osc104 | ⬜ Not Done | — | Requires osc4 |
-   | OSC | OSC 133 shell integration | osc133 | ⬜ Not Done | — | — |
-   | DCS | DCS handler framework | dcs-framework | ⬜ Not Done | — | Currently passthrough only |
-   | DCS | DCS tmux passthrough | dcs-tmux | ⬜ Not Done | — | Requires dcs-framework |
-   | Kitty KB | Keyboard flags (CSI > u) | kitty-flags | ⬜ Not Done | — | — |
-   | Kitty KB | Disambiguate (flag 1) | kitty-disambiguate | ⬜ Not Done | — | Requires kitty-flags |
-   | Kitty KB | Report events (flag 2) | kitty-events | ⬜ Not Done | — | Requires kitty-disambiguate |
-   | Kitty KB | Alternate keys (flag 4) | kitty-alternates | ⬜ Not Done | — | Requires kitty-events |
-   | Kitty KB | All keys as escapes (flag 8) | kitty-allkeys | ⬜ Not Done | — | Requires kitty-disambiguate |
-   | Kitty KB | Associated text (flag 16) | kitty-assoctext | ⬜ Not Done | — | Requires kitty-allkeys |
+   | Clipboard | OSC 52 clipboard | osc52 | ✅ Done | — | Implemented and tested |
+   | Paste | Bracketed paste enforcement | bracket-paste-enforce | ✅ Done | — | Nested and malformed markers filtered |
+   | Sync | Synchronized output (2026) | sync-output | ✅ Done | — | Render gating implemented |
+   | OSC | OSC 4 color palette | osc4 | ✅ Done | — | Implemented and tested |
+   | OSC | OSC 7 CWD | osc7 | ✅ Done | — | Implemented and tested |
+   | OSC | OSC 8 hyperlinks | osc8 | ✅ Done | — | Implemented and tested |
+   | OSC | OSC 10 foreground color | osc10 | ✅ Done | — | Implemented and tested |
+   | OSC | OSC 11 background color | osc11 | ✅ Done | — | Implemented and tested |
+   | OSC | OSC 12 cursor color | osc12 | ✅ Done | — | Implemented and tested |
+   | OSC | OSC 104 reset palette | osc104 | ✅ Done | — | Implemented and tested |
+   | OSC | OSC 133 shell integration | osc133 | ✅ Done | — | Implemented and tested |
+   | DCS | DCS handler framework | dcs-framework | ✅ Done | — | Dispatch framework implemented |
+   | DCS | DCS tmux passthrough | dcs-tmux | ✅ Done | — | Implemented with recursion guard |
+   | Kitty KB | Keyboard flags (CSI > u) | kitty-flags | ✅ Done | — | Implemented and tested |
+   | Kitty KB | Disambiguate (flag 1) | kitty-disambiguate | ✅ Done | — | Implemented and tested |
+   | Kitty KB | Report events (flag 2) | kitty-events | ✅ Done | — | Implemented and tested |
+   | Kitty KB | Alternate keys (flag 4) | kitty-alternates | ✅ Done | — | Implemented and tested |
+   | Kitty KB | All keys as escapes (flag 8) | kitty-allkeys | ✅ Done | — | Implemented and tested |
+   | Kitty KB | Associated text (flag 16) | kitty-assoctext | ✅ Done | — | Implemented and tested |
 
    ## Implementation Log
 
@@ -240,7 +240,7 @@ Always do Task 5 (Update Tracking Issue + Memory) every run. In all comments and
    - Follow existing patterns:
      - Callbacks for output (e.g., `this._callbacks.oscClipboard?.(...)`)
      - No allocations in hot paths
-     - Bit-packed cell data (2 × Uint32 per cell)
+     - Bit-packed cell data (4 × Uint32 per cell, 16 bytes, including fg/bg RGB words)
      - Default fg=7, bg=0 in clear/erase
 6. **Run full test suite**: `pnpm test`. ALL tests must pass.
 7. **Apply formatting/linting**: Run any configured formatters.

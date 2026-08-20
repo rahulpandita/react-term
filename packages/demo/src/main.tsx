@@ -304,10 +304,10 @@ const FLOOD_LINES = [
 ];
 
 const THREAD_CHIPS = [
-  { id: "main", name: "main thread", state: "idle", load: 4 },
-  { id: "parser-a", name: "parser worker", state: "busy", load: 91 },
-  { id: "parser-b", name: "parser worker", state: "busy", load: 87 },
-  { id: "renderer", name: "render worker", state: "busy", load: 78 },
+  { id: "main", name: "main thread", state: "idle", activity: "events", meter: 18 },
+  { id: "parser-a", name: "parser worker", state: "busy", activity: "parse", meter: 91 },
+  { id: "parser-b", name: "parser worker", state: "busy", activity: "parse", meter: 87 },
+  { id: "renderer", name: "render worker", state: "busy", activity: "paint", meter: 78 },
 ];
 
 /** The four 32-bit words in the current CellGrid layout. */
@@ -318,7 +318,7 @@ const CELL_WORDS = [
   { id: "w3", label: "word 3", bits: "0000 0000 0000 0000", note: "background RGB" },
 ];
 
-const GRID_GLYPHS = "npm run build ▍react-term ✓ 2 draw calls SharedArrayBuffer atomics";
+const GRID_GLYPHS = "npm run build ▍react-term ✓ 2 primary passes SharedArrayBuffer atomics";
 const CELL_IDS = ids("cell", 130);
 const ATLAS_GLYPHS =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789{}[]()<>/\\|=+-*&^%$#@!?;:,.~`'\"→←↑↓█▓▒░▍✓✗";
@@ -331,13 +331,7 @@ const PANE_CONTENT = [
   },
   {
     cmd: "pnpm test",
-    lines: [
-      "✓ cell-grid  38 passed",
-      "✓ vt-parser  91 passed",
-      "✓ buffer     24 passed",
-      "",
-      "153 passed (1.9s)",
-    ],
+    lines: ["✓ cell-grid", "✓ vt-parser", "✓ buffer", "", "all suites passed"],
   },
   {
     cmd: "git log --oneline",
@@ -382,7 +376,7 @@ function ThreadLanesVisual() {
           <i />
           <i />
           <i />
-          <strong>npm run build</strong>
+          <strong>thread model · illustrative</strong>
         </div>
         <div className="flood">
           {FLOOD_LINES.map((line) => (
@@ -401,8 +395,8 @@ function ThreadLanesVisual() {
           <div className={`thread-chip thread-chip-${chip.state}`} key={chip.id}>
             <span className="chip-dot" />
             <span className="chip-name">{chip.name}</span>
-            <span className="chip-load">{chip.load}%</span>
-            <span className="chip-meter" style={{ "--load": `${chip.load}%` } as CSSProperties} />
+            <span className="chip-load">{chip.activity}</span>
+            <span className="chip-meter" style={{ "--load": `${chip.meter}%` } as CSSProperties} />
           </div>
         ))}
       </div>
@@ -434,7 +428,7 @@ function CellGridVisual() {
       </div>
 
       <div className="cell-words" data-depth="front">
-        <span className="words-caption">1 cell = 8 bytes</span>
+        <span className="words-caption">1 cell = 16 bytes</span>
         {CELL_WORDS.map((word) => (
           <div className="word" key={word.id}>
             <span className="word-label">{word.label}</span>
@@ -471,13 +465,13 @@ function DrawCallVisual() {
 
       <div className="draw-readout" data-depth="front">
         <div className="draw-figure draw-figure-before">
-          <span className="draw-count">1,920</span>
-          <span className="draw-label">draws · one per glyph</span>
+          <span className="draw-count">per cell</span>
+          <span className="draw-label">conceptual unbatched baseline</span>
         </div>
         <span className="draw-rule" />
         <div className="draw-figure draw-figure-after">
           <span className="draw-count">2</span>
-          <span className="draw-label">draws · instanced</span>
+          <span className="draw-label">primary passes · instanced</span>
         </div>
       </div>
     </div>
@@ -496,7 +490,7 @@ function PaneRailVisual() {
                 <i />
                 <i />
                 <i />
-                <strong>pane {paneId}</strong>
+                <strong>pane {paneId} · sample workload</strong>
               </header>
               <div className="rail-body">
                 <p className="rail-cmd">
@@ -531,7 +525,18 @@ function PaneRailVisual() {
 function BenchmarkVisual({ src }: { src: string }) {
   const holder = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const activateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const pauseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const shouldFocusAfterTransition = useRef(false);
   const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    if (!shouldFocusAfterTransition.current) return;
+    shouldFocusAfterTransition.current = false;
+    (active ? pauseButtonRef.current : activateButtonRef.current)?.focus({
+      preventScroll: true,
+    });
+  }, [active]);
 
   useEffect(() => {
     const node = holder.current;
@@ -539,7 +544,13 @@ function BenchmarkVisual({ src }: { src: string }) {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.every((entry) => !entry.isIntersecting)) setActive(false);
+        if (entries.every((entry) => !entry.isIntersecting)) {
+          const activeElement = document.activeElement;
+          if (activeElement && holder.current?.contains(activeElement)) {
+            holder.current?.focus({ preventScroll: true });
+          }
+          setActive(false);
+        }
       },
       { rootMargin: "-15% 0px" },
     );
@@ -574,7 +585,12 @@ function BenchmarkVisual({ src }: { src: string }) {
   }, [active, src]);
 
   return (
-    <div className="stage-art stage-bench" ref={holder}>
+    <section
+      aria-label="Rendering stress test chapter"
+      className="stage-art stage-bench"
+      ref={holder}
+      tabIndex={-1}
+    >
       <div className="slab slab-bench" data-depth="back">
         <div className="slab-bar">
           <i />
@@ -591,7 +607,15 @@ function BenchmarkVisual({ src }: { src: string }) {
                 src={src}
                 title="Rendering stress test"
               />
-              <button className="bench-release" type="button" onClick={() => setActive(false)}>
+              <button
+                className="bench-release"
+                type="button"
+                ref={pauseButtonRef}
+                onClick={() => {
+                  shouldFocusAfterTransition.current = true;
+                  setActive(false);
+                }}
+              >
                 Pause benchmark
               </button>
             </>
@@ -607,7 +631,15 @@ function BenchmarkVisual({ src }: { src: string }) {
                 The live test is paused until you activate it, so this chapter never captures
                 scrolling unexpectedly or consumes resources offscreen.
               </p>
-              <button className="bench-activate" type="button" onClick={() => setActive(true)}>
+              <button
+                className="bench-activate"
+                type="button"
+                ref={activateButtonRef}
+                onClick={() => {
+                  shouldFocusAfterTransition.current = true;
+                  setActive(true);
+                }}
+              >
                 Activate live benchmark
               </button>
               <a className="bench-mobile-launch" href={src}>
@@ -621,7 +653,7 @@ function BenchmarkVisual({ src }: { src: string }) {
       <a className="bench-launch" data-depth="front" href={src}>
         Open full screen <span aria-hidden="true">→</span>
       </a>
-    </div>
+    </section>
   );
 }
 
@@ -1098,9 +1130,13 @@ function SplitPaneDemo({ theme }: { theme: Partial<Theme> }) {
 function Root() {
   const showcaseRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
-  const comparisonUrl = import.meta.env.DEV
-    ? `${location.protocol}//${location.hostname}:5180/jank-demo.html`
-    : `${import.meta.env.BASE_URL}comparison/jank-demo.html`;
+  const comparisonUrl = new URL(
+    import.meta.env.DEV
+      ? `${location.protocol}//${location.hostname}:5180/jank-demo.html`
+      : `${import.meta.env.BASE_URL}comparison/jank-demo.html`,
+    location.href,
+  );
+  comparisonUrl.searchParams.set("parentOrigin", location.origin);
 
   const copyInstallCommand = useCallback(async () => {
     await navigator.clipboard.writeText(INSTALL_COMMAND);
@@ -1250,7 +1286,7 @@ function Root() {
                   latency, dropped frames, and long tasks. Results depend on your browser and GPU.
                 </p>
               </div>
-              <BenchmarkVisual src={comparisonUrl} />
+              <BenchmarkVisual src={comparisonUrl.toString()} />
             </div>
           </section>
         </section>
@@ -1276,7 +1312,7 @@ function Root() {
             <span>SharedArrayBuffer + Atomics</span>
           </article>
           <article>
-            <strong>2 draw calls</strong>
+            <strong>2 primary passes</strong>
             <span>WebGL2 instanced rendering</span>
           </article>
           <article>

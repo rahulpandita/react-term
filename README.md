@@ -57,7 +57,7 @@ PTY / WebSocket
 [Parser Worker] --SharedArrayBuffer--> [Render Worker]
   VT state machine                       OffscreenCanvas
   Writes to SAB                          WebGL2 glyph atlas
-  Dirty row bits                         2 draw calls/frame
+  Dirty row bits                         2 primary grid passes
       |                                        |
 [Main Thread]                            <canvas> element
   DOM events only

@@ -31,7 +31,8 @@ export interface InputHandlerOptions {
   applicationCursorKeys?: boolean;
   /**
    * Controls whether wheel and touch-pan gestures scroll terminal history or
-   * remain available to an ancestor page. Defaults to `"terminal"`.
+   * remain available to an ancestor page. `"page"` takes precedence over
+   * terminal mouse reporting for those gestures. Defaults to `"terminal"`.
    */
   scrollInputMode?: ScrollInputMode;
 }
@@ -1152,6 +1153,8 @@ export class InputHandler {
       this.touchStartY = touch.clientY;
       this.touchLastX = touch.clientX;
       this.touchLastY = touch.clientY;
+      this.swipeDirection = "none";
+      this.hSwipeRemainder = 0;
       return;
     }
 
@@ -1204,6 +1207,17 @@ export class InputHandler {
   private handleTouchMove(e: TouchEvent): void {
     if (this.scrollInputMode === "page") {
       this.cancelLongPress();
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const dx = Math.abs(touch.clientX - this.touchStartX);
+      const dy = Math.abs(touch.clientY - this.touchStartY);
+      if (this.swipeDirection === "none" && (dx > TAP_THRESHOLD || dy > TAP_THRESHOLD)) {
+        this.swipeDirection = dx > 1.5 * dy ? "horizontal" : "vertical";
+      }
+      if (this.swipeDirection === "horizontal") {
+        e.preventDefault();
+        this.handleHorizontalSwipe(touch);
+      }
       return;
     }
 
@@ -1258,19 +1272,7 @@ export class InputHandler {
 
     if (this.swipeDirection === "horizontal") {
       // Horizontal swipe → send arrow keys for command-line navigation
-      const deltaX = touch.clientX - this.touchLastX;
-      this.touchLastX = touch.clientX;
-      this.touchLastY = touch.clientY;
-      const totalPixels = deltaX + this.hSwipeRemainder;
-      const steps = Math.trunc(totalPixels / this.cellWidth);
-      this.hSwipeRemainder = totalPixels - steps * this.cellWidth;
-      if (steps !== 0) {
-        const key = steps > 0 ? "\x1b[C" : "\x1b[D"; // right : left
-        const count = Math.abs(steps);
-        for (let i = 0; i < count; i++) {
-          this.onData(toBytes(key));
-        }
-      }
+      this.handleHorizontalSwipe(touch);
     } else if (this.swipeDirection === "vertical") {
       // Vertical swipe → scroll terminal (scrollback buffer)
       const deltaY = touch.clientY - this.touchLastY;
@@ -1286,6 +1288,21 @@ export class InputHandler {
       // Direction not yet determined — just track position, don't act
       this.touchLastX = touch.clientX;
       this.touchLastY = touch.clientY;
+    }
+  }
+
+  private handleHorizontalSwipe(touch: Touch): void {
+    const deltaX = touch.clientX - this.touchLastX;
+    this.touchLastX = touch.clientX;
+    this.touchLastY = touch.clientY;
+    const totalPixels = deltaX + this.hSwipeRemainder;
+    const steps = Math.trunc(totalPixels / this.cellWidth);
+    this.hSwipeRemainder = totalPixels - steps * this.cellWidth;
+    if (steps === 0) return;
+
+    const key = steps > 0 ? "\x1b[C" : "\x1b[D";
+    for (let i = 0; i < Math.abs(steps); i++) {
+      this.onData(toBytes(key));
     }
   }
 

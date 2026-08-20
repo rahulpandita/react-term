@@ -16,7 +16,7 @@ react-term — Modern terminal emulator for React/React Native
 - `pnpm --filter @next_term/demo start` — Start demo + PTY server
 
 ## Key patterns
-- Cell data: 2 x Uint32 per cell, bit-packed (see core/src/cell-grid.ts)
+- Cell data: 4 x Uint32 per cell (16 bytes), including fg/bg RGB words (see core/src/cell-grid.ts)
 - Dirty tracking: Int32Array with Atomics (NOT Uint8Array — Atomics requires >=32-bit)
 - Default fg=7 (white), default bg=0 (black) — always set in clear/erase operations
 - SAB feature detection: `typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated`

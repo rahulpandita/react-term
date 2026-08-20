@@ -926,7 +926,7 @@ h1 {
   position: relative;
   display: grid;
   flex: 1;
-  min-height: 0;
+  min-height: clamp(360px, 50svh, 540px);
   background: var(--bg);
 }
 
@@ -1353,9 +1353,29 @@ footer {
     height: auto;
   }
 
+  .chapter-live {
+    height: auto;
+  }
+
+  .chapter-live .chapter-stage {
+    position: relative;
+    height: auto;
+    min-height: 100svh;
+    padding-block: 32px;
+    overflow: visible;
+  }
+
+  .chapter-live .terminal-surface {
+    height: clamp(280px, 60svh, 460px);
+  }
+
   .stage-bench,
   .slab-bench {
     height: auto;
+  }
+
+  .bench-frame {
+    min-height: clamp(420px, 70svh, 620px);
   }
 
   .bench-gate {
@@ -1447,6 +1467,22 @@ footer {
     height: auto;
   }
 
+  .chapter-live {
+    height: auto;
+  }
+
+  .chapter-live .chapter-stage {
+    position: relative;
+    height: auto;
+    min-height: 100svh;
+    padding-block: 28px;
+    overflow: visible;
+  }
+
+  .chapter-live .terminal-surface {
+    height: clamp(240px, 62svh, 420px);
+  }
+
   .chapter-stage-bench {
     position: relative;
     grid-template-rows: auto auto;
@@ -1459,6 +1495,10 @@ footer {
   .stage-bench,
   .slab-bench {
     height: auto;
+  }
+
+  .bench-frame {
+    min-height: clamp(420px, 70svh, 620px);
   }
 }
 
@@ -1500,10 +1540,6 @@ footer {
   .rail {
     flex-wrap: wrap;
     width: 100%;
-  }
-
-  .chapter-stage-bench {
-    height: 92vh;
   }
 
   *,

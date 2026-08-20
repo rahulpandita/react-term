@@ -77,7 +77,7 @@ describe("InputHandler", () => {
         handler.dispose();
         document.body.removeChild(container);
       };
-      return { container, onScroll, dispatch, teardown };
+      return { container, handler, onData, onScroll, dispatch, teardown };
     }
 
     it("calls onScroll with positive delta when wheel scrolls up (into history)", () => {
@@ -104,6 +104,15 @@ describe("InputHandler", () => {
     it("leaves wheel events uncanceled for ancestor page scrolling in page mode", () => {
       const { onScroll, dispatch, teardown } = setupWheel("page");
       expect(dispatch(48)).toBe(true);
+      expect(onScroll).not.toHaveBeenCalled();
+      teardown();
+    });
+
+    it("keeps page ownership when terminal mouse reporting is active", () => {
+      const { handler, onData, onScroll, dispatch, teardown } = setupWheel("page");
+      handler.setMouseProtocol("any");
+      expect(dispatch(48)).toBe(true);
+      expect(onData).not.toHaveBeenCalled();
       expect(onScroll).not.toHaveBeenCalled();
       teardown();
     });

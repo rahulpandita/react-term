@@ -17,6 +17,12 @@ import {
   WebTerminal,
 } from "@next_term/web";
 import { $ } from "./dom.js";
+import {
+  getComparisonScrollInputMode,
+  getEmbeddedParentOrigin,
+  shouldForwardEmbeddedTouch,
+  shouldForwardEmbeddedWheel,
+} from "./scroll-mode.js";
 import { MATRIX_THEME, XTERM_MATRIX_THEME } from "./theme.js";
 import "./jank-demo.css";
 
@@ -199,10 +205,25 @@ if (location.port === "5180") {
 }
 
 if (isEmbedded) {
-  const parentOrigin = document.referrer ? new URL(document.referrer).origin : location.origin;
-  container.addEventListener(
+  const parentOrigin = getEmbeddedParentOrigin(location.search, document.referrer);
+  const forwardPageScroll = (deltaY: number) => {
+    if (deltaY === 0 || !Number.isFinite(deltaY)) return;
+    window.parent.postMessage({ type: "react-term:page-scroll", deltaY }, parentOrigin);
+  };
+
+  document.addEventListener(
     "wheel",
     (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        !shouldForwardEmbeddedWheel(
+          event.deltaX,
+          event.deltaY,
+          Boolean(target?.closest(".xterm-viewport")),
+        )
+      ) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       const deltaY =
@@ -211,10 +232,57 @@ if (isEmbedded) {
           : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
             ? event.deltaY * window.innerHeight
             : event.deltaY;
-      window.parent.postMessage({ type: "react-term:page-scroll", deltaY }, parentOrigin);
+      forwardPageScroll(deltaY);
     },
     { capture: true, passive: false },
   );
+
+  let previousTouchX: number | null = null;
+  let previousTouchY: number | null = null;
+  let touchStartedInXtermViewport = false;
+  document.addEventListener(
+    "touchstart",
+    (event) => {
+      const singleTouch = event.touches.length === 1 ? event.touches[0] : null;
+      previousTouchX = singleTouch?.clientX ?? null;
+      previousTouchY = singleTouch?.clientY ?? null;
+      const target = event.target instanceof Element ? event.target : null;
+      touchStartedInXtermViewport = Boolean(target?.closest(".xterm-viewport"));
+    },
+    { capture: true, passive: true },
+  );
+  document.addEventListener(
+    "touchmove",
+    (event) => {
+      if (previousTouchX === null || previousTouchY === null || event.touches.length !== 1) {
+        previousTouchX = null;
+        previousTouchY = null;
+        return;
+      }
+
+      const currentTouchX = event.touches[0].clientX;
+      const currentTouchY = event.touches[0].clientY;
+      const deltaX = previousTouchX - currentTouchX;
+      const deltaY = previousTouchY - currentTouchY;
+      previousTouchX = currentTouchX;
+      previousTouchY = currentTouchY;
+      if (!shouldForwardEmbeddedTouch(deltaX, deltaY, touchStartedInXtermViewport)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      forwardPageScroll(deltaY);
+    },
+    { capture: true, passive: false },
+  );
+  const clearTouch = () => {
+    previousTouchX = null;
+    previousTouchY = null;
+    touchStartedInXtermViewport = false;
+  };
+  document.addEventListener("touchend", clearTouch, { capture: true, passive: true });
+  document.addEventListener("touchcancel", clearTouch, { capture: true, passive: true });
 }
 
 // ---- Ball animation ----
@@ -395,7 +463,7 @@ function createReactTerm() {
         fontFamily: "monospace",
         theme: MATRIX_THEME,
         scrollback: 500,
-        scrollInputMode: "page",
+        scrollInputMode: getComparisonScrollInputMode(isEmbedded),
         useWorker: true,
         sharedContext: sharedCtx,
         paneId: `pane-${i}`,

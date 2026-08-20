@@ -134,7 +134,8 @@ export interface WebTerminalOptions {
   /**
    * Controls whether wheel and touch-pan gestures scroll terminal history or
    * an ancestor page. Use `"page"` for embedded terminals with an explicit
-   * scrollbar. Defaults to `"terminal"`.
+   * scrollbar; page ownership also takes precedence over terminal mouse
+   * reporting for those gestures. Defaults to `"terminal"`.
    */
   scrollInputMode?: ScrollInputMode;
   devicePixelRatio?: number;
@@ -277,6 +278,9 @@ export class WebTerminal {
   private boundScrollbarKeyDown: ((event: KeyboardEvent) => void) | null = null;
   /** Timer to auto-hide scrollbar. */
   private scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastScrollbarTotalLines = -1;
+  private lastScrollbarOffset = -1;
+  private lastScrollbarTrackHeight = -1;
 
   // Text encoder for string -> Uint8Array
   private encoder = new TextEncoder();
@@ -431,7 +435,7 @@ export class WebTerminal {
     this.ensureFont(fontFamily, fontSize, fontWeight, fontWeightBold);
 
     // Create scrollbar overlay
-    this.createScrollbar(container);
+    this.createScrollbar(container, theme);
 
     // Create input handler
     this.inputHandler = new InputHandler({
@@ -1110,6 +1114,7 @@ export class WebTerminal {
       this.renderBridge.setTheme(merged);
     }
     this.renderer.setTheme(merged);
+    this.updateScrollbarTheme(merged);
   }
 
   setFont(
@@ -1276,7 +1281,7 @@ export class WebTerminal {
   // Scrollback viewport
   // -----------------------------------------------------------------------
 
-  private createScrollbar(container: HTMLElement): void {
+  private createScrollbar(container: HTMLElement, theme: Theme): void {
     const bar = document.createElement("div");
     const explicit = this.scrollInputMode === "page";
     bar.setAttribute("role", "scrollbar");
@@ -1289,7 +1294,7 @@ export class WebTerminal {
       right: "0",
       top: "0",
       bottom: "0",
-      width: explicit ? "18px" : "6px",
+      width: explicit ? "24px" : "6px",
       zIndex: "10",
       opacity: "0",
       transition: "opacity 0.3s",
@@ -1301,10 +1306,9 @@ export class WebTerminal {
     const thumb = document.createElement("div");
     Object.assign(thumb.style, {
       position: "absolute",
-      right: explicit ? "4px" : "1px",
+      right: explicit ? "7px" : "1px",
       width: explicit ? "10px" : "4px",
       borderRadius: explicit ? "5px" : "2px",
-      backgroundColor: explicit ? "rgba(0, 255, 65, 0.72)" : "rgba(255, 255, 255, 0.4)",
       minHeight: explicit ? "32px" : "20px",
     });
 
@@ -1312,6 +1316,7 @@ export class WebTerminal {
     container.appendChild(bar);
     this.scrollbarEl = bar;
     this.scrollbarThumb = thumb;
+    this.updateScrollbarTheme(theme);
 
     if (explicit) {
       this.boundScrollbarPointerDown = (event) => {
@@ -1352,6 +1357,12 @@ export class WebTerminal {
     }
   }
 
+  private updateScrollbarTheme(theme: Theme): void {
+    if (!this.scrollbarThumb) return;
+    this.scrollbarThumb.style.backgroundColor = theme.foreground;
+    this.scrollbarThumb.style.opacity = this.scrollInputMode === "page" ? "0.72" : "0.4";
+  }
+
   private scrollFromScrollbarPointer(clientY: number): void {
     if (!this.scrollbarEl || !this.scrollbarThumb) return;
     const maxOffset = this.bufferSet.scrollback.length;
@@ -1368,6 +1379,18 @@ export class WebTerminal {
     if (!this.scrollbarEl || !this.scrollbarThumb) return;
     const totalLines = this.bufferSet.scrollback.length + this.bufferSet.rows;
     const visibleRows = this.bufferSet.rows;
+    const containerHeight = visibleRows * this.renderer.getCellSize().height;
+
+    if (
+      totalLines === this.lastScrollbarTotalLines &&
+      this.viewportOffset === this.lastScrollbarOffset &&
+      containerHeight === this.lastScrollbarTrackHeight
+    ) {
+      return;
+    }
+    this.lastScrollbarTotalLines = totalLines;
+    this.lastScrollbarOffset = this.viewportOffset;
+    this.lastScrollbarTrackHeight = containerHeight;
 
     const explicit = this.scrollInputMode === "page";
     if (totalLines <= visibleRows) {
@@ -1386,8 +1409,6 @@ export class WebTerminal {
     }
 
     // Calculate thumb size and position
-    const containerHeight =
-      this.scrollbarEl.clientHeight || visibleRows * this.renderer.getCellSize().height;
     const minThumbHeight = explicit ? 32 : 20;
     const thumbHeight = Math.max(minThumbHeight, (visibleRows / totalLines) * containerHeight);
     const maxScroll = this.bufferSet.scrollback.length;
