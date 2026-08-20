@@ -17,7 +17,13 @@ import {
   WebTerminal,
 } from "@next_term/web";
 import { $ } from "./dom.js";
-import { CATPPUCCIN_MOCHA, XTERM_THEME } from "./theme.js";
+import {
+  getComparisonScrollInputMode,
+  getEmbeddedParentOrigin,
+  shouldForwardEmbeddedTouch,
+  shouldForwardEmbeddedWheel,
+} from "./scroll-mode.js";
+import { MATRIX_THEME, XTERM_MATRIX_THEME } from "./theme.js";
 import "./jank-demo.css";
 
 // ---- Config ----
@@ -192,9 +198,91 @@ const statLong = $("stat-long");
 const statThroughput = $("stat-throughput");
 const latencyValue = $("latency-value");
 const backShowcase = $("back-showcase") as HTMLAnchorElement;
+const isEmbedded = window.self !== window.top;
 
 if (location.port === "5180") {
   backShowcase.href = `${location.protocol}//${location.hostname}:5173/`;
+}
+
+if (isEmbedded) {
+  const parentOrigin = getEmbeddedParentOrigin(location.search, document.referrer);
+  const forwardPageScroll = (deltaY: number) => {
+    if (deltaY === 0 || !Number.isFinite(deltaY)) return;
+    window.parent.postMessage({ type: "react-term:page-scroll", deltaY }, parentOrigin);
+  };
+
+  document.addEventListener(
+    "wheel",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        !shouldForwardEmbeddedWheel(
+          event.deltaX,
+          event.deltaY,
+          Boolean(target?.closest(".xterm-viewport")),
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const deltaY =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? event.deltaY * 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? event.deltaY * window.innerHeight
+            : event.deltaY;
+      forwardPageScroll(deltaY);
+    },
+    { capture: true, passive: false },
+  );
+
+  let previousTouchX: number | null = null;
+  let previousTouchY: number | null = null;
+  let touchStartedInXtermViewport = false;
+  document.addEventListener(
+    "touchstart",
+    (event) => {
+      const singleTouch = event.touches.length === 1 ? event.touches[0] : null;
+      previousTouchX = singleTouch?.clientX ?? null;
+      previousTouchY = singleTouch?.clientY ?? null;
+      const target = event.target instanceof Element ? event.target : null;
+      touchStartedInXtermViewport = Boolean(target?.closest(".xterm-viewport"));
+    },
+    { capture: true, passive: true },
+  );
+  document.addEventListener(
+    "touchmove",
+    (event) => {
+      if (previousTouchX === null || previousTouchY === null || event.touches.length !== 1) {
+        previousTouchX = null;
+        previousTouchY = null;
+        return;
+      }
+
+      const currentTouchX = event.touches[0].clientX;
+      const currentTouchY = event.touches[0].clientY;
+      const deltaX = previousTouchX - currentTouchX;
+      const deltaY = previousTouchY - currentTouchY;
+      previousTouchX = currentTouchX;
+      previousTouchY = currentTouchY;
+      if (!shouldForwardEmbeddedTouch(deltaX, deltaY, touchStartedInXtermViewport)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      forwardPageScroll(deltaY);
+    },
+    { capture: true, passive: false },
+  );
+  const clearTouch = () => {
+    previousTouchX = null;
+    previousTouchY = null;
+    touchStartedInXtermViewport = false;
+  };
+  document.addEventListener("touchend", clearTouch, { capture: true, passive: true });
+  document.addEventListener("touchcancel", clearTouch, { capture: true, passive: true });
 }
 
 // ---- Ball animation ----
@@ -223,11 +311,11 @@ function drawLatencyGraph() {
   const h = 80;
   const maxMs = 100;
 
-  ctx2d.fillStyle = "#11111b";
+  ctx2d.fillStyle = "#070c08";
   ctx2d.fillRect(0, 0, w, h);
-  ctx2d.strokeStyle = "#313244";
+  ctx2d.strokeStyle = "rgba(0, 255, 65, 0.18)";
   ctx2d.lineWidth = 1;
-  ctx2d.fillStyle = "#6c7086";
+  ctx2d.fillStyle = "#7fc494";
   ctx2d.font = "9px monospace";
   for (const ms of [16, 33, 50]) {
     const y = h - (ms / maxMs) * h;
@@ -242,7 +330,7 @@ function drawLatencyGraph() {
   for (let i = 0; i < LATENCY_HISTORY.length; i++) {
     const ms = LATENCY_HISTORY[i];
     const barH = Math.min((ms / maxMs) * h, h);
-    ctx2d.fillStyle = ms < 8 ? "#a6e3a1" : ms < 16 ? "#f9e2af" : ms < 33 ? "#fab387" : "#f38ba8";
+    ctx2d.fillStyle = ms < 8 ? "#00ff41" : ms < 16 ? "#d7ff5f" : ms < 33 ? "#ffb86b" : "#ff6b6b";
     ctx2d.fillRect(i * barW, h - barH, Math.max(barW - 1, 1), barH);
   }
 }
@@ -280,7 +368,7 @@ function frameLoop() {
 
     const last = LATENCY_HISTORY[LATENCY_HISTORY.length - 1] ?? 0;
     latencyValue.textContent = `${last.toFixed(1)} ms`;
-    latencyValue.style.color = last < 8 ? "#a6e3a1" : last < 16 ? "#f9e2af" : "#f38ba8";
+    latencyValue.style.color = last < 8 ? "#00ff41" : last < 16 ? "#d7ff5f" : "#ff6b6b";
   }
   requestAnimationFrame(frameLoop);
 }
@@ -338,7 +426,7 @@ function createReactTerm() {
   const sharedOptions = {
     fontSize: 13,
     fontFamily: "monospace",
-    theme: CATPPUCCIN_MOCHA,
+    theme: MATRIX_THEME,
   };
   sharedCtx =
     typeof crossOriginIsolated !== "undefined" && crossOriginIsolated
@@ -373,8 +461,9 @@ function createReactTerm() {
       new WebTerminal(rtContainers[i], {
         fontSize: 13,
         fontFamily: "monospace",
-        theme: CATPPUCCIN_MOCHA,
+        theme: MATRIX_THEME,
         scrollback: 500,
+        scrollInputMode: getComparisonScrollInputMode(isEmbedded),
         useWorker: true,
         sharedContext: sharedCtx,
         paneId: `pane-${i}`,
@@ -434,7 +523,7 @@ function createXterm() {
     const term = new XTerminal({
       fontSize: 13,
       fontFamily: "monospace",
-      theme: XTERM_THEME,
+      theme: XTERM_MATRIX_THEME,
       scrollback: 500,
     });
     term.loadAddon(fit);

@@ -4,7 +4,7 @@ const SAB_AVAILABLE =
   (typeof crossOriginIsolated !== "undefined" ? crossOriginIsolated : true);
 
 // Cell packing: 4 x Uint32 per cell
-// Word 0: [0-20] codepoint, [21] fg-is-rgb, [22] bg-is-rgb, [23-30] fg-index, [31] dirty
+// Word 0: [0-20] codepoint, [21] fg-is-rgb, [22] bg-is-rgb, [23-30] fg-index, [31] reserved
 // Word 1: [0-7] bg-index, [8] bold, [9] italic, [10] underline, [11] strikethrough,
 //         [12-13] underline-style, [14] inverse, [15] wide, [16-31] reserved
 // Word 2: fg RGB (24-bit packed, meaningful when fg-is-rgb flag is set)

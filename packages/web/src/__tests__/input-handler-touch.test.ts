@@ -78,23 +78,25 @@ describe("InputHandler (touch events)", () => {
   }
 
   function dispatchTouchStart(touches: Record<string, unknown>[]) {
-    container.dispatchEvent(
-      new TouchEvent("touchstart", {
-        touches: touches as unknown as Touch[],
-        changedTouches: touches as unknown as Touch[],
-        bubbles: true,
-      }),
-    );
+    const event = new TouchEvent("touchstart", {
+      touches: touches as unknown as Touch[],
+      changedTouches: touches as unknown as Touch[],
+      bubbles: true,
+      cancelable: true,
+    });
+    container.dispatchEvent(event);
+    return event;
   }
 
   function dispatchTouchMove(touches: Record<string, unknown>[]) {
-    container.dispatchEvent(
-      new TouchEvent("touchmove", {
-        touches: touches as unknown as Touch[],
-        changedTouches: touches as unknown as Touch[],
-        bubbles: true,
-      }),
-    );
+    const event = new TouchEvent("touchmove", {
+      touches: touches as unknown as Touch[],
+      changedTouches: touches as unknown as Touch[],
+      bubbles: true,
+      cancelable: true,
+    });
+    container.dispatchEvent(event);
+    return event;
   }
 
   function dispatchTouchEnd(
@@ -179,6 +181,45 @@ describe("InputHandler (touch events)", () => {
       // dy > dx — should lock vertical
       dispatchTouchMove([touch(5, CELL_H * 3)]); // dx=5 < 1.5*dy
       expect(onData).not.toHaveBeenCalled();
+    });
+
+    it("leaves vertical touch gestures uncanceled for page scrolling in page mode", () => {
+      handler.dispose();
+      handler = new InputHandler({
+        onData,
+        onScroll,
+        onFontSizeChange,
+        scrollInputMode: "page",
+      });
+      handler.attach(container, CELL_W, CELL_H);
+
+      const start = dispatchTouchStart([touch(0, 0)]);
+      const move = dispatchTouchMove([touch(0, CELL_H * 3)]);
+
+      expect(start.defaultPrevented).toBe(false);
+      expect(move.defaultPrevented).toBe(false);
+      expect(onScroll).not.toHaveBeenCalled();
+    });
+
+    it("preserves horizontal command-line swipes in page mode", () => {
+      handler.dispose();
+      handler = new InputHandler({
+        onData,
+        onScroll,
+        onFontSizeChange,
+        scrollInputMode: "page",
+      });
+      handler.attach(container, CELL_W, CELL_H);
+
+      dispatchTouchStart([touch(0, 0)]);
+      const move = dispatchTouchMove([touch(CELL_W * 3 + 1, 0)]);
+
+      expect(move.defaultPrevented).toBe(true);
+      expect(onData).toHaveBeenCalledTimes(3);
+      expect(onData.mock.calls.every((call: Uint8Array[]) => decode(call[0]) === "\x1b[C")).toBe(
+        true,
+      );
+      expect(onScroll).not.toHaveBeenCalled();
     });
   });
 

@@ -1,6 +1,28 @@
+/*
+  Matrix world: black terminal ground, phosphor-green light.
+  Every colour in the showcase resolves through these tokens.
+*/
 :root {
-  color: #152018;
-  background: #e8f0df;
+  --bg: #04070a;
+  --surface: #070c08;
+  --raised: #0b120d;
+  --chrome: #101a12;
+
+  --green: #00ff41;
+  --green-soft: #35d96b;
+  --green-deep: #0d3a1c;
+
+  --text: #c9ffd8;
+  --text-dim: #7fc494;
+  --muted: #4e8a63;
+
+  --line: rgba(0, 255, 65, 0.18);
+  --line-solid: rgba(0, 255, 65, 0.34);
+  --on-green: #04070a;
+  --glow: rgba(0, 255, 65, 0.32);
+
+  color: var(--text);
+  background: var(--bg);
   font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -18,7 +40,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #e8f0df;
+  background: var(--bg);
+  overflow-x: clip;
 }
 
 button,
@@ -32,13 +55,80 @@ a {
 
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid #ff5c35;
+  outline: 3px solid var(--green);
   outline-offset: 3px;
 }
 
 .showcase {
+  --scroll-y: 0px;
   min-height: 100vh;
-  overflow: hidden;
+  position: relative;
+}
+
+/*
+  Matrix atmosphere. Three stacked, non-interactive layers over the black
+  ground: falling glyph rain, CRT scanlines, and a vignette that keeps the
+  centre of the page readable. All are painted from CSS — no images, no JS.
+*/
+.showcase::before,
+.showcase::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Rain: repeating vertical phosphor columns, drifting at two speeds. */
+.showcase::before {
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 255, 65, 0.07) 0 1px,
+      transparent 1px 14px
+    ),
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(0, 255, 65, 0.11) 42%,
+      rgba(0, 255, 65, 0.02) 62%,
+      transparent 78%
+    );
+  background-size:
+    14px 100%,
+    100% 62vh;
+  background-repeat: repeat, repeat-y;
+  animation: matrix-rain 7.5s linear infinite;
+  opacity: 0.55;
+}
+
+/* Scanlines + vignette. */
+.showcase::after {
+  background-image:
+    repeating-linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.34) 0 1px,
+      transparent 1px 3px
+    ),
+    radial-gradient(
+      ellipse at 50% 42%,
+      transparent 38%,
+      rgba(0, 0, 0, 0.72) 100%
+    );
+  mix-blend-mode: multiply;
+}
+
+.showcase > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes matrix-rain {
+  to {
+    background-position:
+      0 0,
+      0 62vh;
+  }
 }
 
 .site-header,
@@ -55,7 +145,7 @@ footer {
   align-items: center;
   justify-content: space-between;
   min-height: 88px;
-  border-bottom: 1px solid rgba(21, 32, 24, 0.28);
+  border-bottom: 1px solid var(--line);
 }
 
 .wordmark {
@@ -66,8 +156,13 @@ footer {
   letter-spacing: -0.03em;
 }
 
+.wordmark {
+  text-shadow: 0 0 18px var(--glow);
+}
+
 .wordmark span {
-  color: #ff5c35;
+  color: var(--green);
+  text-shadow: 0 0 12px var(--green);
   animation: cursor-blink 1.1s steps(1) infinite;
 }
 
@@ -92,11 +187,13 @@ footer a:hover {
 
 .github-link {
   padding: 10px 15px;
-  color: #eef5e8;
-  background: #152018;
+  color: var(--on-green);
+  background: var(--green);
+  font-weight: 700;
 }
 
 .hero {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(320px, 0.72fr) minmax(560px, 1.28fr);
   gap: clamp(48px, 7vw, 112px);
@@ -112,6 +209,8 @@ footer a:hover {
 
 h1 {
   max-width: 9.5ch;
+  color: var(--green);
+  text-shadow: 0 0 34px rgba(0, 255, 65, 0.34);
   margin: 0;
   font-size: clamp(3.3rem, 6.4vw, 6rem);
   font-weight: 760;
@@ -123,7 +222,7 @@ h1 {
 .hero-copy > p {
   max-width: 58ch;
   margin: 32px 0 0;
-  color: #435248;
+  color: var(--text-dim);
   font-size: clamp(1rem, 1.3vw, 1.2rem);
   line-height: 1.65;
 }
@@ -139,7 +238,7 @@ h1 {
 .hero-actions button {
   min-height: 48px;
   padding: 13px 19px;
-  border: 1px solid #152018;
+  border: 1px solid var(--line-solid);
   border-radius: 0;
   font-size: 0.88rem;
   font-weight: 720;
@@ -150,25 +249,26 @@ h1 {
 }
 
 .comparison-action {
-  color: #152018;
-  background: #dce6d4;
+  color: var(--text);
+  background: var(--raised);
+  border-color: var(--line-solid);
   text-decoration: none;
 }
 
 .hero-actions a:hover,
 .hero-actions button:hover {
   transform: translate(-2px, -2px);
-  box-shadow: 4px 4px 0 #152018;
+  box-shadow: 4px 4px 0 var(--line-solid);
 }
 
 .primary-action {
-  color: #fff7ef;
-  background: #ff5c35;
+  color: var(--on-green);
+  background: var(--green);
   text-decoration: none;
 }
 
 .hero-actions button {
-  color: #152018;
+  color: var(--text);
   background: transparent;
 }
 
@@ -177,14 +277,14 @@ h1 {
   align-items: center;
   gap: 9px;
   margin-top: 26px;
-  color: #435248;
+  color: var(--text-dim);
   font-size: 0.82rem;
 }
 
 .runtime-note code {
   padding: 2px 5px;
-  color: #152018;
-  background: rgba(21, 32, 24, 0.08);
+  color: var(--text);
+  background: rgba(0, 255, 65, 0.08);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
@@ -192,15 +292,16 @@ h1 {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #16813d;
-  box-shadow: 0 0 0 4px rgba(22, 129, 61, 0.14);
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(0, 255, 65, 0.18);
 }
 
 .terminal-frame {
   min-width: 0;
-  border: 1px solid #152018;
-  background: #111711;
-  box-shadow: 18px 18px 0 rgba(21, 32, 24, 0.16);
+  border: 1px solid var(--line-solid);
+  background: var(--surface);
+  box-shadow: 18px 18px 0 rgba(0, 255, 65, 0.12);
+  transform: translate3d(0, calc(var(--scroll-y) * -0.03), 0);
   animation: terminal-arrival 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -210,9 +311,9 @@ h1 {
   gap: 7px;
   height: 42px;
   padding-inline: 15px;
-  color: #a8b4aa;
-  background: #202922;
-  border-bottom: 1px solid #3b463d;
+  color: var(--text-dim);
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.7rem;
 }
@@ -221,11 +322,11 @@ h1 {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #768177;
+  background: var(--muted);
 }
 
 .terminal-chrome span:first-child {
-  background: #ff5c35;
+  background: var(--green);
 }
 
 .terminal-chrome strong {
@@ -253,24 +354,760 @@ h1 {
   bottom: 10px;
   z-index: 20;
   padding: 7px 10px;
-  border: 1px solid #566057;
-  color: #d9e3da;
-  background: #202922;
+  border: 1px solid var(--line-solid);
+  color: var(--text);
+  background: var(--chrome);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.7rem;
   cursor: pointer;
 }
 
 .pane-switch:hover {
-  color: #ffffff;
-  border-color: #ff5c35;
+  color: var(--green);
+  border-color: var(--green);
+}
+
+/* ---------------------------------------------------------------------------
+   Scroll chapters: each chapter is a tall scroll track with a pinned stage.
+   `--p` (0..1 scroll progress) and `--vis` (fade weight) are written by JS.
+   --------------------------------------------------------------------------- */
+
+.chapters {
+  --chapter-track: 260vh;
+}
+
+.chapter {
+  --p: 0;
+  --vis: 1;
+  position: relative;
+  height: var(--chapter-track);
+}
+
+.chapter-wide {
+  --chapter-track: 320vh;
+}
+
+.chapter-stage {
+  position: sticky;
+  top: 0;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+  gap: clamp(40px, 6vw, 96px);
+  align-items: center;
+  width: min(1320px, calc(100% - 64px));
+  height: 100vh;
+  margin-inline: auto;
+  overflow: hidden;
+}
+
+.chapter-copy {
+  position: relative;
+  z-index: 1;
+  opacity: var(--vis);
+  transform: translate3d(0, calc((1 - var(--vis)) * 26px), 0);
+}
+
+/*
+  Preferred path: drive the chapter motion natively on the compositor.
+  The scroll timeline is the chapter track; the pinned stage is the subject.
+  The JS fallback above only runs where this is unsupported.
+*/
+@supports (animation-timeline: view()) {
+  .chapter {
+    view-timeline: --chapter block;
+  }
+
+  .chapter-copy,
+  .stage-art,
+  .rail {
+    animation-timeline: --chapter;
+    /* `contain` runs 0..1 exactly while the tall chapter covers the viewport,
+       which is the window in which its stage is pinned. */
+    animation-range: contain 0% contain 100%;
+    animation-duration: auto;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+  }
+
+  .chapter-copy {
+    animation-name: chapter-copy-in;
+    opacity: 1;
+    transform: none;
+  }
+
+  .stage-art {
+    animation-name: stage-drift;
+    opacity: 1;
+    transform: none;
+  }
+
+  .rail {
+    animation-name: rail-travel;
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Interactive embed: fade in place, never drift under the pointer. */
+  .stage-bench {
+    animation-name: bench-in;
+  }
+}
+
+@keyframes bench-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0);
+  }
+  16%,
+  90% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -14px, 0);
+  }
+}
+
+@keyframes chapter-copy-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 26px, 0);
+  }
+  18%,
+  86% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -18px, 0);
+  }
+}
+
+@keyframes stage-drift {
+  0% {
+    opacity: 0;
+    transform: translate3d(190px, 0, 0);
+  }
+  18%,
+  86% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-190px, 0, 0);
+  }
+}
+
+@keyframes rail-travel {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  14%,
+  88% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-58%, 0, 0);
+  }
+}
+
+.chapter-index {
+  margin: 0 0 18px;
+  color: var(--green);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.chapter-copy h2 {
+  max-width: 15ch;
+  margin: 0;
+  font-size: clamp(2.1rem, 4vw, 3.9rem);
+  font-weight: 760;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.chapter-copy p:last-child {
+  max-width: 46ch;
+  margin: 24px 0 0;
+  color: var(--text-dim);
+  font-size: clamp(0.98rem, 1.15vw, 1.12rem);
+  line-height: 1.65;
+}
+
+/* ---------------------------------------------------------------------------
+   Chapter hero artwork. Each stage is a dark terminal slab carrying real
+   content, with a lighter readout floating in front of it. The two layers
+   drift at different rates so the parallax reads as depth, not as a slide.
+   --------------------------------------------------------------------------- */
+
+.stage-art {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  opacity: var(--vis);
+  transform: translate3d(calc((0.5 - var(--p)) * 190px), 0, 0);
+}
+
+/* Shared slab material: the terminal body every hero is built from. */
+.slab {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line-solid);
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px rgba(0, 255, 65, 0.06),
+    0 34px 90px -30px rgba(0, 0, 0, 0.9),
+    0 0 120px -40px var(--glow);
+}
+
+/* Scanlines across every slab, so the artwork shares the CRT material. */
+.slab::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.28) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+.slab-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding-inline: 13px;
+  border-bottom: 1px solid var(--line);
+  background: var(--chrome);
+  color: var(--text-dim);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.66rem;
+}
+
+.slab-bar i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(0, 255, 65, 0.24);
+}
+
+.slab-bar i:first-child {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+
+.slab-bar strong {
+  margin-left: 8px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* The floating front layer, common to chapters 01-03. */
+.stage-art [data-depth="front"] {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid var(--line-solid);
+  background: rgba(4, 7, 10, 0.92);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 26px 60px -24px rgba(0, 0, 0, 0.95);
+  /* Front layer travels further than the slab behind it. */
+  transform: translate3d(calc((0.5 - var(--p)) * 62px), 0, 0);
+}
+
+/* --- Chapter 01: build output floods, threads stay calm ------------------- */
+
+.stage-threads {
+  padding-bottom: 46px;
+}
+
+.flood {
+  position: relative;
+  padding: 16px 18px 40px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.74rem;
+  line-height: 1.85;
+}
+
+.flood-line {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.flood-esc {
+  color: var(--muted);
+}
+
+.flood-text {
+  flex: 1;
+  color: var(--text);
+}
+
+.flood-line:nth-child(3n) .flood-text,
+.flood-line:nth-child(7n) .flood-text {
+  color: var(--green);
+  text-shadow: 0 0 10px var(--glow);
+}
+
+.flood-meta {
+  color: var(--muted);
+}
+
+.flood-fade {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 120px;
+  background: linear-gradient(180deg, transparent, var(--surface));
+}
+
+.thread-chips {
+  right: -4%;
+  bottom: 0;
+  display: grid;
+  gap: 1px;
+  width: min(340px, 74%);
+  padding: 1px;
+  background: var(--line);
+}
+
+.thread-chip {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 14px;
+  background: var(--bg);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.7rem;
+}
+
+.chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.thread-chip-busy .chip-dot {
+  background: var(--green);
+  box-shadow: 0 0 9px var(--green);
+}
+
+.chip-name {
+  color: var(--text);
+}
+
+.chip-load {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Load meter runs along the bottom edge of each chip. */
+.chip-meter {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: var(--load);
+  height: 2px;
+  background: var(--green);
+  opacity: 0.34;
+}
+
+.thread-chip-idle .chip-meter {
+  background: var(--muted);
+}
+
+/* --- Chapter 02: the shared cell grid ------------------------------------ */
+
+.stage-cells {
+  padding-bottom: 30px;
+}
+
+.cell-grid {
+  display: grid;
+  grid-template-columns: repeat(26, 1fr);
+  gap: 3px;
+  padding: 20px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.62rem;
+}
+
+.cell {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1.55;
+  color: var(--text-dim);
+  background: rgba(0, 255, 65, 0.05);
+}
+
+.cell-hot {
+  color: var(--on-green);
+  background: var(--green);
+  box-shadow: 0 0 12px var(--glow);
+}
+
+.cell-words {
+  right: -3%;
+  bottom: -4%;
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.words-caption {
+  color: var(--green);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.word {
+  display: grid;
+  gap: 3px;
+}
+
+.word-label {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.64rem;
+}
+
+.word-bits {
+  color: var(--text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+}
+
+.word-note {
+  color: var(--text-dim);
+  font-size: 0.68rem;
+}
+
+/* --- Chapter 03: glyph atlas and the draw-call collapse ------------------- */
+
+.stage-draw {
+  padding-bottom: 40px;
+}
+
+.atlas {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 2px;
+  padding: 18px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.7rem;
+}
+
+.atlas-cell {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  color: var(--text-dim);
+  background: rgba(0, 255, 65, 0.05);
+}
+
+.atlas-cell-hot {
+  color: var(--green);
+  background: rgba(0, 255, 65, 0.14);
+  text-shadow: 0 0 10px var(--green);
+}
+
+.draw-readout {
+  right: -3%;
+  bottom: -3%;
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 2.4vw, 32px);
+  padding: 18px 24px;
+}
+
+.draw-figure {
+  display: grid;
+  gap: 4px;
+}
+
+.draw-count {
+  font-size: clamp(1.7rem, 2.7vw, 2.7rem);
+  font-weight: 760;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.draw-figure-before .draw-count {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+.draw-figure-after .draw-count {
+  color: var(--green);
+  text-shadow: 0 0 22px var(--glow);
+}
+
+.draw-label {
+  color: var(--text-dim);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.66rem;
+}
+
+.draw-rule {
+  width: 40px;
+  height: 1px;
+  background: var(--line-solid);
+}
+
+/* --- Chapter 05: the live xterm.js benchmark ------------------------------ */
+
+/*
+  The benchmark is a real embedded page, so its slab gets the full stage
+  width rather than sitting beside the copy.
+*/
+.chapter-stage-bench {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: clamp(20px, 3vh, 34px);
+  align-items: stretch;
+  align-content: stretch;
+  padding-block: clamp(28px, 6vh, 64px);
+}
+
+.chapter-stage-bench .chapter-copy h2 {
+  max-width: 22ch;
+}
+
+.chapter-stage-bench .chapter-copy p:last-child {
+  max-width: 62ch;
+}
+
+.stage-bench {
+  min-height: 0;
+  /* Fill the stage row the grid hands us, so the embed gets real height. */
+  height: 100%;
+  align-self: stretch;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/*
+  The benchmark is interactive, so it must not slide under the pointer.
+  It fades and lifts in place instead of drifting sideways.
+*/
+.stage-bench,
+.stage-bench [data-depth="front"] {
+  transform: none;
+}
+
+.slab-bench {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.bench-frame {
+  position: relative;
+  display: grid;
+  flex: 1;
+  min-height: clamp(360px, 50svh, 540px);
+  background: var(--bg);
+}
+
+.bench-iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.bench-gate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: clamp(18px, 3vw, 36px);
+  width: 100%;
+  height: 100%;
+  min-height: clamp(280px, 42vh, 480px);
+  padding: clamp(24px, 4vw, 52px);
+  background: radial-gradient(circle at 22% 36%, rgba(0, 255, 65, 0.1), transparent 48%);
+}
+
+.bench-preview {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, max-content 1fr);
+  align-content: center;
+  gap: 10px clamp(18px, 4vw, 54px);
+  min-width: 0;
+  padding-bottom: clamp(24px, 4vh, 44px);
+  border-bottom: 1px solid var(--line);
+}
+
+.bench-preview span {
+  align-self: end;
+  color: var(--text-dim);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: clamp(0.68rem, 0.9vw, 0.82rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bench-preview strong {
+  color: var(--green);
+  font-size: clamp(2rem, 5vw, 4.8rem);
+  line-height: 0.92;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 26px var(--glow);
+}
+
+.bench-gate p {
+  align-self: end;
+  max-width: 62ch;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: clamp(0.9rem, 1.1vw, 1.05rem);
+  line-height: 1.6;
+}
+
+.bench-activate,
+.bench-release {
+  padding: 12px 18px;
+  border: 1px solid var(--green);
+  color: var(--on-green);
+  background: var(--green);
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.bench-activate {
+  align-self: end;
+  justify-self: end;
+}
+
+.bench-activate:hover,
+.bench-release:hover {
+  background: var(--green-soft);
+}
+
+.bench-release {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 3;
+}
+
+.bench-mobile-launch {
+  display: none;
+}
+
+/* Launch link floats over the slab's lower corner. */
+.bench-launch {
+  right: 18px;
+  bottom: 18px;
+  padding: 10px 15px;
+  color: var(--on-green);
+  background: var(--green);
+  font-size: 0.78rem;
+  font-weight: 720;
+  text-decoration: none;
+  box-shadow: 0 0 26px var(--glow);
+}
+
+.bench-launch:hover {
+  transform: translate3d(0, -2px, 0);
+}
+
+/* --- Chapter 04: the horizontal pane rail -------------------------------- */
+
+.stage-rail {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rail {
+  display: flex;
+  gap: 20px;
+  width: max-content;
+  opacity: var(--vis);
+  /* Pull the rail leftwards across the pinned viewport as the chapter scrolls. */
+  transform: translate3d(calc(var(--p) * -58%), 0, 0);
+}
+
+.rail-pane {
+  display: flex;
+  flex-direction: column;
+  width: clamp(210px, 21vw, 268px);
+  overflow: hidden;
+  border: 1px solid var(--line-solid);
+  background: var(--surface);
+  box-shadow: 0 26px 60px -30px rgba(0, 0, 0, 0.9);
+}
+
+.rail-body {
+  padding: 13px 14px 16px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.66rem;
+  line-height: 1.7;
+}
+
+.rail-cmd {
+  margin: 0 0 6px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.rail-prompt {
+  color: var(--green);
+}
+
+.rail-line {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-line-ok {
+  color: var(--green);
+}
+
+.rail-caret {
+  margin-top: 6px;
+}
+
+.caret {
+  display: inline-block;
+  width: 7px;
+  height: 12px;
+  background: var(--green);
+  vertical-align: -2px;
+  animation: cursor-blink 1.1s steps(1) infinite;
 }
 
 .feature-band {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  border-top: 1px solid rgba(21, 32, 24, 0.35);
-  border-bottom: 1px solid rgba(21, 32, 24, 0.35);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 
 .install-band {
@@ -279,7 +1116,7 @@ h1 {
   gap: 40px;
   align-items: center;
   padding-block: 30px;
-  border-top: 1px solid rgba(21, 32, 24, 0.35);
+  border-top: 1px solid var(--line);
 }
 
 .install-band h2 {
@@ -289,7 +1126,7 @@ h1 {
 }
 
 .install-band a {
-  color: #526057;
+  color: var(--muted);
   font-size: 0.78rem;
   font-weight: 650;
   text-decoration: none;
@@ -308,15 +1145,15 @@ h1 {
 .install-command {
   display: flex;
   min-width: 0;
-  border: 1px solid #152018;
-  background: #dce6d4;
+  border: 1px solid var(--line-solid);
+  background: var(--raised);
 }
 
 .install-command code {
   flex: 1;
   overflow-x: auto;
   padding: 16px 18px;
-  color: #152018;
+  color: var(--text);
   font-size: 0.82rem;
   white-space: nowrap;
 }
@@ -324,16 +1161,16 @@ h1 {
 .install-command button {
   min-width: 84px;
   border: 0;
-  border-left: 1px solid #152018;
-  color: #fff7ef;
-  background: #152018;
+  border-left: 1px solid var(--line-solid);
+  color: var(--on-green);
+  background: var(--green);
   font-size: 0.78rem;
   font-weight: 720;
   cursor: pointer;
 }
 
 .install-command button:hover {
-  background: #ff5c35;
+  background: var(--green);
 }
 
 .feature-band article {
@@ -342,7 +1179,7 @@ h1 {
   gap: 7px;
   min-height: 120px;
   padding: 29px 25px;
-  border-right: 1px solid rgba(21, 32, 24, 0.22);
+  border-right: 1px solid var(--line);
 }
 
 .feature-band article:last-child {
@@ -355,7 +1192,7 @@ h1 {
 }
 
 .feature-band span {
-  color: #526057;
+  color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.45;
 }
@@ -365,7 +1202,7 @@ footer {
   justify-content: space-between;
   gap: 32px;
   padding-block: 34px 52px;
-  color: #435248;
+  color: var(--text-dim);
   font-size: 0.8rem;
 }
 
@@ -402,12 +1239,36 @@ footer {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .chapter-stage {
+    grid-template-columns: 1fr;
+    gap: 36px;
+    align-content: center;
+  }
+
+  /* The benchmark keeps its stacked copy-over-slab layout at every width. */
+  .chapter-stage-bench {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .chapter-copy h2 {
+    max-width: 18ch;
+  }
+
+  .cell-grid {
+    grid-template-columns: repeat(18, 1fr);
+    padding: 14px;
+  }
+
+  .atlas {
+    grid-template-columns: repeat(14, 1fr);
+  }
+
   .feature-band article:nth-child(2) {
     border-right: 0;
   }
 
   .feature-band article:nth-child(-n + 2) {
-    border-bottom: 1px solid rgba(21, 32, 24, 0.22);
+    border-bottom: 1px solid var(--line);
   }
 }
 
@@ -445,7 +1306,7 @@ footer {
   }
 
   .terminal-frame {
-    box-shadow: 9px 9px 0 rgba(21, 32, 24, 0.16);
+    box-shadow: 9px 9px 0 rgba(0, 255, 65, 0.12);
   }
 
   .terminal-chrome strong {
@@ -466,6 +1327,122 @@ footer {
     gap: 18px;
   }
 
+  .chapters {
+    --chapter-track: 200vh;
+  }
+
+  .chapter-wide {
+    --chapter-track: 240vh;
+  }
+
+  .chapter-stage {
+    width: min(100% - 32px, 1480px);
+    gap: 28px;
+  }
+
+  .chapter-stage-bench {
+    position: relative;
+    grid-template-rows: auto auto;
+    height: auto;
+    min-height: 100svh;
+    padding-block: 32px;
+    overflow: visible;
+  }
+
+  .chapter-bench {
+    height: auto;
+  }
+
+  .chapter-live {
+    height: auto;
+  }
+
+  .chapter-live .chapter-stage {
+    position: relative;
+    height: auto;
+    min-height: 100svh;
+    padding-block: 32px;
+    overflow: visible;
+  }
+
+  .chapter-live .terminal-surface {
+    height: clamp(280px, 60svh, 460px);
+  }
+
+  .stage-bench,
+  .slab-bench {
+    height: auto;
+  }
+
+  .bench-frame {
+    min-height: clamp(420px, 70svh, 620px);
+  }
+
+  .bench-gate {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto auto auto;
+    min-height: 360px;
+    padding: 22px;
+  }
+
+  .bench-preview {
+    grid-template-columns: max-content 1fr;
+  }
+
+  .bench-preview strong {
+    font-size: clamp(1.8rem, 11vw, 3rem);
+    text-align: right;
+  }
+
+  .bench-activate {
+    justify-self: stretch;
+  }
+
+  .bench-mobile-launch {
+    display: inline-flex;
+    color: var(--green);
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .bench-launch {
+    display: none;
+  }
+
+  .stage-art {
+    transform: translate3d(calc((0.5 - var(--p)) * 90px), 0, 0);
+  }
+
+  /* Front readouts stop floating off-edge and stack under the slab. */
+  .stage-art [data-depth="front"] {
+    position: static;
+    width: 100%;
+    transform: translate3d(calc((0.5 - var(--p)) * 34px), 0, 0);
+  }
+
+  .stage-threads,
+  .stage-cells,
+  .stage-draw {
+    gap: 14px;
+    padding-bottom: 0;
+  }
+
+  .cell-grid {
+    grid-template-columns: repeat(14, 1fr);
+  }
+
+  .atlas {
+    grid-template-columns: repeat(12, 1fr);
+  }
+
+  .draw-readout {
+    justify-content: flex-start;
+  }
+
+  .flood-line {
+    font-size: 0.68rem;
+  }
+
   .feature-band {
     grid-template-columns: 1fr;
   }
@@ -473,7 +1450,7 @@ footer {
   .feature-band article,
   .feature-band article:nth-child(2) {
     border-right: 0;
-    border-bottom: 1px solid rgba(21, 32, 24, 0.22);
+    border-bottom: 1px solid var(--line);
   }
 
   .feature-band article:last-child {
@@ -485,9 +1462,84 @@ footer {
   }
 }
 
+@media (max-height: 700px) {
+  .chapter-bench {
+    height: auto;
+  }
+
+  .chapter-live {
+    height: auto;
+  }
+
+  .chapter-live .chapter-stage {
+    position: relative;
+    height: auto;
+    min-height: 100svh;
+    padding-block: 28px;
+    overflow: visible;
+  }
+
+  .chapter-live .terminal-surface {
+    height: clamp(240px, 62svh, 420px);
+  }
+
+  .chapter-stage-bench {
+    position: relative;
+    grid-template-rows: auto auto;
+    height: auto;
+    min-height: 100svh;
+    padding-block: 28px;
+    overflow: visible;
+  }
+
+  .stage-bench,
+  .slab-bench {
+    height: auto;
+  }
+
+  .bench-frame {
+    min-height: clamp(420px, 70svh, 620px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .chapters {
+    --chapter-track: auto;
+  }
+
+  .chapter {
+    height: auto;
+  }
+
+  .chapter-stage {
+    position: static;
+    height: auto;
+    padding-block: 72px;
+  }
+
+  .stage-art,
+  .stage-art [data-depth="front"],
+  .rail,
+  .chapter-copy,
+  .terminal-frame {
+    opacity: 1;
+    transform: none;
+    animation-name: none;
+  }
+
+  /* Stop the rain and scanline drift entirely. */
+  .showcase::before {
+    animation-name: none;
+    opacity: 0.3;
+  }
+
+  .rail {
+    flex-wrap: wrap;
+    width: 100%;
   }
 
   *,

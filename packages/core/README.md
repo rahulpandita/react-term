@@ -34,7 +34,7 @@ const attrs = grid.getAttrs(0, 0);         // bold, italic, underline, etc.
 
 ## Cell Format
 
-Each cell is packed into 2 x Uint32 (8 bytes):
+Each cell is packed into 4 x Uint32 (16 bytes):
 
 ```
 Word 0: [0-20]  codepoint (21 bits — full Unicode)
@@ -51,6 +51,10 @@ Word 1: [0-7]   bg color index (0-255)
         [12-13] underline style
         [14]    inverse
         [15]    wide character flag (ATTR_WIDE — set on first cell of a 2-column wide char)
+        [16-31] reserved
+
+Word 2: foreground RGB (24-bit packed; meaningful when fg-is-RGB is set)
+Word 3: background RGB (24-bit packed; meaningful when bg-is-RGB is set)
 ```
 
 Wide characters (CJK, Hangul, emoji, fullwidth forms) set `ATTR_WIDE` on the first cell and write a spacer cell (codepoint 0) in the next column. Renderers skip spacer cells and draw wide chars at 2× cell width.

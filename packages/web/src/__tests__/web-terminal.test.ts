@@ -605,6 +605,52 @@ describe("WebTerminal", () => {
       term.dispose();
     });
 
+    it("shows an explicit keyboard-operable history scrollbar in page mode", () => {
+      const term = make3({
+        scrollInputMode: "page",
+        theme: { background: "#ffffff", foreground: "#1e1e1e" },
+      });
+      writeLines(term, 5);
+      const scrollbar = container.querySelector('[role="scrollbar"]') as HTMLElement;
+      const thumb = scrollbar.firstElementChild as HTMLElement;
+
+      expect(scrollbar.style.opacity).toBe("1");
+      expect(scrollbar.style.pointerEvents).toBe("auto");
+      expect(scrollbar.style.width).toBe("24px");
+      expect(scrollbar.tabIndex).toBe(0);
+      expect(thumb.style.backgroundColor).toBe("rgb(30, 30, 30)");
+      scrollbar.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", cancelable: true }));
+      expect(term.scrollOffset).toBeGreaterThan(0);
+
+      term.setTheme({ background: "#ffffff", foreground: "#0000ff" });
+      expect(thumb.style.backgroundColor).toBe("rgb(0, 0, 255)");
+
+      term.dispose();
+    });
+
+    it("updates scrollbar geometry without forcing a DOM layout read", () => {
+      const term = make3({ scrollInputMode: "page" });
+      const scrollbar = container.querySelector('[role="scrollbar"]') as HTMLElement;
+      const clientHeight = vi.fn(() => 999);
+      Object.defineProperty(scrollbar, "clientHeight", { configurable: true, get: clientHeight });
+
+      writeLines(term, 5);
+
+      expect(clientHeight).not.toHaveBeenCalled();
+      term.dispose();
+    });
+
+    it("does not let an invisible page-mode scrollbar intercept terminal input", () => {
+      const term = make3({ scrollInputMode: "page" });
+      const scrollbar = container.querySelector('[role="scrollbar"]') as HTMLElement;
+
+      expect(scrollbar.style.opacity).toBe("0");
+      expect(scrollbar.style.pointerEvents).toBe("none");
+      expect(scrollbar.tabIndex).toBe(-1);
+
+      term.dispose();
+    });
+
     it("buildDisplayGrid is created when scrolled back", () => {
       const term = make3();
       writeLines(term, 5);

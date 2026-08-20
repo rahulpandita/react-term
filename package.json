@@ -6,7 +6,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "pnpm --filter @next_term/demo dev",
+    "dev": "pnpm --parallel --filter @next_term/demo --filter @next_term/comparison dev",
     "start": "pnpm --filter @next_term/demo start",
     "build": "pnpm -r build",
     "clean": "pnpm -r exec rm -rf dist",

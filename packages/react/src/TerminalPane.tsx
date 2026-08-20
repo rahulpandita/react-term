@@ -13,6 +13,7 @@ import type { Theme } from "@next_term/core";
 import {
   DEFAULT_PARSER_WORKER_COUNT,
   ParserPool,
+  type ScrollInputMode,
   SharedCanvas2DContext,
   type SharedContext,
   SharedWebGLContext,
@@ -39,6 +40,8 @@ export interface TerminalPaneProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
+  /** Whether wheel/touch pans belong to the terminal or ancestor page, including mouse reporting. */
+  scrollInputMode?: ScrollInputMode;
   /** Control whether each pane uses a Web Worker for parsing. Defaults to auto-detect (SAB available). */
   useWorker?: boolean;
   /**
@@ -87,6 +90,7 @@ interface PaneLeafProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
+  scrollInputMode?: ScrollInputMode;
   useWorker?: boolean;
   parserPool?: ParserPool | null;
   onRef: (id: string, handle: TerminalHandle | null) => void;
@@ -102,6 +106,7 @@ function PaneLeaf({
   fontFamily,
   fontWeight,
   fontWeightBold,
+  scrollInputMode,
   useWorker,
   parserPool,
   onRef,
@@ -158,6 +163,7 @@ function PaneLeaf({
         fontFamily={fontFamily}
         fontWeight={fontWeight}
         fontWeightBold={fontWeightBold}
+        scrollInputMode={scrollInputMode}
         useWorker={useWorker}
         parserPool={parserPool ?? undefined}
         onData={handleData}
@@ -183,6 +189,7 @@ interface PaneNodeProps {
   fontFamily?: string;
   fontWeight?: number;
   fontWeightBold?: number;
+  scrollInputMode?: ScrollInputMode;
   useWorker?: boolean;
   parserPool?: ParserPool | null;
   onRef: (id: string, handle: TerminalHandle | null) => void;
@@ -198,6 +205,7 @@ function PaneNode({
   fontFamily,
   fontWeight,
   fontWeightBold,
+  scrollInputMode,
   useWorker,
   parserPool,
   onRef,
@@ -214,6 +222,7 @@ function PaneNode({
         fontFamily={fontFamily}
         fontWeight={fontWeight}
         fontWeightBold={fontWeightBold}
+        scrollInputMode={scrollInputMode}
         useWorker={useWorker}
         parserPool={parserPool}
         onRef={onRef}
@@ -263,6 +272,7 @@ function PaneNode({
               fontFamily={fontFamily}
               fontWeight={fontWeight}
               fontWeightBold={fontWeightBold}
+              scrollInputMode={scrollInputMode}
               useWorker={useWorker}
               parserPool={parserPool}
               onRef={onRef}
@@ -290,6 +300,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       fontFamily,
       fontWeight,
       fontWeightBold,
+      scrollInputMode,
       useWorker,
       parserWorkers,
       className,
@@ -504,6 +515,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
             fontFamily={fontFamily}
             fontWeight={fontWeight}
             fontWeightBold={fontWeightBold}
+            scrollInputMode={scrollInputMode}
             useWorker={useWorker}
             parserPool={parserPool}
             onRef={handleRef}

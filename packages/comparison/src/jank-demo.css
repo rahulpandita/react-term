@@ -1,8 +1,8 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  background: #0a0a0f;
-  color: #cdd6f4;
+  background: #04070a;
+  color: #c9ffd8;
   font-family: system-ui, -apple-system, sans-serif;
   overflow: hidden;
   height: 100vh;
@@ -14,8 +14,8 @@ body {
   display: flex;
   align-items: center;
   padding: 8px 16px;
-  background: #11111b;
-  border-bottom: 1px solid #313244;
+  background: #070c08;
+  border-bottom: 1px solid #0b120d;
   gap: 16px;
   flex-shrink: 0;
 }
@@ -23,11 +23,11 @@ body {
 .jank-header h1 {
   font-size: 14px;
   font-weight: 600;
-  color: #cba6f7;
+  color: #00ff41;
 }
 
 .back-link {
-  color: #89b4fa;
+  color: #35d96b;
   font-size: 11px;
   font-weight: 600;
   text-decoration: none;
@@ -44,9 +44,9 @@ body {
 }
 
 .jank-toggle button, .jank-controls button {
-  background: #313244;
-  color: #cdd6f4;
-  border: 1px solid #45475a;
+  background: #0b120d;
+  color: #c9ffd8;
+  border: 1px solid #0d3a1c;
   border-radius: 6px;
   padding: 4px 14px;
   font-size: 12px;
@@ -55,13 +55,13 @@ body {
 }
 
 .jank-toggle button:hover, .jank-controls button:hover {
-  background: #45475a;
+  background: #0d3a1c;
 }
 
 .jank-toggle button.active {
-  background: #cba6f7;
-  color: #11111b;
-  border-color: #cba6f7;
+  background: #00ff41;
+  color: #070c08;
+  border-color: #00ff41;
 }
 
 .jank-controls button:disabled {
@@ -69,17 +69,17 @@ body {
   cursor: default;
 }
 
-#btn-start { background: #a6e3a1; color: #11111b; border-color: #a6e3a1; }
-#btn-start:hover:not(:disabled) { background: #94d494; }
-#btn-stop { background: #f38ba8; color: #11111b; border-color: #f38ba8; }
-#btn-stop:hover:not(:disabled) { background: #e07a95; }
+#btn-start { background: #00ff41; color: #070c08; border-color: #00ff41; }
+#btn-start:hover:not(:disabled) { background: #35d96b; }
+#btn-stop { background: #ff6b6b; color: #04070a; border-color: #ff6b6b; }
+#btn-stop:hover:not(:disabled) { background: #ff8f8f; }
 
 /* Jank meter: bouncing ball */
 .jank-meter {
   position: relative;
   height: 28px;
-  background: #181825;
-  border-bottom: 1px solid #313244;
+  background: #0b120d;
+  border-bottom: 1px solid #0b120d;
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -91,8 +91,8 @@ body {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #cba6f7, #89b4fa);
-  box-shadow: 0 0 8px rgba(203, 166, 247, 0.5);
+  background: linear-gradient(135deg, #00ff41, #35d96b);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
   will-change: transform;
 }
 
@@ -102,14 +102,14 @@ body {
   top: 50%;
   transform: translateY(-50%);
   font-size: 10px;
-  color: #6c7086;
+  color: #4e8a63;
 }
 
 /* Latency graph */
 .latency-section {
   flex-shrink: 0;
-  background: #11111b;
-  border-bottom: 1px solid #313244;
+  background: #070c08;
+  border-bottom: 1px solid #0b120d;
 }
 
 .latency-section canvas {
@@ -123,7 +123,7 @@ body {
   justify-content: space-between;
   padding: 2px 8px;
   font-size: 10px;
-  color: #6c7086;
+  color: #4e8a63;
 }
 
 #latency-value {
@@ -136,7 +136,7 @@ body {
 .jank-terminal {
   flex: 1;
   min-height: 0;
-  background: #181825;
+  background: #0b120d;
   overflow: hidden;
 }
 
@@ -152,7 +152,7 @@ body {
 
 .jank-terminal .pane {
   position: relative;
-  background: #1e1e2e;
+  background: #101a12;
   overflow: hidden;
   border-radius: 4px;
   min-width: 0;
@@ -168,6 +168,23 @@ body {
   height: 100% !important;
 }
 
+.jank-terminal .pane .xterm-viewport {
+  overflow-y: scroll !important;
+  scrollbar-color: rgba(0, 255, 65, 0.72) transparent;
+  scrollbar-width: auto;
+}
+
+.jank-terminal .pane .xterm-viewport::-webkit-scrollbar {
+  width: 12px;
+}
+
+.jank-terminal .pane .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 65, 0.72);
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+}
+
 /* Stats bar */
 .jank-stats {
   display: flex;
@@ -175,10 +192,10 @@ body {
   justify-content: center;
   padding: 8px 16px;
   height: 44px;
-  background: #11111b;
-  border-top: 2px solid #313244;
+  background: #070c08;
+  border-top: 2px solid #0b120d;
   font-size: 16px;
-  color: #cdd6f4;
+  color: #c9ffd8;
   gap: 32px;
   flex-shrink: 0;
   font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
@@ -192,7 +209,7 @@ body {
 }
 
 .jank-stats .stat-label {
-  color: #6c7086;
+  color: #4e8a63;
   font-weight: 400;
   font-size: 12px;
 }
@@ -202,9 +219,9 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.jank-stats .stat-value.good { color: #a6e3a1; }
-.jank-stats .stat-value.warn { color: #fab387; }
-.jank-stats .stat-value.bad { color: #f38ba8; }
+.jank-stats .stat-value.good { color: #00ff41; }
+.jank-stats .stat-value.warn { color: #d7ff5f; }
+.jank-stats .stat-value.bad { color: #ff6b6b; }
 
 @media (max-width: 720px) {
   .jank-header {
@@ -225,4 +242,18 @@ body {
     gap: 14px;
     overflow-x: auto;
   }
+}
+
+/*
+  Embedded mode: when this page runs inside the showcase's benchmark chapter,
+  the surrounding page already supplies the title and a way back, so the
+  in-page chrome is redundant.
+*/
+html.is-embedded .back-link,
+html.is-embedded .jank-header h1 {
+  display: none;
+}
+
+html.is-embedded .jank-header {
+  padding: 6px 12px;
 }

@@ -29,7 +29,15 @@ export interface InputHandlerOptions {
   onFontSizeChange?: (fontSize: number) => void;
   /** Whether the terminal is in application cursor-key mode (\x1bOA vs \x1b[A). */
   applicationCursorKeys?: boolean;
+  /**
+   * Controls whether wheel and touch-pan gestures scroll terminal history or
+   * remain available to an ancestor page. `"page"` takes precedence over
+   * terminal mouse reporting for those gestures. Defaults to `"terminal"`.
+   */
+  scrollInputMode?: ScrollInputMode;
 }
+
+export type ScrollInputMode = "terminal" | "page";
 
 export interface SelectionState {
   startRow: number;
@@ -117,6 +125,7 @@ export class InputHandler {
   private onScroll: ((deltaRows: number) => void) | null;
   private onFontSizeChange: ((fontSize: number) => void) | null;
   private applicationCursorKeys: boolean;
+  private scrollInputMode: ScrollInputMode;
 
   // Bracketed paste mode — wraps pasted text in ESC[200~ ... ESC[201~
   private bracketedPasteMode = false;
@@ -195,6 +204,7 @@ export class InputHandler {
     this.onScroll = options.onScroll ?? null;
     this.onFontSizeChange = options.onFontSizeChange ?? null;
     this.applicationCursorKeys = options.applicationCursorKeys ?? false;
+    this.scrollInputMode = options.scrollInputMode ?? "terminal";
   }
 
   // -----------------------------------------------------------------------
@@ -213,8 +223,7 @@ export class InputHandler {
       outline: "none",
       cursor: "text",
       position: "relative",
-      // Prevent default touch behaviors (pull-to-refresh, scroll bounce)
-      touchAction: "none",
+      touchAction: this.scrollInputMode === "page" ? "pan-y pinch-zoom" : "none",
     });
 
     // Create hidden textarea for keyboard input.
@@ -1084,6 +1093,8 @@ export class InputHandler {
   }
 
   private handleWheel(e: WheelEvent): void {
+    if (this.scrollInputMode === "page") return;
+
     if (this.mouseProtocol !== "none") {
       e.preventDefault();
       const pos = this.getMouseCellPos(e);
@@ -1135,6 +1146,18 @@ export class InputHandler {
     // Focusing on touchstart shows the keyboard before we know if
     // the user intends to scroll, causing a scroll/keyboard race.
 
+    if (this.scrollInputMode === "page") {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      this.touchStartX = touch.clientX;
+      this.touchStartY = touch.clientY;
+      this.touchLastX = touch.clientX;
+      this.touchLastY = touch.clientY;
+      this.swipeDirection = "none";
+      this.hSwipeRemainder = 0;
+      return;
+    }
+
     if (e.touches.length === 2) {
       // Pinch start
       e.preventDefault();
@@ -1182,6 +1205,22 @@ export class InputHandler {
   }
 
   private handleTouchMove(e: TouchEvent): void {
+    if (this.scrollInputMode === "page") {
+      this.cancelLongPress();
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const dx = Math.abs(touch.clientX - this.touchStartX);
+      const dy = Math.abs(touch.clientY - this.touchStartY);
+      if (this.swipeDirection === "none" && (dx > TAP_THRESHOLD || dy > TAP_THRESHOLD)) {
+        this.swipeDirection = dx > 1.5 * dy ? "horizontal" : "vertical";
+      }
+      if (this.swipeDirection === "horizontal") {
+        e.preventDefault();
+        this.handleHorizontalSwipe(touch);
+      }
+      return;
+    }
+
     if (this.isPinching && e.touches.length === 2) {
       // Pinch zoom — delegate to GestureHandler
       e.preventDefault();
@@ -1233,19 +1272,7 @@ export class InputHandler {
 
     if (this.swipeDirection === "horizontal") {
       // Horizontal swipe → send arrow keys for command-line navigation
-      const deltaX = touch.clientX - this.touchLastX;
-      this.touchLastX = touch.clientX;
-      this.touchLastY = touch.clientY;
-      const totalPixels = deltaX + this.hSwipeRemainder;
-      const steps = Math.trunc(totalPixels / this.cellWidth);
-      this.hSwipeRemainder = totalPixels - steps * this.cellWidth;
-      if (steps !== 0) {
-        const key = steps > 0 ? "\x1b[C" : "\x1b[D"; // right : left
-        const count = Math.abs(steps);
-        for (let i = 0; i < count; i++) {
-          this.onData(toBytes(key));
-        }
-      }
+      this.handleHorizontalSwipe(touch);
     } else if (this.swipeDirection === "vertical") {
       // Vertical swipe → scroll terminal (scrollback buffer)
       const deltaY = touch.clientY - this.touchLastY;
@@ -1264,6 +1291,21 @@ export class InputHandler {
     }
   }
 
+  private handleHorizontalSwipe(touch: Touch): void {
+    const deltaX = touch.clientX - this.touchLastX;
+    this.touchLastX = touch.clientX;
+    this.touchLastY = touch.clientY;
+    const totalPixels = deltaX + this.hSwipeRemainder;
+    const steps = Math.trunc(totalPixels / this.cellWidth);
+    this.hSwipeRemainder = totalPixels - steps * this.cellWidth;
+    if (steps === 0) return;
+
+    const key = steps > 0 ? "\x1b[C" : "\x1b[D";
+    for (let i = 0; i < Math.abs(steps); i++) {
+      this.onData(toBytes(key));
+    }
+  }
+
   private handleTouchEnd(e: TouchEvent): void {
     // Pinch ended but one finger remains
     if (this.isPinching) {
@@ -1279,6 +1321,19 @@ export class InputHandler {
     }
 
     this.cancelLongPress();
+
+    if (this.scrollInputMode === "page") {
+      if (e.changedTouches.length === 0) return;
+      const touch = e.changedTouches[0];
+      const dx = Math.abs(touch.clientX - this.touchStartX);
+      const dy = Math.abs(touch.clientY - this.touchStartY);
+      if (dx < TAP_THRESHOLD && dy < TAP_THRESHOLD) {
+        this.focus();
+        const local = this.touchToLocal(touch);
+        if (local) this.gestureHandler?.handleTap(local.x, local.y);
+      }
+      return;
+    }
 
     // Mouse reporting: send release
     if (this.mouseProtocol !== "none" && this.mouseProtocol !== "x10") {
@@ -1316,6 +1371,7 @@ export class InputHandler {
   private handleTouchCancel(_e: TouchEvent): void {
     this.cancelLongPress();
     this.isPinching = false;
+    if (this.scrollInputMode === "page") return;
     this.gestureHandler?.handlePan(0, 0, 0, GestureState.CANCELLED);
   }
 

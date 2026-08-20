@@ -1,7 +1,7 @@
 import type { Theme } from "@next_term/core";
 import type { PaneLayout, TerminalHandle, TerminalPaneHandle } from "@next_term/react";
 import { Terminal, TerminalPane } from "@next_term/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -10,27 +10,27 @@ import "./styles.css";
 // ---------------------------------------------------------------------------
 
 const DARK_THEME: Partial<Theme> = {
-  background: "#1e1e1e",
-  foreground: "#d4d4d4",
-  cursor: "#d4d4d4",
-  cursorAccent: "#1e1e1e",
-  selectionBackground: "#264f78",
-  black: "#000000",
-  red: "#cd3131",
-  green: "#0dbc79",
-  yellow: "#e5e510",
-  blue: "#2472c8",
-  magenta: "#bc3fbc",
-  cyan: "#11a8cd",
-  white: "#e5e5e5",
-  brightBlack: "#666666",
-  brightRed: "#f14c4c",
-  brightGreen: "#23d18b",
-  brightYellow: "#f5f543",
-  brightBlue: "#3b8eea",
-  brightMagenta: "#d670d6",
-  brightCyan: "#29b8db",
-  brightWhite: "#e5e5e5",
+  background: "#04070a",
+  foreground: "#c9ffd8",
+  cursor: "#00ff41",
+  cursorAccent: "#04070a",
+  selectionBackground: "#0d3a1c",
+  black: "#04070a",
+  red: "#ff6b6b",
+  green: "#00ff41",
+  yellow: "#d7ff5f",
+  blue: "#5fd7ff",
+  magenta: "#d787ff",
+  cyan: "#35d96b",
+  white: "#c9ffd8",
+  brightBlack: "#4e8a63",
+  brightRed: "#ff8f8f",
+  brightGreen: "#78ff99",
+  brightYellow: "#edff9a",
+  brightBlue: "#9ae7ff",
+  brightMagenta: "#e7b5ff",
+  brightCyan: "#7fffa5",
+  brightWhite: "#effff3",
 };
 
 const LIGHT_THEME: Partial<Theme> = {
@@ -213,6 +213,450 @@ function useFps() {
   return fps;
 }
 
+function useParallax(target: { current: HTMLElement | null }) {
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const element = target.current;
+    if (!element) return;
+
+    const update = () => {
+      element.style.setProperty("--scroll-y", `${window.scrollY}px`);
+    };
+
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", update);
+    };
+  }, [target]);
+}
+
+// ---------------------------------------------------------------------------
+// Scroll-linked chapter progress
+// ---------------------------------------------------------------------------
+
+/**
+ * JS fallback for browsers without CSS scroll-driven animations (Safari, Firefox).
+ * Writes a 0..1 scroll progress (`--p`) and a fade weight (`--vis`) onto every
+ * `[data-chapter]`. Browsers with `animation-timeline` handle this on the
+ * compositor instead and skip this entirely.
+ */
+function useChapterProgress(root: { current: HTMLElement | null }) {
+  useEffect(() => {
+    const host = root.current;
+    if (!host) return;
+    if (CSS.supports("animation-timeline: view()")) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const chapters = Array.from(host.querySelectorAll<HTMLElement>("[data-chapter]"));
+    if (chapters.length === 0) return;
+
+    const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+
+    const update = () => {
+      const viewport = window.innerHeight;
+
+      for (const chapter of chapters) {
+        const rect = chapter.getBoundingClientRect();
+        const travel = rect.height - viewport;
+        const progress = travel > 0 ? clamp01(-rect.top / travel) : 0.5;
+        // Fade in over the first slice, out over the last, so pinned stages
+        // hand off to each other instead of popping.
+        const vis = Math.min(clamp01(progress / 0.18), clamp01((1 - progress) / 0.14));
+
+        chapter.style.setProperty("--p", progress.toFixed(4));
+        chapter.style.setProperty("--vis", vis.toFixed(4));
+      }
+    };
+
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [root]);
+}
+
+// ---------------------------------------------------------------------------
+// Chapter stage visuals
+// ---------------------------------------------------------------------------
+
+const ids = (prefix: string, count: number) =>
+  Array.from({ length: count }, (_, i) => `${prefix}-${i}`);
+
+/** Illustrative output using real package and source names from this repository. */
+const FLOOD_LINES = [
+  { esc: "\\e[32m", text: "✓ core/src/cell-grid.ts", meta: "shared" },
+  { esc: "\\e[32m", text: "✓ core/src/parser/index.ts", meta: "parsed" },
+  { esc: "\\e[2m", text: "· web/src/webgl-renderer.ts", meta: "batched" },
+  { esc: "\\e[32m", text: "✓ web/src/parser-worker.ts", meta: "worker" },
+  { esc: "\\e[33m", text: "! react/src/Terminal.tsx", meta: "render" },
+  { esc: "\\e[32m", text: "✓ web/src/shared-context.ts", meta: "shared" },
+  { esc: "\\e[2m", text: "· web/src/parser-pool.ts", meta: "pooled" },
+  { esc: "\\e[32m", text: "✓ core/src/buffer.ts", meta: "ready" },
+  { esc: "\\e[32m", text: "✓ web/src/web-terminal.ts", meta: "ready" },
+  { esc: "\\e[2m", text: "· demo/src/main.tsx", meta: "live" },
+];
+
+const THREAD_CHIPS = [
+  { id: "main", name: "main thread", state: "idle", activity: "events", meter: 18 },
+  { id: "parser-a", name: "parser worker", state: "busy", activity: "parse", meter: 91 },
+  { id: "parser-b", name: "parser worker", state: "busy", activity: "parse", meter: 87 },
+  { id: "renderer", name: "render worker", state: "busy", activity: "paint", meter: 78 },
+];
+
+/** The four 32-bit words in the current CellGrid layout. */
+const CELL_WORDS = [
+  { id: "w0", label: "word 0", bits: "0000 0000 0110 0001", note: "codepoint" },
+  { id: "w1", label: "word 1", bits: "0000 0111 0000 0001", note: "fg · bg · flags" },
+  { id: "w2", label: "word 2", bits: "0000 0000 0000 0000", note: "foreground RGB" },
+  { id: "w3", label: "word 3", bits: "0000 0000 0000 0000", note: "background RGB" },
+];
+
+const GRID_GLYPHS = "npm run build ▍react-term ✓ 2 primary passes SharedArrayBuffer atomics";
+const CELL_IDS = ids("cell", 130);
+const ATLAS_GLYPHS =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789{}[]()<>/\\|=+-*&^%$#@!?;:,.~`'\"→←↑↓█▓▒░▍✓✗";
+const PANE_IDS = Array.from({ length: 7 }, (_, i) => String(i + 1).padStart(2, "0"));
+
+const PANE_CONTENT = [
+  {
+    cmd: "pnpm dev",
+    lines: ["VITE v6.4.1  ready", "➜  localhost:5173", "", "watching for changes"],
+  },
+  {
+    cmd: "pnpm test",
+    lines: ["✓ cell-grid", "✓ vt-parser", "✓ buffer", "", "all suites passed"],
+  },
+  {
+    cmd: "git log --oneline",
+    lines: [
+      "8f750d4 scroll chapters",
+      "030aa6b pages showcase",
+      "1c4e9a2 webgl2 atlas",
+      "b77f001 sab cell grid",
+    ],
+  },
+  {
+    cmd: "htop",
+    lines: [
+      "cpu ▓▓▓▓▓░░░░░  48%",
+      "mem ▓▓▓▓▓▓▓░░░  71%",
+      "",
+      "node       412MB",
+      "vite       188MB",
+    ],
+  },
+  {
+    cmd: "tail -f server.log",
+    lines: [
+      "GET  /api/session  200",
+      "POST /api/pty      201",
+      "GET  /assets/*     304",
+      "GET  /api/health   200",
+    ],
+  },
+  {
+    cmd: "tsc --watch",
+    lines: ["Starting compilation…", "", "Found 0 errors.", "Watching for changes."],
+  },
+  { cmd: "ssh build-01", lines: ["Linux build-01 6.8.0", "load average: 2.14", "", "$ make -j16"] },
+];
+
+function ThreadLanesVisual() {
+  return (
+    <div className="stage-art stage-threads" aria-hidden="true">
+      <div className="slab slab-flood" data-depth="back">
+        <div className="slab-bar">
+          <i />
+          <i />
+          <i />
+          <strong>thread model · illustrative</strong>
+        </div>
+        <div className="flood">
+          {FLOOD_LINES.map((line) => (
+            <p className="flood-line" key={line.text}>
+              <span className="flood-esc">{line.esc}</span>
+              <span className="flood-text">{line.text}</span>
+              {line.meta ? <span className="flood-meta">{line.meta}</span> : null}
+            </p>
+          ))}
+        </div>
+        <div className="flood-fade" />
+      </div>
+
+      <div className="thread-chips" data-depth="front">
+        {THREAD_CHIPS.map((chip) => (
+          <div className={`thread-chip thread-chip-${chip.state}`} key={chip.id}>
+            <span className="chip-dot" />
+            <span className="chip-name">{chip.name}</span>
+            <span className="chip-load">{chip.activity}</span>
+            <span className="chip-meter" style={{ "--load": `${chip.meter}%` } as CSSProperties} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CellGridVisual() {
+  return (
+    <div className="stage-art stage-cells" aria-hidden="true">
+      <div className="slab slab-grid" data-depth="back">
+        <div className="slab-bar">
+          <i />
+          <i />
+          <i />
+          <strong>SharedArrayBuffer · 130 cells</strong>
+        </div>
+        <div className="cell-grid">
+          {CELL_IDS.map((id, index) => {
+            const glyph = GRID_GLYPHS[index % GRID_GLYPHS.length];
+            const hot = index % 9 === 3;
+            return (
+              <span className={hot ? "cell cell-hot" : "cell"} key={id}>
+                {glyph === " " ? "" : glyph}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="cell-words" data-depth="front">
+        <span className="words-caption">1 cell = 16 bytes</span>
+        {CELL_WORDS.map((word) => (
+          <div className="word" key={word.id}>
+            <span className="word-label">{word.label}</span>
+            <code className="word-bits">{word.bits}</code>
+            <span className="word-note">{word.note}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DrawCallVisual() {
+  return (
+    <div className="stage-art stage-draw" aria-hidden="true">
+      <div className="slab slab-atlas" data-depth="back">
+        <div className="slab-bar">
+          <i />
+          <i />
+          <i />
+          <strong>glyph atlas · GPU texture</strong>
+        </div>
+        <div className="atlas">
+          {[...ATLAS_GLYPHS].map((glyph, index) => (
+            <span
+              className={index % 11 === 0 ? "atlas-cell atlas-cell-hot" : "atlas-cell"}
+              key={`${glyph}-${index === 0 ? "a" : glyph.charCodeAt(0) + index}`}
+            >
+              {glyph}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="draw-readout" data-depth="front">
+        <div className="draw-figure draw-figure-before">
+          <span className="draw-count">per cell</span>
+          <span className="draw-label">conceptual unbatched baseline</span>
+        </div>
+        <span className="draw-rule" />
+        <div className="draw-figure draw-figure-after">
+          <span className="draw-count">2</span>
+          <span className="draw-label">primary passes · instanced</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaneRailVisual() {
+  return (
+    <div className="stage-rail" aria-hidden="true">
+      <div className="rail">
+        {PANE_IDS.map((paneId, index) => {
+          const content = PANE_CONTENT[index % PANE_CONTENT.length];
+          return (
+            <article className="rail-pane" key={paneId}>
+              <header className="slab-bar">
+                <i />
+                <i />
+                <i />
+                <strong>pane {paneId} · sample workload</strong>
+              </header>
+              <div className="rail-body">
+                <p className="rail-cmd">
+                  <span className="rail-prompt">$</span> {content.cmd}
+                </p>
+                {content.lines.map((line, lineIndex) => (
+                  <p
+                    className={line.startsWith("✓") ? "rail-line rail-line-ok" : "rail-line"}
+                    key={`${paneId}-${lineIndex === 0 ? "first" : line || `blank${lineIndex}`}`}
+                  >
+                    {line || "\u00a0"}
+                  </p>
+                ))}
+                <p className="rail-line rail-caret">
+                  <span className="rail-prompt">$</span> <i className="caret" />
+                </p>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The live xterm.js comparison, embedded as its own chapter. The stress test
+ * is a real page, so it is only mounted once the chapter is near the viewport
+ * — otherwise it would sit offscreen burning the main thread it exists to
+ * measure.
+ */
+function BenchmarkVisual({ src }: { src: string }) {
+  const holder = useRef<HTMLDivElement | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const activateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const pauseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const shouldFocusAfterTransition = useRef(false);
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    if (!shouldFocusAfterTransition.current) return;
+    shouldFocusAfterTransition.current = false;
+    (active ? pauseButtonRef.current : activateButtonRef.current)?.focus({
+      preventScroll: true,
+    });
+  }, [active]);
+
+  useEffect(() => {
+    const node = holder.current;
+    if (!node || !active || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.every((entry) => !entry.isIntersecting)) {
+          const activeElement = document.activeElement;
+          if (activeElement && holder.current?.contains(activeElement)) {
+            holder.current?.focus({ preventScroll: true });
+          }
+          setActive(false);
+        }
+      },
+      { rootMargin: "-15% 0px" },
+    );
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    const benchmarkOrigin = new URL(src, location.href).origin;
+    const handleMessage = (event: MessageEvent<unknown>) => {
+      if (event.origin !== benchmarkOrigin || event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+      const message = event.data;
+      if (
+        typeof message !== "object" ||
+        message === null ||
+        !("type" in message) ||
+        message.type !== "react-term:page-scroll" ||
+        !("deltaY" in message) ||
+        typeof message.deltaY !== "number" ||
+        !Number.isFinite(message.deltaY)
+      ) {
+        return;
+      }
+      window.scrollBy({ top: message.deltaY, behavior: "auto" });
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [active, src]);
+
+  return (
+    <section
+      aria-label="Rendering stress test chapter"
+      className="stage-art stage-bench"
+      ref={holder}
+      tabIndex={-1}
+    >
+      <div className="slab slab-bench" data-depth="back">
+        <div className="slab-bar">
+          <i />
+          <i />
+          <i />
+          <strong>stress test · react-term vs xterm.js</strong>
+        </div>
+        <div className="bench-frame">
+          {active ? (
+            <>
+              <iframe
+                ref={iframeRef}
+                className="bench-iframe"
+                src={src}
+                title="Rendering stress test"
+              />
+              <button
+                className="bench-release"
+                type="button"
+                ref={pauseButtonRef}
+                onClick={() => {
+                  shouldFocusAfterTransition.current = true;
+                  setActive(false);
+                }}
+              >
+                Pause benchmark
+              </button>
+            </>
+          ) : (
+            <div className="bench-gate">
+              <div className="bench-preview" aria-hidden="true">
+                <span>react-term</span>
+                <strong>60.0 FPS</strong>
+                <span>long tasks</span>
+                <strong>0</strong>
+              </div>
+              <p>
+                The live test is paused until you activate it, so this chapter never captures
+                scrolling unexpectedly or consumes resources offscreen.
+              </p>
+              <button
+                className="bench-activate"
+                type="button"
+                ref={activateButtonRef}
+                onClick={() => {
+                  shouldFocusAfterTransition.current = true;
+                  setActive(true);
+                }}
+              >
+                Activate live benchmark
+              </button>
+              <a className="bench-mobile-launch" href={src}>
+                Open benchmark <span aria-hidden="true">→</span>
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <a className="bench-launch" data-depth="front" href={src}>
+        Open full screen <span aria-hidden="true">→</span>
+      </a>
+    </section>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Floating HUD
 // ---------------------------------------------------------------------------
@@ -282,7 +726,7 @@ function HUD({
 // App
 // ---------------------------------------------------------------------------
 
-function App({ onShowSplit }: { onShowSplit: () => void }) {
+function App() {
   const termRef = useRef<TerminalHandle>(null);
   const [isDark, setIsDark] = useState(true);
   const [connStatus, setConnStatus] = useState<ConnectionStatus>("disconnected");
@@ -499,6 +943,7 @@ function App({ onShowSplit }: { onShowSplit: () => void }) {
         fontSize={14}
         fontFamily="'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace"
         theme={theme}
+        scrollInputMode="page"
         onData={handleData}
         onResize={handleResize}
         renderMode="main"
@@ -506,9 +951,6 @@ function App({ onShowSplit }: { onShowSplit: () => void }) {
         useWorker={false}
         style={{ width: "100%", height: "100%" }}
       />
-      <button type="button" className="pane-switch" onClick={onShowSplit}>
-        Open 4 panes
-      </button>
     </div>
   );
 }
@@ -588,7 +1030,7 @@ function paneDemoLine(paneId: string, tick: number) {
   }
 }
 
-function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () => void }) {
+function SplitPaneDemo({ theme }: { theme: Partial<Theme> }) {
   const paneRef = useRef<TerminalPaneHandle>(null);
   const lineBuffers = useRef<Record<string, string>>({});
 
@@ -667,13 +1109,11 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
 
   return (
     <div className="terminal-surface" style={{ background: theme.background }}>
-      <button type="button" className="pane-switch" onClick={onBack}>
-        Back to single
-      </button>
       <TerminalPane
         ref={paneRef}
         layout={SPLIT_LAYOUT}
         theme={theme}
+        scrollInputMode="page"
         fontSize={14}
         fontFamily="'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace"
         onData={handleData}
@@ -688,13 +1128,15 @@ function SplitPaneDemo({ theme, onBack }: { theme: Partial<Theme>; onBack: () =>
 // ---------------------------------------------------------------------------
 
 function Root() {
-  const [view, setView] = useState<"single" | "split">("single");
-  const [isDark, _setIsDark] = useState(true);
+  const showcaseRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
-  const theme = useMemo(() => (isDark ? DARK_THEME : LIGHT_THEME), [isDark]);
-  const comparisonUrl = import.meta.env.DEV
-    ? `${location.protocol}//${location.hostname}:5180/jank-demo.html`
-    : `${import.meta.env.BASE_URL}comparison/jank-demo.html`;
+  const comparisonUrl = new URL(
+    import.meta.env.DEV
+      ? `${location.protocol}//${location.hostname}:5180/jank-demo.html`
+      : `${import.meta.env.BASE_URL}comparison/jank-demo.html`,
+    location.href,
+  );
+  comparisonUrl.searchParams.set("parentOrigin", location.origin);
 
   const copyInstallCommand = useCallback(async () => {
     await navigator.clipboard.writeText(INSTALL_COMMAND);
@@ -702,20 +1144,11 @@ function Root() {
     window.setTimeout(() => setCopied(false), 1600);
   }, []);
 
-  // Keyboard shortcut: Ctrl+Shift+D toggles split view
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.key === "D") {
-        e.preventDefault();
-        setView((v) => (v === "single" ? "split" : "single"));
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  useParallax(showcaseRef);
+  useChapterProgress(showcaseRef);
 
   return (
-    <div className="showcase">
+    <div className="showcase" ref={showcaseRef}>
       <header className="site-header">
         <a className="wordmark" href="./" aria-label="react-term home">
           react-term<span aria-hidden="true">_</span>
@@ -741,12 +1174,6 @@ function Root() {
               <a className="primary-action" href="https://github.com/rahulpandita/react-term">
                 Explore the source <span aria-hidden="true">↗</span>
               </a>
-              <button type="button" onClick={() => setView(view === "single" ? "split" : "single")}>
-                {view === "single" ? "Try 4 panes" : "Try single pane"}
-              </button>
-              <a className="comparison-action" href={comparisonUrl}>
-                Compare with xterm.js <span aria-hidden="true">→</span>
-              </a>
             </div>
             <div className="runtime-note">
               <span className="live-dot" aria-hidden="true" />
@@ -759,16 +1186,109 @@ function Root() {
               <span />
               <span />
               <span />
-              <strong>
-                {view === "single" ? "react-term — local shell" : "react-term — 4 panes"}
-              </strong>
+              <strong>react-term — local shell</strong>
             </div>
-            {view === "split" ? (
-              <SplitPaneDemo theme={theme} onBack={() => setView("single")} />
-            ) : (
-              <App onShowSplit={() => setView("split")} />
-            )}
+            <App />
           </div>
+        </section>
+
+        <section className="chapters" aria-label="How react-term works">
+          <section className="chapter" data-chapter aria-labelledby="chapter-threads">
+            <div className="chapter-stage">
+              <div className="chapter-copy">
+                <p className="chapter-index">Parse</p>
+                <h2 id="chapter-threads">Keep bursty output away from your UI thread.</h2>
+                <p>
+                  With SharedArrayBuffer available, escape sequences are parsed in workers. React,
+                  input, and layout stay responsive while terminal output is processed off-thread.
+                </p>
+              </div>
+              <ThreadLanesVisual />
+            </div>
+          </section>
+
+          <section className="chapter" data-chapter aria-labelledby="chapter-memory">
+            <div className="chapter-stage">
+              <div className="chapter-copy">
+                <p className="chapter-index">Share</p>
+                <h2 id="chapter-memory">One cell grid shared without per-line copies.</h2>
+                <p>
+                  Each cell uses four 32-bit words inside a SharedArrayBuffer. On the isolated fast
+                  path, workers publish dirty rows through Atomics instead of serializing each line.
+                </p>
+              </div>
+              <CellGridVisual />
+            </div>
+          </section>
+
+          <section className="chapter" data-chapter aria-labelledby="chapter-render">
+            <div className="chapter-stage">
+              <div className="chapter-copy">
+                <p className="chapter-index">Render</p>
+                <h2 id="chapter-render">The terminal grid in two primary draw calls.</h2>
+                <p>
+                  WebGL2 batches backgrounds and glyphs into two instanced passes; cursor,
+                  selection, and highlights are separate overlays. Canvas 2D preserves output where
+                  needed.
+                </p>
+              </div>
+              <DrawCallVisual />
+            </div>
+          </section>
+
+          <section className="chapter chapter-wide" data-chapter aria-labelledby="chapter-panes">
+            <div className="chapter-stage chapter-stage-rail">
+              <div className="chapter-copy">
+                <p className="chapter-index">Scale</p>
+                <h2 id="chapter-panes">Thirty-two panes on one graphics context.</h2>
+                <p>
+                  Panes share a single context and atlas instead of each claiming their own. Split
+                  the workspace as far as the task needs.
+                </p>
+              </div>
+              <PaneRailVisual />
+            </div>
+          </section>
+
+          <section className="chapter chapter-live" data-chapter aria-labelledby="chapter-live">
+            <div className="chapter-stage">
+              <div className="chapter-copy">
+                <p className="chapter-index">Operate</p>
+                <h2 id="chapter-live">Four real terminals. One shared rendering surface.</h2>
+                <p>
+                  This is the actual <code>TerminalPane</code> component streaming four workloads.
+                  Trackpad and touch scrolling stay with the page; drag a terminal scrollbar to
+                  inspect that pane's history.
+                </p>
+              </div>
+              <section
+                className="live-panes-frame"
+                aria-label="Live four-pane terminal demonstration"
+              >
+                <div className="slab-bar" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                  <strong>TerminalPane · live output</strong>
+                </div>
+                <SplitPaneDemo theme={DARK_THEME} />
+              </section>
+            </div>
+          </section>
+
+          <section className="chapter chapter-bench" data-chapter aria-labelledby="chapter-bench">
+            <div className="chapter-stage chapter-stage-bench">
+              <div className="chapter-copy">
+                <p className="chapter-index">Prove</p>
+                <h2 id="chapter-bench">Compare responsiveness under the same synthetic flood.</h2>
+                <p>
+                  Toggle between react-term and xterm.js, then inspect frame rate, event-loop
+                  latency, dropped frames, and long tasks. Results depend on your browser and GPU.
+                </p>
+              </div>
+              <BenchmarkVisual src={comparisonUrl.toString()} />
+            </div>
+          </section>
         </section>
 
         <section className="install-band" aria-labelledby="install-title">
@@ -792,7 +1312,7 @@ function Root() {
             <span>SharedArrayBuffer + Atomics</span>
           </article>
           <article>
-            <strong>2 draw calls</strong>
+            <strong>2 primary passes</strong>
             <span>WebGL2 instanced rendering</span>
           </article>
           <article>
