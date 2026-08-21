@@ -1,0 +1,63 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Pages artifact
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Pages sites
+        run: pnpm --filter @next_term/demo --filter @next_term/comparison build
+        env:
+          GITHUB_PAGES: 'true'
+
+      - name: Assemble Pages artifact
+        run: |
+          mkdir -p _site/comparison
+          cp -R packages/demo/dist/. _site/
+          cp -R packages/comparison/dist/. _site/comparison/
+          touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/configure-pages@v5
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
