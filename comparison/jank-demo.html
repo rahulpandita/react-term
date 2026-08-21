@@ -4,12 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Rendering Stress Test — react-term vs xterm.js</title>
-  <script type="module" crossorigin src="/react-term/comparison/assets/jank-demo-CRglQiaH.js"></script>
-  <link rel="modulepreload" crossorigin href="/react-term/comparison/assets/theme-B9CXw6HS.js">
+  <script>
+    // Set before first paint so embedded chrome never flashes.
+    if (window.self !== window.top) document.documentElement.classList.add("is-embedded");
+  </script>
+  <script type="module" crossorigin src="/react-term/comparison/assets/jank-demo-Dy-KUG4T.js"></script>
+  <link rel="modulepreload" crossorigin href="/react-term/comparison/assets/theme-DmijCIpM.js">
   <link rel="modulepreload" crossorigin href="/react-term/comparison/assets/xterm-2bzttWbK.js">
-  <link rel="modulepreload" crossorigin href="/react-term/comparison/assets/shared-context-BemB1Eya.js">
+  <link rel="modulepreload" crossorigin href="/react-term/comparison/assets/shared-context-ZSQoKTWl.js">
   <link rel="stylesheet" crossorigin href="/react-term/comparison/assets/xterm-DYP7pi_n.css">
-  <link rel="stylesheet" crossorigin href="/react-term/comparison/assets/jank-demo-GHJkLb_w.css">
+  <link rel="stylesheet" crossorigin href="/react-term/comparison/assets/jank-demo-R6TIRan5.css">
 </head>
 <body>
   <div class="jank-header">
